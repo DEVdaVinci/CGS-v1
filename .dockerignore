@@ -1,0 +1,12 @@
+**
+!backend/
+!backend/**
+!frontend/
+!frontend/**
+**/.env
+**/.env.*
+**/__pycache__/
+**/node_modules/
+**/dist/
+**/test-results/
+**/playwright-report/

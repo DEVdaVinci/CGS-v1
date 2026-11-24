@@ -1,0 +1,559 @@
+{
+  "aliases": {
+    "junction": "00caa4a7-ebe8-5238-8ed1-5ea94d81c2e1",
+    "corridor": "6d3e1af9-627c-5f5c-af5a-1935b30101b7",
+    "chamber": "0225cb12-884a-5004-984f-ff40dda14842",
+    "hero_role": "0118dfad-23b4-5f90-af19-bf07dea314c0",
+    "scout_role": "f69a61e9-1b5a-5590-aa5e-5bbacf6905d2",
+    "sentry_role": "0d28af6d-a491-5a87-a8bc-6258cc83f37e",
+    "move": "8168203c-3975-503e-814a-38a4264923eb",
+    "cast": "65f42233-72ac-508d-899c-2b525d69e478",
+    "allocate": "c2c3624f-c1b1-58d8-9e10-90a013597252",
+    "hero": "b112e835-d184-554e-85a0-31fd8f1d8b1e",
+    "search": "57e7928f-63da-5f50-bf54-336fc0e6389a",
+    "report": "5bb906a0-e9a5-50fe-b369-68aae814c588",
+    "scout": "1d57b01d-b892-5561-8b52-d932981f5f2e",
+    "wait": "0e6eb18d-8c9d-5fa0-8a2b-d02a889f74e7",
+    "sentry": "abc9ac39-626a-5579-8573-91c56db508dd",
+    "lantern": "14e9179f-4787-5b11-8710-e6455707402b",
+    "west_entry": "39b35aea-003b-5dce-ae1c-0c66bce472ca",
+    "scout_start": "34f6a00d-1693-52cc-99e3-92f2982833bd",
+    "junction_point": "560a4f64-f067-5319-83be-474a3f3f8775",
+    "threshold": "d16f39ec-9dff-5718-b968-ef7d88c572ef",
+    "sentry_point": "bac29622-1ff4-5975-8dfa-ecf4f6b5cc6d",
+    "alarm": "763e284f-40e3-51ba-b26d-3052c2fadfc5",
+    "west_path": "ce2d627a-1cbd-511a-9053-265497227e86",
+    "junction_path": "5724039d-6561-5942-8151-0052bd6368d1",
+    "passage": "98d7b483-bd03-538f-90ef-6c6cad52bf08",
+    "passage_found": "ff449199-7423-571e-a19b-9e7a9b7458fb",
+    "approach": "7d992445-dddf-536a-a7a8-0c767a7c5c92",
+    "alarm_route": "327f3d21-457e-5c76-b9bc-ccac49d99df5",
+    "sentry_located": "5e6df157-e54d-56a3-a165-49bdeb8992c7",
+    "heard_cast": "8d36bd3c-906b-59ec-a3d9-c0e5560bb825",
+    "gate_closed": "db95e21c-ebf9-5b81-ac35-f89561c05816",
+    "gate_open": "bde94e5c-4611-5f11-8091-701150cfe52d",
+    "rumor": "95a8b5c1-0b25-5641-aca0-2ea846ecf86b",
+    "ward_step": "65447d44-35bd-581b-82f8-1b2835390b0c",
+    "progress": "5f377db1-e931-55f4-8c3e-2a86f43aec2b",
+    "lantern_location": "345adc9b-3e69-570a-b25f-58dfe87ecda1",
+    "frame": "edbde3a7-75b0-5e9d-9400-02cae1a789ca",
+    "encounter": "fd9aa0a5-f3be-5950-8c71-b39676358a2f"
+  },
+  "source": {
+    "schema_version": 1,
+    "entities": {
+      "00caa4a7-ebe8-5238-8ed1-5ea94d81c2e1": {
+        "id": "00caa4a7-ebe8-5238-8ed1-5ea94d81c2e1",
+        "kind": "place",
+        "name": "West junction",
+        "visibility": "public",
+        "parent_place_id": null,
+        "bounds": {
+          "x_min_cm": -300,
+          "y_min_cm": -100,
+          "x_max_cm": 300,
+          "y_max_cm": 100
+        }
+      },
+      "6d3e1af9-627c-5f5c-af5a-1935b30101b7": {
+        "id": "6d3e1af9-627c-5f5c-af5a-1935b30101b7",
+        "kind": "place",
+        "name": "Hidden passage",
+        "visibility": "observed",
+        "parent_place_id": null,
+        "bounds": {
+          "x_min_cm": -100,
+          "y_min_cm": 100,
+          "x_max_cm": 100,
+          "y_max_cm": 600
+        }
+      },
+      "0225cb12-884a-5004-984f-ff40dda14842": {
+        "id": "0225cb12-884a-5004-984f-ff40dda14842",
+        "kind": "place",
+        "name": "Sentry chamber",
+        "visibility": "observed",
+        "parent_place_id": null,
+        "bounds": {
+          "x_min_cm": -100,
+          "y_min_cm": 600,
+          "x_max_cm": 300,
+          "y_max_cm": 1000
+        }
+      },
+      "0118dfad-23b4-5f90-af19-bf07dea314c0": {
+        "id": "0118dfad-23b4-5f90-af19-bf07dea314c0",
+        "kind": "role",
+        "name": "Pathfinder",
+        "visibility": "public",
+        "authority": [
+          "move",
+          "cast",
+          "allocate"
+        ]
+      },
+      "f69a61e9-1b5a-5590-aa5e-5bbacf6905d2": {
+        "id": "f69a61e9-1b5a-5590-aa5e-5bbacf6905d2",
+        "kind": "role",
+        "name": "Scout",
+        "visibility": "public",
+        "authority": [
+          "search",
+          "report"
+        ]
+      },
+      "0d28af6d-a491-5a87-a8bc-6258cc83f37e": {
+        "id": "0d28af6d-a491-5a87-a8bc-6258cc83f37e",
+        "kind": "role",
+        "name": "Sentry",
+        "visibility": "observed",
+        "authority": [
+          "move",
+          "wait"
+        ]
+      },
+      "b112e835-d184-554e-85a0-31fd8f1d8b1e": {
+        "id": "b112e835-d184-554e-85a0-31fd8f1d8b1e",
+        "kind": "actor",
+        "name": "Pathfinder",
+        "visibility": "public",
+        "archetype": "Warden",
+        "role_id": "0118dfad-23b4-5f90-af19-bf07dea314c0",
+        "action_rule_ids": [
+          "8168203c-3975-503e-814a-38a4264923eb",
+          "65f42233-72ac-508d-899c-2b525d69e478",
+          "c2c3624f-c1b1-58d8-9e10-90a013597252"
+        ],
+        "policy": {
+          "mode": "hold"
+        }
+      },
+      "1d57b01d-b892-5561-8b52-d932981f5f2e": {
+        "id": "1d57b01d-b892-5561-8b52-d932981f5f2e",
+        "kind": "actor",
+        "name": "Rook",
+        "visibility": "public",
+        "archetype": "Scout",
+        "role_id": "f69a61e9-1b5a-5590-aa5e-5bbacf6905d2",
+        "action_rule_ids": [
+          "57e7928f-63da-5f50-bf54-336fc0e6389a",
+          "5bb906a0-e9a5-50fe-b369-68aae814c588"
+        ],
+        "policy": {
+          "mode": "hold"
+        }
+      },
+      "abc9ac39-626a-5579-8573-91c56db508dd": {
+        "id": "abc9ac39-626a-5579-8573-91c56db508dd",
+        "kind": "actor",
+        "name": "Vale",
+        "visibility": "observed",
+        "archetype": "Sentry",
+        "role_id": "0d28af6d-a491-5a87-a8bc-6258cc83f37e",
+        "action_rule_ids": [
+          "8168203c-3975-503e-814a-38a4264923eb",
+          "0e6eb18d-8c9d-5fa0-8a2b-d02a889f74e7"
+        ],
+        "policy": {
+          "mode": "hold"
+        }
+      },
+      "14e9179f-4787-5b11-8710-e6455707402b": {
+        "id": "14e9179f-4787-5b11-8710-e6455707402b",
+        "kind": "item",
+        "name": "Lantern",
+        "visibility": "public",
+        "description": "A brass lantern at the west entry.",
+        "action_rule_ids": []
+      }
+    },
+    "facts": {
+      "ff449199-7423-571e-a19b-9e7a9b7458fb": {
+        "id": "ff449199-7423-571e-a19b-9e7a9b7458fb",
+        "kind": "truth",
+        "subject_id": "00caa4a7-ebe8-5238-8ed1-5ea94d81c2e1",
+        "predicate": "known_passage_elements",
+        "value": {
+          "kind": "references",
+          "value": [
+            "6d3e1af9-627c-5f5c-af5a-1935b30101b7",
+            "0225cb12-884a-5004-984f-ff40dda14842",
+            "d16f39ec-9dff-5718-b968-ef7d88c572ef",
+            "bac29622-1ff4-5975-8dfa-ecf4f6b5cc6d",
+            "763e284f-40e3-51ba-b26d-3052c2fadfc5",
+            "98d7b483-bd03-538f-90ef-6c6cad52bf08",
+            "7d992445-dddf-536a-a7a8-0c767a7c5c92",
+            "327f3d21-457e-5c76-b9bc-ccac49d99df5"
+          ]
+        },
+        "effective_from_tick": 0,
+        "effective_until_tick": null,
+        "visibility": "observed",
+        "source_ref_ids": []
+      },
+      "5e6df157-e54d-56a3-a165-49bdeb8992c7": {
+        "id": "5e6df157-e54d-56a3-a165-49bdeb8992c7",
+        "kind": "truth",
+        "subject_id": "abc9ac39-626a-5579-8573-91c56db508dd",
+        "predicate": "sighting",
+        "value": {
+          "kind": "reference",
+          "value": "bac29622-1ff4-5975-8dfa-ecf4f6b5cc6d"
+        },
+        "effective_from_tick": 0,
+        "effective_until_tick": null,
+        "visibility": "observed",
+        "source_ref_ids": [
+          "ff449199-7423-571e-a19b-9e7a9b7458fb"
+        ]
+      },
+      "8d36bd3c-906b-59ec-a3d9-c0e5560bb825": {
+        "id": "8d36bd3c-906b-59ec-a3d9-c0e5560bb825",
+        "kind": "truth",
+        "subject_id": "abc9ac39-626a-5579-8573-91c56db508dd",
+        "predicate": "disturbance_verified",
+        "value": {
+          "kind": "boolean",
+          "value": true
+        },
+        "effective_from_tick": 0,
+        "effective_until_tick": null,
+        "visibility": "observed",
+        "source_ref_ids": []
+      },
+      "db95e21c-ebf9-5b81-ac35-f89561c05816": {
+        "id": "db95e21c-ebf9-5b81-ac35-f89561c05816",
+        "kind": "truth",
+        "subject_id": "00caa4a7-ebe8-5238-8ed1-5ea94d81c2e1",
+        "predicate": "gate_open",
+        "value": {
+          "kind": "boolean",
+          "value": false
+        },
+        "effective_from_tick": 0,
+        "effective_until_tick": 3,
+        "visibility": "public",
+        "source_ref_ids": []
+      },
+      "bde94e5c-4611-5f11-8091-701150cfe52d": {
+        "id": "bde94e5c-4611-5f11-8091-701150cfe52d",
+        "kind": "truth",
+        "subject_id": "00caa4a7-ebe8-5238-8ed1-5ea94d81c2e1",
+        "predicate": "gate_open",
+        "value": {
+          "kind": "boolean",
+          "value": true
+        },
+        "effective_from_tick": 3,
+        "effective_until_tick": null,
+        "visibility": "public",
+        "source_ref_ids": []
+      },
+      "95a8b5c1-0b25-5641-aca0-2ea846ecf86b": {
+        "id": "95a8b5c1-0b25-5641-aca0-2ea846ecf86b",
+        "kind": "claim",
+        "subject_id": "00caa4a7-ebe8-5238-8ed1-5ea94d81c2e1",
+        "predicate": "gate_open",
+        "value": {
+          "kind": "boolean",
+          "value": true
+        },
+        "effective_from_tick": 0,
+        "effective_until_tick": 3,
+        "visibility": "observed",
+        "source_ref_ids": [],
+        "claimant_id": "1d57b01d-b892-5561-8b52-d932981f5f2e"
+      }
+    },
+    "links": {
+      "345adc9b-3e69-570a-b25f-58dfe87ecda1": {
+        "id": "345adc9b-3e69-570a-b25f-58dfe87ecda1",
+        "kind": "located_in",
+        "from_id": "14e9179f-4787-5b11-8710-e6455707402b",
+        "to_id": "00caa4a7-ebe8-5238-8ed1-5ea94d81c2e1",
+        "visibility": "public"
+      }
+    },
+    "layout": {
+      "frame_id": "edbde3a7-75b0-5e9d-9400-02cae1a789ca",
+      "unit": "cm",
+      "origin": {
+        "x_cm": 0,
+        "y_cm": 0
+      },
+      "grid_cm": 100,
+      "points": {
+        "39b35aea-003b-5dce-ae1c-0c66bce472ca": {
+          "id": "39b35aea-003b-5dce-ae1c-0c66bce472ca",
+          "label": "West Entry",
+          "place_id": "00caa4a7-ebe8-5238-8ed1-5ea94d81c2e1",
+          "at": {
+            "x_cm": -200,
+            "y_cm": 0
+          },
+          "visibility": "public"
+        },
+        "34f6a00d-1693-52cc-99e3-92f2982833bd": {
+          "id": "34f6a00d-1693-52cc-99e3-92f2982833bd",
+          "label": "Scout Start",
+          "place_id": "00caa4a7-ebe8-5238-8ed1-5ea94d81c2e1",
+          "at": {
+            "x_cm": -100,
+            "y_cm": 0
+          },
+          "visibility": "public"
+        },
+        "560a4f64-f067-5319-83be-474a3f3f8775": {
+          "id": "560a4f64-f067-5319-83be-474a3f3f8775",
+          "label": "Junction Point",
+          "place_id": "00caa4a7-ebe8-5238-8ed1-5ea94d81c2e1",
+          "at": {
+            "x_cm": 0,
+            "y_cm": 0
+          },
+          "visibility": "public"
+        },
+        "d16f39ec-9dff-5718-b968-ef7d88c572ef": {
+          "id": "d16f39ec-9dff-5718-b968-ef7d88c572ef",
+          "label": "Threshold",
+          "place_id": "0225cb12-884a-5004-984f-ff40dda14842",
+          "at": {
+            "x_cm": 0,
+            "y_cm": 600
+          },
+          "visibility": "observed"
+        },
+        "bac29622-1ff4-5975-8dfa-ecf4f6b5cc6d": {
+          "id": "bac29622-1ff4-5975-8dfa-ecf4f6b5cc6d",
+          "label": "Sentry Point",
+          "place_id": "0225cb12-884a-5004-984f-ff40dda14842",
+          "at": {
+            "x_cm": 0,
+            "y_cm": 800
+          },
+          "visibility": "observed"
+        },
+        "763e284f-40e3-51ba-b26d-3052c2fadfc5": {
+          "id": "763e284f-40e3-51ba-b26d-3052c2fadfc5",
+          "label": "Alarm",
+          "place_id": "0225cb12-884a-5004-984f-ff40dda14842",
+          "at": {
+            "x_cm": 200,
+            "y_cm": 800
+          },
+          "visibility": "observed"
+        }
+      },
+      "edges": {
+        "ce2d627a-1cbd-511a-9053-265497227e86": {
+          "id": "ce2d627a-1cbd-511a-9053-265497227e86",
+          "from_point_id": "39b35aea-003b-5dce-ae1c-0c66bce472ca",
+          "to_point_id": "34f6a00d-1693-52cc-99e3-92f2982833bd",
+          "traversable": true,
+          "required_fact_id": null
+        },
+        "5724039d-6561-5942-8151-0052bd6368d1": {
+          "id": "5724039d-6561-5942-8151-0052bd6368d1",
+          "from_point_id": "34f6a00d-1693-52cc-99e3-92f2982833bd",
+          "to_point_id": "560a4f64-f067-5319-83be-474a3f3f8775",
+          "traversable": true,
+          "required_fact_id": null
+        },
+        "98d7b483-bd03-538f-90ef-6c6cad52bf08": {
+          "id": "98d7b483-bd03-538f-90ef-6c6cad52bf08",
+          "from_point_id": "560a4f64-f067-5319-83be-474a3f3f8775",
+          "to_point_id": "d16f39ec-9dff-5718-b968-ef7d88c572ef",
+          "traversable": true,
+          "required_fact_id": "ff449199-7423-571e-a19b-9e7a9b7458fb"
+        },
+        "7d992445-dddf-536a-a7a8-0c767a7c5c92": {
+          "id": "7d992445-dddf-536a-a7a8-0c767a7c5c92",
+          "from_point_id": "d16f39ec-9dff-5718-b968-ef7d88c572ef",
+          "to_point_id": "bac29622-1ff4-5975-8dfa-ecf4f6b5cc6d",
+          "traversable": true,
+          "required_fact_id": "ff449199-7423-571e-a19b-9e7a9b7458fb"
+        },
+        "327f3d21-457e-5c76-b9bc-ccac49d99df5": {
+          "id": "327f3d21-457e-5c76-b9bc-ccac49d99df5",
+          "from_point_id": "bac29622-1ff4-5975-8dfa-ecf4f6b5cc6d",
+          "to_point_id": "763e284f-40e3-51ba-b26d-3052c2fadfc5",
+          "traversable": true,
+          "required_fact_id": "ff449199-7423-571e-a19b-9e7a9b7458fb"
+        }
+      }
+    },
+    "rules": {
+      "57e7928f-63da-5f50-bf54-336fc0e6389a": {
+        "id": "57e7928f-63da-5f50-bf54-336fc0e6389a",
+        "template": "search",
+        "name": "Survey the junction",
+        "rule_version": 1,
+        "parameters": {
+          "site_id": "00caa4a7-ebe8-5238-8ed1-5ea94d81c2e1",
+          "discovery_fact_ids": [
+            "ff449199-7423-571e-a19b-9e7a9b7458fb",
+            "5e6df157-e54d-56a3-a165-49bdeb8992c7"
+          ]
+        }
+      },
+      "5bb906a0-e9a5-50fe-b369-68aae814c588": {
+        "id": "5bb906a0-e9a5-50fe-b369-68aae814c588",
+        "template": "report",
+        "name": "Report discoveries",
+        "rule_version": 1,
+        "parameters": {
+          "audiences": [
+            "party"
+          ]
+        }
+      },
+      "8168203c-3975-503e-814a-38a4264923eb": {
+        "id": "8168203c-3975-503e-814a-38a4264923eb",
+        "template": "move",
+        "name": "Move",
+        "rule_version": 1,
+        "parameters": {
+          "maximum_cm": 600,
+          "focus_cost": 0
+        }
+      },
+      "65f42233-72ac-508d-899c-2b525d69e478": {
+        "id": "65f42233-72ac-508d-899c-2b525d69e478",
+        "template": "cast",
+        "name": "Warden bolt",
+        "rule_version": 1,
+        "parameters": {
+          "range_cm": 300,
+          "focus_cost": 1,
+          "hit_min_d20": 12,
+          "damage": 3,
+          "target_role_id": "0d28af6d-a491-5a87-a8bc-6258cc83f37e",
+          "on_attempt_fact_id": "8d36bd3c-906b-59ec-a3d9-c0e5560bb825"
+        }
+      },
+      "5f377db1-e931-55f4-8c3e-2a86f43aec2b": {
+        "id": "5f377db1-e931-55f4-8c3e-2a86f43aec2b",
+        "template": "progress",
+        "name": "Clear reward",
+        "rule_version": 1,
+        "parameters": {
+          "xp_award": 2,
+          "unlock_at_xp": 10,
+          "points": 2,
+          "unlock_level": 5,
+          "class_key": "warden",
+          "unlock_rule_id": "65447d44-35bd-581b-82f8-1b2835390b0c"
+        }
+      },
+      "c2c3624f-c1b1-58d8-9e10-90a013597252": {
+        "id": "c2c3624f-c1b1-58d8-9e10-90a013597252",
+        "template": "allocate",
+        "name": "Allocate attribute points",
+        "rule_version": 1,
+        "parameters": {}
+      },
+      "65447d44-35bd-581b-82f8-1b2835390b0c": {
+        "id": "65447d44-35bd-581b-82f8-1b2835390b0c",
+        "template": "move",
+        "name": "Ward Step",
+        "rule_version": 1,
+        "parameters": {
+          "maximum_cm": 300,
+          "focus_cost": 1
+        }
+      },
+      "0e6eb18d-8c9d-5fa0-8a2b-d02a889f74e7": {
+        "id": "0e6eb18d-8c9d-5fa0-8a2b-d02a889f74e7",
+        "template": "wait",
+        "name": "Wait",
+        "rule_version": 1,
+        "parameters": {}
+      }
+    },
+    "start": {
+      "tick": 0,
+      "controlled_player_id": "b112e835-d184-554e-85a0-31fd8f1d8b1e",
+      "scout_ids": [
+        "1d57b01d-b892-5561-8b52-d932981f5f2e"
+      ],
+      "encounter_id": "fd9aa0a5-f3be-5950-8c71-b39676358a2f",
+      "sentry_id": "abc9ac39-626a-5579-8573-91c56db508dd",
+      "progress_rule_id": "5f377db1-e931-55f4-8c3e-2a86f43aec2b",
+      "actors": {
+        "b112e835-d184-554e-85a0-31fd8f1d8b1e": {
+          "point_id": "560a4f64-f067-5319-83be-474a3f3f8775",
+          "hp": 12,
+          "hp_max": 12,
+          "focus": 4,
+          "focus_max": 4,
+          "xp": 8,
+          "level": 4,
+          "rank": "C",
+          "class_key": "warden",
+          "unspent_points": 0,
+          "attributes": {
+            "strength": 1,
+            "agility": 1,
+            "perception": 1
+          },
+          "extra_rule_ids": [],
+          "occupies": true,
+          "statuses": []
+        },
+        "1d57b01d-b892-5561-8b52-d932981f5f2e": {
+          "point_id": "34f6a00d-1693-52cc-99e3-92f2982833bd",
+          "hp": 5,
+          "hp_max": 5,
+          "focus": 0,
+          "focus_max": 0,
+          "xp": 0,
+          "level": 1,
+          "rank": "F",
+          "class_key": "none",
+          "unspent_points": 0,
+          "attributes": {
+            "strength": 1,
+            "agility": 1,
+            "perception": 1
+          },
+          "extra_rule_ids": [],
+          "occupies": true,
+          "statuses": []
+        },
+        "abc9ac39-626a-5579-8573-91c56db508dd": {
+          "point_id": "bac29622-1ff4-5975-8dfa-ecf4f6b5cc6d",
+          "hp": 6,
+          "hp_max": 6,
+          "focus": 0,
+          "focus_max": 0,
+          "xp": 0,
+          "level": 1,
+          "rank": "F",
+          "class_key": "none",
+          "unspent_points": 0,
+          "attributes": {
+            "strength": 1,
+            "agility": 1,
+            "perception": 1
+          },
+          "extra_rule_ids": [],
+          "occupies": true,
+          "statuses": []
+        }
+      },
+      "item_positions": {
+        "14e9179f-4787-5b11-8710-e6455707402b": "39b35aea-003b-5dce-ae1c-0c66bce472ca"
+      },
+      "initial_observations": [
+        {
+          "audience": "actor:1d57b01d-b892-5561-8b52-d932981f5f2e",
+          "fact_id": "95a8b5c1-0b25-5641-aca0-2ea846ecf86b"
+        },
+        {
+          "audience": "actor:abc9ac39-626a-5579-8573-91c56db508dd",
+          "fact_id": "ff449199-7423-571e-a19b-9e7a9b7458fb"
+        }
+      ]
+    }
+  }
+}
