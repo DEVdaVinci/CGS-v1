@@ -8,8 +8,9 @@ from .models import (
     WikiAssertion, WikiClaim, WikiEntry, WikiEvent, WikiEventLink, WikiFinding,
     WikiLearnedAbility, WikiObservation, WikiWorld,
 )
-from .wiki import at_tick, can_edit, contains_tick, wiki_access
-from .wiki_schema import FIELDS
+from .wiki import at_tick, can_edit, wiki_access
+from .wiki_records import derived_age, effective_values, incoming_links, observation_visible, propositions_for
+from .wiki_schema import ACTORS, FIELDS
 
 
 def _describe_entry(entry, *, author=False):
@@ -28,6 +29,7 @@ def _serialize_assertion(fact):
         "id": str(fact.pk), "field": fact.field, "value": fact.value,
         "from_tick": fact.from_tick, "until_tick": fact.until_tick, "source": fact.source,
         "author_only": fact.author_only, "event_id": _id(fact.opened_by_id),
+        "qualifier_id": _id(fact.qualifier_id),
     }
 
 
@@ -36,12 +38,13 @@ def _serialize_claim(claim):
         "id": str(claim.pk), "field": claim.field, "value": claim.value,
         "tick": claim.tick, "speaker_id": str(claim.speaker_id),
         "source": claim.source, "author_only": claim.author_only,
+        "qualifier_id": _id(claim.qualifier_id),
     }
 
 
 def _observations_about(entry):
     return WikiObservation.objects.filter(
-        Q(assertion__entry=entry) | Q(claim__entry=entry)
+        Q(assertion__entry=entry) | Q(claim__entry=entry) | Q(observer=entry)
     ).select_related("assertion", "claim", "claim__speaker").order_by("learned_at", "id")
 
 
@@ -52,29 +55,13 @@ def _serialize_observation(observation, *, author=False):
         "about_tick": observation.about_tick, "learned_at": observation.learned_at,
         "observer_id": str(observation.observer_id),
         "source_kind": "claim" if observation.claim_id else "assertion",
+        "entry_id": str(source.entry_id), "qualifier_id": _id(source.qualifier_id),
     }
     if observation.claim_id:
         evidence["speaker_id"] = str(observation.claim.speaker_id)
     if author:
         evidence["source_id"] = str(source.pk)
     return evidence
-
-
-def _effective_values(entry, facts, at):
-    result = []
-    for definition in FIELDS.values():
-        if entry.kind not in definition.kinds:
-            continue
-        matching = [fact for fact in facts if fact.field == definition.key and contains_tick(fact, at)]
-        data = {"field": definition.key, "state": "unknown"}
-        if matching:
-            value = matching[0].value
-            if any(fact.value != value for fact in matching[1:]):
-                data["state"] = "conflict"
-            else:
-                data.update(state="value", value=value)
-        result.append(data)
-    return result
 
 
 def _serialize_events(query):
@@ -124,13 +111,16 @@ def _author_article(entry, at):
         | Q(links__entry=entry) | Q(ability=entry) | Q(performed_by=entry)
     ).distinct()
     findings = WikiFinding.objects.filter(entry=entry, resolved_at_edit__isnull=True).order_by("from_tick", "id")
+    values = effective_values(entry, facts, at)
     article = {
         "entry": _describe_entry(entry, author=True),
-        "values": _effective_values(entry, facts, at),
+        "values": values,
         "assertions": [_serialize_assertion(fact) for fact in facts],
         "claims": [_serialize_claim(claim) for claim in claims],
         "events": _serialize_events(events),
         "observations": [_serialize_observation(o, author=True) for o in _observations_about(entry)],
+        "propositions": propositions_for(entry, at),
+        "incoming_links": incoming_links(entry, at),
         "findings": [
             {
                 "id": str(finding.pk), "code": finding.code, "field": finding.field,
@@ -139,8 +129,9 @@ def _author_article(entry, at):
             for finding in findings
         ],
     }
-    if entry.kind == WikiEntry.Kind.PERSON:
+    if entry.kind in ACTORS:
         article["learned_abilities"] = _learned_abilities(entry, at)
+        article["age_years"] = derived_age(entry, values, at)
     if entry.kind == WikiEntry.Kind.PLACE:
         article["contents"] = _place_contents(entry, at)
     return article
@@ -148,17 +139,11 @@ def _author_article(entry, at):
 
 def _character_article(entry, observer, at, visible_ids):
     observations = _observations_about(entry).filter(observer=observer, learned_at__lte=at)
-    knowledge = []
-    for observation in observations:
-        source = observation.assertion or observation.claim
-        if source.author_only:
-            continue
-        if observation.claim_id and observation.claim.speaker.author_only:
-            continue
-        if FIELDS[source.field].target_kind and observation.value not in visible_ids:
-            continue
-        knowledge.append(_serialize_observation(observation))
-    return {"entry": _describe_entry(entry), "observations": knowledge}
+    knowledge = [_serialize_observation(o) for o in observations if observation_visible(o, visible_ids)]
+    return {
+        "entry": _describe_entry(entry), "observations": knowledge,
+        "propositions": propositions_for(entry, at, observer, visible_ids),
+    }
 
 
 def read_wiki(world_id, account_id, at, observer_id=None, entry_id=None, *, timeline=False):
@@ -169,7 +154,7 @@ def read_wiki(world_id, account_id, at, observer_id=None, entry_id=None, *, time
         directory = WikiEntry.objects.filter(wiki_id=world_id).order_by("name", "id")
         observer = None
         if observer_id is not None:
-            observer = directory.filter(pk=observer_id, kind=WikiEntry.Kind.PERSON).first()
+            observer = directory.filter(pk=observer_id, kind__in=ACTORS).first()
             if observer is None:
                 raise resource_unavailable()
             directory = directory.filter(author_only=False)
@@ -189,6 +174,7 @@ def read_wiki(world_id, account_id, at, observer_id=None, entry_id=None, *, time
             response.update(
                 can_edit=can_edit(membership), edit_counter=wiki.edit_counter if wiki else 0,
                 checked_scope="temporal_and_references",
+                days_per_year=wiki.days_per_year if wiki else None,
             )
         if selected is not None:
             response["article"] = (

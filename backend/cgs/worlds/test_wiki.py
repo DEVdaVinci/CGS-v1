@@ -63,6 +63,87 @@ class WikiTests(TransactionTestCase):
     def values(self, entry, at):
         return {item["field"]: item.get("value", item["state"]) for item in self.article(entry, at)["values"]}
 
+    def test_world_calendar_and_conflicting_defaults_resolve_without_changing_other_characters(self):
+        first = self.entry("Ridge folk", "species")
+        second = self.entry("Valley folk", "species")
+        child = self.entry("Coastal folk", "species")
+        mira = self.entry("Mira", "person")
+        partner = self.entry("Ivo", "person")
+        self.fact(first, "height_cm", 170)
+        self.fact(second, "height_cm", 180)
+        self.fact(child, "inherits_from", first)
+        self.fact(child, "inherits_from", second, 10)
+        self.fact(mira, "species", child)
+        self.fact(partner, "species", child)
+        self.fact(mira, "birth_tick", 2)
+        self.assertEqual(self.values(mira, 9)["height_cm"], 170)
+        self.assertEqual(self.values(mira, 10)["height_cm"], "conflict")
+        self.fact(mira, "height_cm", 160, 10)
+        self.assertEqual(self.values(mira, 10)["height_cm"], 160)
+        self.assertEqual(self.values(partner, 10)["height_cm"], "conflict")
+        self.assertIsNone(self.article(mira, 7202)["age_years"])
+        self.apply({"op": "set_calendar", "days_per_year": 360})
+        self.assertEqual(self.article(mira, 7201)["age_years"], 19)
+        self.assertEqual(self.article(mira, 7202)["age_years"], 20)
+        self.assertEqual(self.values(mira, 7202)["death_tick"], "unknown")
+        invalid = self.post({"op": "record_fact", "entry_id": first, "field": "inherits_from", "value": child, "from_tick": 0})
+        self.assertEqual(invalid.status_code, 422)
+        self.assertEqual(invalid.json()["field_errors"][0]["code"], "RELATIONSHIP_CYCLE")
+
+    def test_qualified_changes_and_inverse_ownership_are_independent(self):
+        mira = self.entry("Mira", "person")
+        borrower = self.entry("Ivo", "person")
+        item = self.entry("Lantern", "item")
+        energy = self.entry("Energy", "resource")
+        funds = self.entry("Funds", "resource")
+        self.fact(energy, "unit", "points")
+        self.fact(funds, "unit", "credits")
+        self.fact(item, "owner", mira)
+        self.fact(item, "possessor", mira)
+        self.apply({"op": "record_event", "name": "Loan", "tick": 5, "changes": [
+            {"entry_id": item, "field": "possessor", "value": borrower},
+            {"entry_id": mira, "field": "resource_amount", "qualifier_id": funds, "value": "3.250"},
+            {"entry_id": mira, "field": "resource_amount", "qualifier_id": energy, "value": "42"},
+        ]})
+        self.assertEqual(self.values(item, 5)["owner"], mira)
+        self.assertEqual(self.values(item, 5)["possessor"], borrower)
+        self.assertEqual({link["label"] for link in self.article(mira, 4)["incoming_links"]}, {"Held items", "Owned items"})
+        self.assertEqual({link["label"] for link in self.article(mira, 5)["incoming_links"]}, {"Owned items"})
+        self.assertEqual([link["entry_id"] for link in self.article(borrower, 5)["incoming_links"]], [item])
+        resources = {value["qualifier_id"]: (value["value"], value["unit"])
+                     for value in self.article(mira, 5)["values"] if value["field"] == "resource_amount"}
+        self.assertEqual(resources, {funds: ("3.25", "credits"), energy: ("42", "points")})
+        invalid = self.post({"op": "record_fact", "entry_id": mira, "field": "resource_amount", "qualifier_id": item,
+                             "value": "1", "from_tick": 5})
+        self.assertEqual(invalid.status_code, 422)
+        self.assertEqual(self.article(mira, 5)["findings"], [])
+
+    def test_beliefs_and_goal_targets_do_not_become_canon_or_leak(self):
+        gate = self.entry("Gate")
+        mira = self.entry("Mira", "person")
+        clerk = self.entry("Clerk", "person")
+        goal = self.entry("Get inside", "goal")
+        self.fact(gate, "status", "Open")
+        self.fact(goal, "goal_owner", mira)
+        claim = self.apply({"op": "record_claim", "entry_id": gate, "field": "status", "value": "Locked",
+                            "speaker_id": clerk, "tick": 10})
+        observed = self.apply({"op": "record_observation", "observer_id": mira, "source_kind": "claim",
+                               "source_id": claim, "learned_at": 10})
+        self.apply({"op": "record_proposition", "holder_id": mira, "entry_id": gate, "field": "status",
+                    "value": "Locked", "from_tick": 10, "about_tick": 10, "evidence_id": observed})
+        self.apply({"op": "record_proposition", "holder_id": goal, "entry_id": gate, "field": "status",
+                    "value": "Open", "from_tick": 0})
+        self.assertEqual(self.article(gate, 9, observer=mira)["propositions"], [])
+        known = self.article(gate, 10, observer=mira)
+        self.assertNotIn("values", known)
+        self.assertEqual([p["value"] for p in known["propositions"]], ["Locked"])
+        self.assertEqual(known["observations"][0]["id"], observed)
+        self.assertEqual(self.article(gate, 10, observer=clerk)["propositions"], [])
+        self.assertEqual(self.values(gate, 10)["status"], "Open")
+        self.assertEqual(self.article(gate, 10)["findings"], [])
+        self.assertEqual(self.article(mira)["incoming_links"][0]["entry_id"], goal)
+        self.assertEqual(self.article(goal)["propositions"][0]["kind"], "desired_state")
+
     def test_dated_truth_and_scoped_evidence_stay_distinct_through_corrections(self):
         gate = self.entry("Cedar Gate")
         mira = self.entry("Mira", "person")

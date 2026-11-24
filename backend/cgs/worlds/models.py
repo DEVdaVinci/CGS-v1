@@ -161,6 +161,7 @@ class DraftLinkKey(CreatedRecord):
 class WikiWorld(models.Model):
     world = models.OneToOneField(World, primary_key=True, on_delete=models.RESTRICT)
     edit_counter = models.PositiveBigIntegerField(default=0)
+    days_per_year = models.PositiveIntegerField(null=True, blank=True)
 
 
 class WikiEntry(CreatedRecord):
@@ -171,6 +172,14 @@ class WikiEntry(CreatedRecord):
         CLASS = "class", "Class"
         ABILITY = "ability", "Ability"
         ITEM = "item", "Item"
+        SPECIES = "species", "Species"
+        ORGANISM = "organism", "Organism"
+        CULTURE = "culture", "Culture"
+        ROLE = "role", "Role"
+        RESOURCE = "resource", "Resource"
+        BODY_PART = "body_part", "Body part"
+        TRAIT = "trait", "Trait"
+        GOAL = "goal", "Goal"
 
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     wiki = models.ForeignKey(WikiWorld, on_delete=models.RESTRICT)
@@ -240,6 +249,7 @@ class WikiAssertion(CreatedRecord):
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     entry = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT)
     field = models.CharField(max_length=32)
+    qualifier = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, null=True, related_name="+")
     value = models.JSONField()
     from_tick = models.PositiveBigIntegerField()
     until_tick = models.PositiveBigIntegerField(null=True)
@@ -253,7 +263,10 @@ class WikiAssertion(CreatedRecord):
     )
 
     class Meta:
-        indexes = [models.Index(fields=["entry", "field", "from_tick"], name="wiki_assertion_timeline")]
+        indexes = [
+            models.Index(fields=["entry", "field", "from_tick"], name="wiki_assertion_timeline"),
+            models.Index(fields=["field", "value", "from_tick"], name="wiki_reverse_reference"),
+        ]
         constraints = [
             models.CheckConstraint(
                 condition=Q(until_tick__isnull=True) | Q(until_tick__gt=F("from_tick")),
@@ -267,6 +280,7 @@ class WikiClaim(CreatedRecord):
     entry = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT)
     speaker = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, related_name="wiki_testimony")
     field = models.CharField(max_length=32)
+    qualifier = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, null=True, related_name="+")
     value = models.JSONField()
     tick = models.PositiveBigIntegerField()
     source = models.CharField(max_length=500, blank=True)
@@ -298,6 +312,32 @@ class WikiObservation(CreatedRecord):
             models.CheckConstraint(
                 condition=Q(learned_at__gte=F("about_tick")), name="wiki_observation_after_source",
             ),
+        ]
+
+
+class WikiProposition(CreatedRecord):
+    """A belief held by an actor or a desired state attached to a goal."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    holder = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, related_name="wiki_propositions")
+    subject = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, related_name="wiki_propositions_about")
+    qualifier = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, null=True, related_name="+")
+    field = models.CharField(max_length=32)
+    value = models.JSONField()
+    about_tick = models.PositiveBigIntegerField(null=True)
+    from_tick = models.PositiveBigIntegerField()
+    until_tick = models.PositiveBigIntegerField(null=True)
+    evidence = models.ForeignKey(WikiObservation, on_delete=models.RESTRICT, null=True)
+    source = models.CharField(max_length=500, blank=True)
+    author_only = models.BooleanField(default=False)
+
+    class Meta:
+        indexes = [models.Index(fields=["holder", "from_tick"], name="wiki_proposition_timeline")]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(until_tick__isnull=True) | Q(until_tick__gt=F("from_tick")),
+                name="wiki_proposition_interval",
+            )
         ]
 
 

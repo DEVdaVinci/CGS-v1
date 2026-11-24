@@ -475,6 +475,11 @@ a { color: var(--accent); }
 .wiki-event-roles dd { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .wiki-event-effects h5 { margin: 0; font-size: 0.88rem; color: var(--quiet); }
 .wiki-event-effects ul { margin: 0.3rem 0 0; padding-left: 1.2rem; }
+.wiki-fact-section { padding: 1rem 0; border-bottom: 1px solid var(--line); }
+.wiki-fact-section:last-child { border-bottom: 0; padding-bottom: 0; }
+.wiki-fact-section h3 { margin: 0; font-size: 1rem; color: var(--ink); }
+.wiki-fact-section .wiki-facts:empty { display: none; }
+.wiki-default-source { display: flex; gap: 0.35rem; flex-wrap: wrap; color: var(--quiet); margin-top: 0.22rem; }
 
 @media (max-width: 700px) {
   .wiki-layout { grid-template-columns: minmax(0, 1fr); }

@@ -1,11 +1,11 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react'
 import { ApiError, type SignedInSession } from './api'
 import {
-  getWiki, readWikiAttempt, saveWikiChange, storeWikiAttempt,
-  type WikiArticle, type WikiAttempt, type WikiCommand, type WikiEvent, type WikiKind,
+  getWiki, isWikiActor, readWikiAttempt, saveWikiChange, storeWikiAttempt,
+  type WikiArticle, type WikiAttempt, type WikiCommand, type WikiEvent, type WikiKind, type WikiLinkedFact,
   type WikiLocation, type WikiSection, type WikiValue, type WikiView,
 } from './wiki-api'
-import { kindLabel, type ArticleEdit, WikiEditForm, WikiEntryForm, WikiEventForm, WikiEvidenceForm } from './wiki-forms'
+import { kindLabel, type ArticleEdit, WikiCalendarForm, WikiEditForm, WikiEntryForm, WikiEventForm, WikiEvidenceForm } from './wiki-forms'
 import { WikiTimeline } from './wiki-timeline'
 
 const validId = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/
@@ -14,10 +14,11 @@ const sections: { key: WikiSection; label: string }[] = [
   { key: 'places', label: 'Places' }, { key: 'timeline', label: 'Timeline' },
   { key: 'library', label: 'Library' },
 ]
-type WikiEdit = ArticleEdit | { kind: 'create'; fixedKind?: WikiKind } | { kind: 'new-event' }
+type WikiEdit = ArticleEdit | { kind: 'create'; fixedKind?: WikiKind; ownerId?: string }
+  | { kind: 'new-event' } | { kind: 'calendar' }
 
 function sectionFor(kind: WikiKind): WikiSection {
-  if (kind === 'person') return 'characters'
+  if (kind === 'person' || kind === 'organism') return 'characters'
   if (kind === 'place') return 'places'
   return 'library'
 }
@@ -44,7 +45,10 @@ type Display = {
   navigationLocked: boolean
 }
 
-function fieldLabel(view: WikiView, key: string) {
+function fieldLabel(view: WikiView, key: string, kind?: WikiKind) {
+  if (key === 'located_in' && kind === 'place') return 'Part of'
+  if (key === 'located_in' && kind === 'group') return 'Legacy location'
+  if (key === 'located_in' && kind) return 'Location at this time'
   return view.fields.find((field) => field.key === key)?.label ?? key
 }
 
@@ -52,15 +56,16 @@ function entryName(view: WikiView, id: string) {
   return view.entries.find((entry) => entry.id === id)?.name
 }
 
-function ValueText({ field, value, view, openEntry, navigationLocked }: Display & { field: string; value: WikiValue }) {
-  const definition = view.fields.find((item) => item.key === field)
-  if (definition?.target_kind && typeof value === 'string') {
-    const name = entryName(view, value)
-    return name ? (
-      <button className="wiki-reference" type="button" disabled={navigationLocked} onClick={() => openEntry(value)}>{name}</button>
-    ) : <span>Unavailable entry</span>
-  }
-  return <span>{value}</span>
+function EntryReference({ id, view, openEntry, navigationLocked }: Display & { id: string }) {
+  const name = entryName(view, id)
+  return name ? (
+    <button className="wiki-reference" type="button" disabled={navigationLocked} onClick={() => openEntry(id)}>{name}</button>
+  ) : <span>Unavailable entry</span>
+}
+
+function ValueText({ field, value, ...display }: Display & { field: string; value: WikiValue }) {
+  const definition = display.view.fields.find((item) => item.key === field)
+  return definition?.target_kinds.length && typeof value === 'string' ? <EntryReference {...display} id={value} /> : <span>{value}</span>
 }
 
 function times(from: number, until: number | null) {
@@ -80,6 +85,8 @@ function Observations({ article, display }: { article: WikiArticle; display: Dis
             <li className="wiki-record" key={item.id} id={'wiki-record-' + item.id}>
               <div>
                 <strong>{fieldLabel(display.view, item.field)}</strong>
+                {' · '}<EntryReference {...display} id={item.entry_id} />
+                {item.qualifier_id && <> · <EntryReference {...display} id={item.qualifier_id} /></>}
                 <div><ValueText {...display} field={item.field} value={item.value} /></div>
                 <p className="muted">
                   {viewpoint ? 'Learned' : (entryName(display.view, item.observer_id) ?? 'Character') + ' learned'} at time {item.learned_at}
@@ -95,19 +102,65 @@ function Observations({ article, display }: { article: WikiArticle; display: Dis
   )
 }
 
-function Article({ article, display, onEdit, onTimeline }: {
+function Propositions({ article, display, edit }: { article: WikiArticle; display: Display; edit?: (value: ArticleEdit) => void }) {
+  const records = article.propositions ?? []
+  const goal = article.entry.kind === 'goal'
+  const label = goal ? 'Desired state' : 'Beliefs'
+  const canRecord = isWikiActor(article.entry) || goal
+  if (!canRecord && !records.length) return null
+  return (
+    <section className="wiki-block" aria-label={label}>
+      <div className="wiki-card-heading">
+        <h2>{label}</h2>
+        {edit && canRecord && <button className="button secondary" type="button"
+          onClick={() => edit({ kind: 'proposition' })}>{goal ? 'Record desired state' : 'Record belief'}</button>}
+      </div>
+      {!records.length && <p className="muted">{goal ? 'No desired state recorded.' : 'No beliefs recorded for this time.'}</p>}
+      {records.length > 0 && <ul className="wiki-records">{records.map((record) => (
+        <li className="wiki-record" key={record.id}>
+          <div>
+            <strong>{record.kind === 'desired_state' ? 'Desired state' : 'Belief'}</strong>
+            {' · '}<EntryReference {...display} id={record.holder_id} />
+            <p><EntryReference {...display} id={record.subject_id} /> · {fieldLabel(display.view, record.field)}
+              {record.qualifier_id && <> · <EntryReference {...display} id={record.qualifier_id} /></>}
+              {' · '}<ValueText {...display} field={record.field} value={record.value} /></p>
+            <p className="muted">{times(record.from_tick, record.until_tick)}
+              {record.about_tick === null ? '' : ' · About time ' + record.about_tick}
+              {record.author_only ? ' · Author only' : ''}</p>
+            {record.source && <p className="muted">{record.source}</p>}
+            {record.evidence_id && <a href={'#wiki-record-' + record.evidence_id}>Recorded evidence</a>}
+          </div>
+          {edit && record.holder_id === article.entry.id && <button className="button secondary" type="button"
+            onClick={() => edit({ kind: 'proposition', record })}>{goal ? 'Correct desired state' : 'Correct belief'}</button>}
+        </li>
+      ))}</ul>}
+    </section>
+  )
+}
+
+function Article({ article, display, onEdit, onTimeline, onGoal }: {
   article: WikiArticle; display: Display; onEdit?: (edit: ArticleEdit) => void
   onTimeline: (event: WikiEvent) => void
+  onGoal: (ownerId: string) => void
 }) {
   const { view } = display
   const edit = display.navigationLocked ? undefined : onEdit
-  const values = (article.values ?? []).filter((item) => item.state !== 'unknown')
+  const values = (article.values ?? []).filter((item) => item.state !== 'unknown' || item.field === 'death_tick')
   const summary = values.find((item) => item.field === 'description')
   const placeType = values.find((item) => item.field === 'place_type')
   const articleKind = placeType?.state === 'value' ? placeType.value : kindLabel[article.entry.kind]
   const facts = values.filter((item) => item.state === 'conflict' || (
     item.field !== 'description' && item.field !== 'place_type'
   ))
+  const factSections = new Map(
+    view.fields.filter((field) => field.kinds.includes(article.entry.kind)).map((field) => [field.section || 'Overview', field.key]),
+  )
+  const related = new Map<string, WikiLinkedFact[]>()
+  for (const item of article.incoming_links ?? []) {
+    const list = related.get(item.label) ?? []
+    list.push(item)
+    related.set(item.label, list)
+  }
   return (
     <>
       <header className="wiki-article-title">
@@ -129,18 +182,52 @@ function Article({ article, display, onEdit, onTimeline }: {
           {summary?.state === 'value' && <p className="wiki-article-summary wiki-prose">{summary.value}</p>}
           <section className="wiki-block" aria-label="Facts at the selected time">
             <h2>Facts at time {view.at}</h2>
-            <dl className="wiki-facts">
-              {facts.map((item) => (
-                <div key={item.field}>
-                  <dt>{fieldLabel(view, item.field)}</dt>
-                  <dd>{item.state === 'value' ? <ValueText {...display} field={item.field} value={item.value} />
-                    : item.state === 'conflict' ? <span className="wiki-conflict">Conflicting values</span>
-                    : <span className="muted">Unknown at this time</span>}</dd>
+            {Array.from(factSections, ([section, firstField]) => {
+              const group = facts.filter((item) =>
+                (view.fields.find((field) => field.key === item.field)?.section || 'Overview') === section)
+              const identity = section === 'Identity and classification' && article.age_years !== undefined
+              const showGoal = section === 'Mind and goals' && isWikiActor(article.entry) && edit
+              if (!group.length && !edit && !identity) return null
+              return <section className="wiki-fact-section" aria-label={section} key={section}>
+                <div className="wiki-card-heading">
+                  <h3>{section}</h3>
+                  {edit && <div className="form-actions">
+                    {showGoal && <button type="button" className="button secondary" onClick={() => onGoal(article.entry.id)}>New goal</button>}
+                    <button type="button" className="button secondary" onClick={() => edit({ kind: 'fact', field: firstField })}>Add fact</button>
+                  </div>}
                 </div>
-              ))}
-            </dl>
-            {facts.length === 0 && <p className="muted">No additional facts for this time.</p>}
+                <dl className="wiki-facts">
+                  {identity && <div><dt>Age</dt><dd>{article.age_years === null ? 'Unknown at this time' : article.age_years + ' years'}</dd></div>}
+                  {group.map((item) => (
+                    <div key={[item.field, item.qualifier_id, item.state === 'value' ? item.value : item.state].join(':')}>
+                      <dt>{fieldLabel(view, item.field, article.entry.kind)}
+                        {item.qualifier_id && <> · <EntryReference {...display} id={item.qualifier_id} /></>}
+                      </dt>
+                      <dd>{item.state === 'value' ? <><ValueText {...display} field={item.field} value={item.value} />{item.unit && ' ' + item.unit}</>
+                        : item.state === 'conflict' ? <span className="wiki-conflict">Conflicting values</span>
+                        : <span className="muted">Unknown at this time</span>}
+                        {item.default_sources?.length ? <small className="wiki-default-source">From {item.default_sources.map((id) =>
+                          <EntryReference {...display} id={id} key={id} />)}</small> : null}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+            })}
           </section>
+          {Array.from(related, ([label, links]) => (
+            <section className="wiki-block" key={label} aria-label={label}>
+              <h2>{label}</h2>
+              <ul className="wiki-records">{links.map((link) => (
+                <li key={link.id} className="wiki-record">
+                  <div><EntryReference {...display} id={link.entry_id} />
+                    {link.qualifier_id && <> · <EntryReference {...display} id={link.qualifier_id} /></>}
+                    <p className="muted">{times(link.from_tick, link.until_tick)}{link.source ? ' · ' + link.source : ''}</p>
+                  </div>
+                </li>
+              ))}</ul>
+            </section>
+          ))}
           {article.learned_abilities && (
             <section className="wiki-block" aria-label="Learned abilities">
               <div className="wiki-card-heading">
@@ -251,7 +338,8 @@ function Article({ article, display, onEdit, onTimeline }: {
                 {article.claims?.map((claim) => (
                   <li className="wiki-record" key={claim.id} id={'wiki-record-' + claim.id}>
                     <div>
-                      <strong>{fieldLabel(view, claim.field)}</strong>
+                    <strong>{fieldLabel(view, claim.field)}</strong>
+                    {claim.qualifier_id && <> · <EntryReference {...display} id={claim.qualifier_id} /></>}
                       <div><ValueText {...display} field={claim.field} value={claim.value} /></div>
                       <p className="muted">{entryName(view, claim.speaker_id)} at time {claim.tick}{claim.author_only ? ' · Author only' : ''}</p>
                       {claim.source && <p className="muted">Source: {claim.source}</p>}
@@ -266,6 +354,7 @@ function Article({ article, display, onEdit, onTimeline }: {
           </section>
         </>
       )}
+      <Propositions article={article} display={display} edit={edit} />
       <Observations article={article} display={display} />
     </>
   )
@@ -465,7 +554,7 @@ export function Wiki({ account, worldId, onAuthError }: {
                 navigate({ ...location, viewAs: event.target.value, entryId: selected?.author_only ? '' : location.entryId })
               }}>
                 <option value="">Author</option>
-                {view.entries.filter((entry) => entry.kind === 'person').map((entry) => (
+                {view.entries.filter(isWikiActor).map((entry) => (
                   <option key={entry.id} value={entry.id}>{entry.name}</option>
                 ))}
                 {view.viewpoint && !view.entries.some((entry) => entry.id === view.viewpoint?.id) && (
@@ -473,6 +562,10 @@ export function Wiki({ account, worldId, onAuthError }: {
                 )}
               </select>
             </label>
+            {view.can_edit && section !== 'timeline' && (
+              <button className="button secondary" type="button" disabled={navigationLocked}
+                onClick={() => beginEdit({ kind: 'calendar' })}>World calendar</button>
+            )}
           </div>
           {notice && <p className="notice success wiki-message" role="status">{notice}</p>}
           {saveError && <p className="error-message wiki-message" role="alert">{saveError}</p>}
@@ -517,15 +610,19 @@ export function Wiki({ account, worldId, onAuthError }: {
               )}
             </nav>
             <div className="wiki-article">
-              {editing?.kind === 'create' && <WikiEntryForm {...actions} fixedKind={editing.fixedKind} entries={view.entries} fields={view.fields} at={view.at} />}
-              {editing && editing.kind !== 'create' && editing.kind !== 'new-event' && view.article && (
-                <WikiEditForm edit={editing} {...actions} entry={view.article.entry} fields={view.fields} entries={view.entries} at={view.at} />
+              {editing?.kind === 'create' && <WikiEntryForm {...actions} fixedKind={editing.fixedKind} ownerId={editing.ownerId}
+                entries={view.entries} fields={view.fields} at={view.at} />}
+              {editing?.kind === 'calendar' && <WikiCalendarForm {...actions} daysPerYear={view.days_per_year ?? null} />}
+              {editing && editing.kind !== 'create' && editing.kind !== 'new-event' && editing.kind !== 'calendar' && view.article && (
+                <WikiEditForm edit={editing} {...actions} entry={view.article.entry} fields={view.fields} entries={view.entries}
+                  at={view.at} observations={view.article.observations} />
               )}
               {!editing && view.article && (
                 <Article
                   article={view.article} onEdit={view.can_edit ? beginEdit : undefined}
                   display={{ view, navigationLocked, openEntry }}
                   onTimeline={(event) => navigate({ ...location, section: 'timeline', entryId: '', eventId: event.id })}
+                  onGoal={(ownerId) => beginEdit({ kind: 'create', fixedKind: 'goal', ownerId })}
                 />
               )}
               {!editing && !view.article && <p className="muted">Choose an entry to read it at the selected world time.</p>}

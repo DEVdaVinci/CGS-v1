@@ -1,14 +1,20 @@
 import { request } from './api'
 
 export type WikiKind = 'person' | 'place' | 'group' | 'class' | 'ability' | 'item'
+  | 'species' | 'organism' | 'culture' | 'role' | 'resource' | 'body_part' | 'trait' | 'goal'
 export type WikiEntry = { id: string; name: string; kind: WikiKind; author_only?: boolean }
 export type WikiField = {
   key: string
   label: string
   kinds: WikiKind[]
-  value_kind: 'text' | 'integer' | 'reference'
+  value_kind: 'text' | 'integer' | 'decimal' | 'reference'
   target_kind: WikiKind | null
   choices: string[]
+  section: string
+  target_kinds: WikiKind[]
+  qualifier_kind: WikiKind | null
+  qualifier_required: boolean
+  many: boolean
 }
 export type WikiValue = string | number
 export type WikiSection = 'all' | 'characters' | 'places' | 'library' | 'timeline'
@@ -16,14 +22,17 @@ export type WikiLocation = { at: number; viewAs: string; entryId: string; sectio
 export type WikiAssertion = {
   id: string; field: string; value: WikiValue; from_tick: number; until_tick: number | null
   author_only: boolean; source: string; event_id: string | null
+  qualifier_id?: string | null
 }
 export type WikiClaim = {
   id: string; field: string; value: WikiValue; tick: number; speaker_id: string
   author_only: boolean; source: string
+  qualifier_id?: string | null
 }
 export type WikiObservation = {
   id: string; field: string; value: WikiValue; about_tick: number; learned_at: number
   observer_id: string; source_kind: 'assertion' | 'claim'; source_id?: string; speaker_id?: string
+  entry_id: string; qualifier_id?: string | null
 }
 type AbilityUse = { ability_id: string; actor_id: string }
 
@@ -39,9 +48,21 @@ export type WikiFinding = {
   id: string; code: 'CANON_CONFLICT' | 'OBSERVATION_SOURCE_CHANGED'; field: string
   record_ids: string[]; from_tick: number; until_tick: number | null
 }
+export type WikiEffectiveValue = {
+  field: string; qualifier_id?: string; default_sources?: string[]; unit?: string
+} & ({ state: 'value'; value: WikiValue } | { state: 'unknown' | 'conflict' })
+export type WikiLinkedFact = {
+  id: string; entry_id: string; field: string; label: string; qualifier_id: string | null
+  from_tick: number; until_tick: number | null; source: string
+}
+export type WikiProposition = {
+  id: string; holder_id: string; subject_id: string; kind: 'belief' | 'desired_state'
+  field: string; value: WikiValue; qualifier_id: string | null; from_tick: number; until_tick: number | null
+  about_tick: number | null; evidence_id: string | null; source: string; author_only: boolean
+}
 export type WikiArticle = {
   entry: WikiEntry
-  values?: ({ field: string } & ({ state: 'value'; value: WikiValue } | { state: 'unknown' | 'conflict' }))[]
+  values?: WikiEffectiveValue[]
   assertions?: WikiAssertion[]
   claims?: WikiClaim[]
   events?: WikiEvent[]
@@ -49,15 +70,24 @@ export type WikiArticle = {
   contents?: WikiEntry[]
   observations: WikiObservation[]
   findings?: WikiFinding[]
+  incoming_links?: WikiLinkedFact[]
+  propositions?: WikiProposition[]
+  age_years?: number | null
 }
 export type WikiView = {
   world_name: string; at: number; viewpoint: WikiEntry | null; entries: WikiEntry[]; fields: WikiField[]
   article: WikiArticle | null; can_edit?: boolean; edit_counter?: number
   timeline?: WikiEvent[]
+  days_per_year?: number | null
 }
 
-type TypedValue = { field: string; value: WikiValue; author_only: boolean }
+export function isWikiActor(entry: WikiEntry) {
+  return entry.kind === 'person' || entry.kind === 'organism'
+}
+
+type TypedValue = { field: string; value: WikiValue; author_only: boolean; qualifier_id?: string }
 type FieldChange = { entry_id: string } & TypedValue
+type EventChange = FieldChange & { mode?: 'set' | 'add' | 'end'; source?: string }
 type EventDetails = {
   name: string; source: string; description: string; ability_use: AbilityUse | null
   participant_ids: string[]; place_ids: string[]; item_ids: string[]
@@ -66,12 +96,17 @@ export type WikiCommand =
   | { op: 'create_entry'; name: string; kind: WikiKind; author_only: boolean; initial_at?: number; initial_values?: TypedValue[] }
   | { op: 'rename_entry'; entry_id: string; name: string }
   | ({ op: 'record_fact'; from_tick: number; until_tick: number | null; source: string } & FieldChange)
-  | { op: 'correct_fact'; assertion_id: string; value: WikiValue }
-  | ({ op: 'record_event'; tick: number; changes: FieldChange[] } & EventDetails)
+  | { op: 'correct_fact'; assertion_id: string; value: WikiValue; source?: string; author_only?: boolean }
+  | ({ op: 'record_event'; tick: number; changes: EventChange[] } & EventDetails)
   | ({ op: 'edit_event'; event_id: string } & EventDetails)
   | { op: 'correct_event_date'; event_id: string; tick: number }
   | ({ op: 'record_claim'; speaker_id: string; tick: number; source: string } & FieldChange)
-  | { op: 'record_observation'; observer_id: string; source_id: string; source_kind: 'assertion' | 'claim'; learned_at: number }
+  | { op: 'record_observation'; observer_id: string; source_id: string; source_kind: 'assertion' | 'claim'; learned_at: number; about_tick?: number }
+  | ({
+    holder_id: string; from_tick: number; until_tick: number | null; about_tick: number | null
+    evidence_id: string | null; source: string
+  } & FieldChange & ({ op: 'record_proposition' } | { op: 'correct_proposition'; proposition_id: string }))
+  | { op: 'set_calendar'; days_per_year: number | null }
   | { op: 'record_learned_ability'; character_id: string; ability_id: string; learned_at: number; source: string }
   | { op: 'correct_learned_ability'; learned_ability_id: string; learned_at: number; source: string }
 

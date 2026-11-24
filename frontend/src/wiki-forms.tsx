@@ -1,28 +1,34 @@
 import { type FormEvent, useState } from 'react'
 import {
+  isWikiActor,
   type WikiAssertion, type WikiClaim, type WikiCommand, type WikiEntry, type WikiEvent,
-  type WikiField, type WikiKind, type WikiLearnedAbility, type WikiValue,
+  type WikiField, type WikiKind, type WikiLearnedAbility, type WikiObservation, type WikiProposition, type WikiValue,
 } from './wiki-api'
 
 export const kindLabel: Record<WikiKind, string> = {
   person: 'Character', place: 'Place', group: 'Group', class: 'Class', ability: 'Ability', item: 'Item',
+  species: 'Species', organism: 'Organism', culture: 'Culture', role: 'Role or title',
+  resource: 'Resource', body_part: 'Body part', trait: 'Trait', goal: 'Goal',
 }
 
 export type ArticleEdit =
-  | { kind: 'fact' | 'claim' | 'event' }
+  | { kind: 'fact'; field?: string }
+  | { kind: 'claim' | 'event' }
   | { kind: 'rename' }
   | { kind: 'learn'; learned?: WikiLearnedAbility }
   | { kind: 'edit-event'; event: WikiEvent }
   | { kind: 'correct'; fact: WikiAssertion }
   | { kind: 'correct-date'; event: WikiEvent }
   | { kind: 'observe'; source: WikiAssertion | WikiClaim; sourceKind: 'assertion' | 'claim' }
+  | { kind: 'proposition'; record?: WikiProposition }
 
-type FormActions = { onSave: (command: WikiCommand) => void; onCancel: () => void; busy: boolean }
+export type FormActions = { onSave: (command: WikiCommand) => void; onCancel: () => void; busy: boolean }
 type EntryFormProps = FormActions & {
   entry: WikiEntry; fields: WikiField[]; entries: WikiEntry[]; at: number
+  observations?: WikiObservation[]
 }
 
-function Actions({ busy, onCancel, submit }: Pick<FormActions, 'busy' | 'onCancel'> & { submit: string }) {
+export function Actions({ busy, onCancel, submit }: Pick<FormActions, 'busy' | 'onCancel'> & { submit: string }) {
   return (
     <div className="form-actions">
       <button className="button primary" type="submit" disabled={busy}>{busy ? 'Saving…' : submit}</button>
@@ -31,14 +37,20 @@ function Actions({ busy, onCancel, submit }: Pick<FormActions, 'busy' | 'onCance
   )
 }
 
-export function WikiEntryForm({ fixedKind, entries, fields, at, ...actions }: FormActions & {
-  fixedKind?: WikiKind; entries: WikiEntry[]; fields: WikiField[]; at: number
+const initialKeys: Partial<Record<WikiKind, string[]>> = {
+  person: ['birth_tick', 'death_tick', 'species', 'character_class', 'located_in', 'appearance', 'background'],
+  organism: ['birth_tick', 'death_tick', 'species', 'located_in', 'appearance'],
+  place: ['place_type', 'located_in'],
+  resource: ['unit'],
+  goal: ['goal_owner', 'parent_goal', 'goal_subject', 'priority', 'status'],
+}
+
+export function WikiEntryForm({ fixedKind, entries, fields, at, ownerId, ...actions }: FormActions & {
+  fixedKind?: WikiKind; entries: WikiEntry[]; fields: WikiField[]; at: number; ownerId?: string
 }) {
   const [kind, setKind] = useState<WikiKind>(fixedKind ?? 'person')
   const title = fixedKind ? 'New ' + kindLabel[fixedKind].toLowerCase() : 'New entry'
-  const keys = kind === 'person'
-    ? ['description', 'appearance', 'background', 'character_class', 'located_in']
-    : kind === 'place' ? ['description', 'place_type', 'located_in'] : ['description']
+  const keys = ['description', ...(initialKeys[kind] ?? [])]
   const initialFields = keys.map((key) => fields.find((field) => field.key === key)!)
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -65,6 +77,7 @@ export function WikiEntryForm({ fixedKind, entries, fields, at, ...actions }: Fo
         <ValueInput
           key={field.key} field={field} entries={entries} entryId="" name={field.key}
           label={field.key === 'description' ? 'Overview' : field.key === 'located_in' && kind === 'place' ? 'Parent place' : field.label}
+          initial={field.key === 'goal_owner' ? ownerId : undefined}
           required={false}
         />
       ))}
@@ -74,7 +87,7 @@ export function WikiEntryForm({ fixedKind, entries, fields, at, ...actions }: Fo
   )
 }
 
-function TimeInput({ label, name, day, optional = false }: { label: string; name: string; day?: number; optional?: boolean }) {
+export function TimeInput({ label, name, day, optional = false }: { label: string; name: string; day?: number; optional?: boolean }) {
   return (
     <label className="field">{label}
       <input name={name} type="number" min={0} max={Number.MAX_SAFE_INTEGER} step={1} defaultValue={day} required={!optional} />
@@ -82,7 +95,7 @@ function TimeInput({ label, name, day, optional = false }: { label: string; name
   )
 }
 
-function EntryPicker({
+export function EntryPicker({
   name, label, entries, initial, required = true, onChange,
 }: {
   name?: string; label: string; entries: WikiEntry[]; initial?: string
@@ -117,15 +130,17 @@ function EntryPicker({
   )
 }
 
-function ValueInput({
+export function ValueInput({
   field, entries, entryId, name, initial, label = 'Value', required = true,
 }: {
   field: WikiField; entries: WikiEntry[]; entryId: string; name: string; initial?: WikiValue; label?: string; required?: boolean
 }) {
-  if (field.target_kind) {
+  if (field.target_kinds.length) {
+    const selectedKind = entries.find((entry) => entry.id === entryId)?.kind
     return (
       <EntryPicker name={name} label={label} initial={initial?.toString()} required={required}
-        entries={entries.filter((entry) => entry.kind === field.target_kind && entry.id !== entryId)} />
+        entries={entries.filter((entry) => field.target_kinds.includes(entry.kind) && entry.id !== entryId
+          && (field.key !== 'inherits_from' || entry.kind === selectedKind))} />
     )
   }
   return (
@@ -137,6 +152,8 @@ function ValueInput({
         </select>
       ) : field.value_kind === 'integer' ? (
         <input name={name} type="number" min={0} max={Number.MAX_SAFE_INTEGER} step={1} defaultValue={initial} required={required} />
+      ) : field.value_kind === 'decimal' ? (
+        <input name={name} inputMode="decimal" pattern={String.raw`-?\d{1,15}(\.\d{1,9})?`} defaultValue={initial} required={required} />
       ) : ['description', 'appearance', 'background'].includes(field.key) ? (
         <textarea name={name} rows={3} maxLength={500} defaultValue={initial} required={required} />
       ) : (
@@ -152,14 +169,28 @@ function readValue(values: FormData, name: string, field: WikiField): WikiValue 
 }
 
 function PersonSelect({ name, label, entries }: { name: string; label: string; entries: WikiEntry[] }) {
-  return <EntryPicker name={name} label={label} entries={entries.filter((entry) => entry.kind === 'person')} />
+  return <EntryPicker name={name} label={label} entries={entries.filter(isWikiActor)} />
 }
 
-function CanonicalForm({ mode, fact, entry, fields, entries, at, ...actions }: EntryFormProps & {
-  mode: 'fact' | 'claim' | 'correct'; fact?: WikiAssertion
+function QualifierInput({ field, entries, name, initial }: {
+  field: WikiField; entries: WikiEntry[]; name: string; initial?: string | null
+}) {
+  if (!field.qualifier_kind) return null
+  return <EntryPicker name={name} label={field.qualifier_kind === 'group' ? 'In group (optional)' : kindLabel[field.qualifier_kind]}
+    required={field.qualifier_required} entries={entries.filter((entry) => entry.kind === field.qualifier_kind)}
+    initial={initial ?? undefined} />
+}
+
+function optionalTime(values: FormData, name: string) {
+  const value = values.get(name)
+  return value ? Number(value) : null
+}
+
+function CanonicalForm({ mode, fact, initialField, entry, fields, entries, at, ...actions }: EntryFormProps & {
+  mode: 'fact' | 'claim' | 'correct'; fact?: WikiAssertion; initialField?: string
 }) {
   const validFields = fields.filter((field) => field.kinds.includes(entry.kind))
-  const [fieldKey, setFieldKey] = useState(fact?.field ?? validFields[0].key)
+  const [fieldKey, setFieldKey] = useState(fact?.field ?? initialField ?? validFields[0].key)
   const field = validFields.find((item) => item.key === fieldKey)!
   const title = mode === 'correct' ? 'Correct value' : mode === 'claim' ? 'Record claim' : 'Record fact'
 
@@ -167,19 +198,22 @@ function CanonicalForm({ mode, fact, entry, fields, entries, at, ...actions }: E
     event.preventDefault()
     const values = new FormData(event.currentTarget)
     const value = readValue(values, 'value', field)
+    const source = String(values.get('source') ?? '')
+    const author_only = values.has('author_only')
     if (fact) {
-      actions.onSave({ op: 'correct_fact', assertion_id: fact.id, value })
+      actions.onSave({ op: 'correct_fact', assertion_id: fact.id, value, source, author_only })
       return
     }
+    const qualifier = String(values.get('qualifier_id') ?? '')
     const change = {
-      entry_id: entry.id, field: field.key, value, author_only: values.has('author_only'),
-      source: String(values.get('source') ?? ''),
+      entry_id: entry.id, field: field.key, value, author_only, source,
+      ...(qualifier ? { qualifier_id: qualifier } : {}),
     }
     actions.onSave(mode === 'claim'
       ? { ...change, op: 'record_claim', speaker_id: String(values.get('speaker_id')), tick: Number(values.get('tick')) }
       : {
           ...change, op: 'record_fact', from_tick: Number(values.get('from_tick')),
-          until_tick: values.get('until_tick') === '' ? null : Number(values.get('until_tick')),
+          until_tick: optionalTime(values, 'until_tick'),
         })
   }
   return (
@@ -188,11 +222,15 @@ function CanonicalForm({ mode, fact, entry, fields, entries, at, ...actions }: E
       {fact ? <p className="muted">{field.label} from time {fact.from_tick}. The effective dates stay the same.</p> : (
         <label className="field">Field
           <select value={fieldKey} onChange={(event) => setFieldKey(event.target.value)}>
-            {validFields.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
+            {validFields.map((item) => <option key={item.key} value={item.key}>
+              {item.key === 'located_in' && entry.kind === 'place' ? 'Parent place' : item.label}
+            </option>)}
           </select>
         </label>
       )}
       <ValueInput key={fieldKey} field={field} entries={entries} entryId={entry.id} name="value" initial={fact?.value} />
+      {!fact && <QualifierInput key={'qualifier-' + fieldKey} field={field} entries={entries} name="qualifier_id" />}
+      {fact?.qualifier_id && <p className="muted">{entries.find((item) => item.id === fact.qualifier_id)?.name}</p>}
       {!fact && (
         <>
           {mode === 'claim' ? (
@@ -206,16 +244,16 @@ function CanonicalForm({ mode, fact, entry, fields, entries, at, ...actions }: E
               <TimeInput name="until_tick" label="Effective until (optional)" optional />
             </div>
           )}
-          <label className="field">Source (optional)<input name="source" maxLength={500} /></label>
-          <label className="wiki-checkbox"><input type="checkbox" name="author_only" /> Author only</label>
         </>
       )}
+      <label className="field">Source (optional)<input name="source" maxLength={500} defaultValue={fact?.source} /></label>
+      <label className="wiki-checkbox"><input type="checkbox" name="author_only" defaultChecked={fact?.author_only} /> Author only</label>
       <Actions {...actions} submit={mode === 'correct' ? 'Save correction' : mode === 'claim' ? 'Save claim' : 'Save fact'} />
     </form>
   )
 }
 
-function EventLinks({ label, name, entries, initial }: {
+export function EventLinks({ label, name, entries, initial }: {
   label: string; name: string; entries: WikiEntry[]; initial: string[]
 }) {
   const [filter, setFilter] = useState('')
@@ -267,11 +305,16 @@ export function WikiEventForm({ entry, fields, entries, at, event, ...actions }:
     if (event) {
       actions.onSave({ ...details, op: 'edit_event', event_id: event.id })
     } else {
-      const changes = rows.map((row) => ({
-        entry_id: row.entryId, field: row.field,
-        value: readValue(values, 'value-' + row.id, fields.find((field) => field.key === row.field)!),
-        author_only: values.has('author-only-' + row.id),
-      }))
+      const changes = rows.map((row) => {
+        const qualifier = String(values.get('qualifier-' + row.id) ?? '')
+        const mode = String(values.get('mode-' + row.id)) as 'set' | 'add' | 'end'
+        return {
+          entry_id: row.entryId, field: row.field,
+          value: readValue(values, 'value-' + row.id, fields.find((field) => field.key === row.field)!),
+          author_only: values.has('author-only-' + row.id), mode,
+          ...(qualifier ? { qualifier_id: qualifier } : {}),
+        }
+      })
       actions.onSave({ ...details, op: 'record_event', tick: Number(values.get('tick')), changes })
     }
   }
@@ -286,7 +329,7 @@ export function WikiEventForm({ entry, fields, entries, at, event, ...actions }:
       <details className="wiki-event-options" open={!entry || Boolean(event)}>
         <summary>Participants, places, and items</summary>
         <div className="wiki-event-links">
-          <EventLinks label="Participants" name="participants" entries={entries.filter((e) => e.kind === 'person' || e.kind === 'group')}
+          <EventLinks label="Participants" name="participants" entries={entries.filter((e) => isWikiActor(e) || e.kind === 'group')}
             initial={event?.links.filter((link) => link.role === 'participant').map((link) => link.entry_id) ?? []} />
           <EventLinks label="Places" name="places" entries={entries.filter((e) => e.kind === 'place')}
             initial={event?.links.filter((link) => link.role === 'place').map((link) => link.entry_id) ?? []} />
@@ -326,6 +369,15 @@ export function WikiEventForm({ entry, fields, entries, at, event, ...actions }:
             key={row.entryId + ':' + row.field} entryId={row.entryId} entries={entries} name={'value-' + row.id}
             field={fields.find((item) => item.key === row.field)!}
           />
+          <QualifierInput key={'qualifier-' + row.entryId + ':' + row.field} field={fields.find((item) => item.key === row.field)!}
+            entries={entries} name={'qualifier-' + row.id} />
+          <label className="field">Change type
+            <select key={row.field} name={'mode-' + row.id} defaultValue={fields.find((item) => item.key === row.field)?.many ? 'add' : 'set'}>
+              <option value="set">Set value</option>
+              <option value="add">Add value or relationship</option>
+              <option value="end">End value or relationship</option>
+            </select>
+          </label>
           <label className="wiki-checkbox"><input type="checkbox" name={'author-only-' + row.id} /> Author only</label>
           </>}
           <button className="button secondary" type="button" onClick={() => setRows((all) => all.filter((item) => item.id !== row.id))}>
@@ -333,10 +385,10 @@ export function WikiEventForm({ entry, fields, entries, at, event, ...actions }:
           </button>
         </fieldset>
       ))}
-      {!event && entries.length > 0 && rows.length < (entry ? fieldsFor(entry.id).length : 40) && (
+      {!event && entries.length > 0 && rows.length < 40 && (
         <button className="button secondary wiki-add-change" type="button" onClick={() => {
           const available = entry && fieldsFor(entry.id).find((field) => !rows.some((row) => row.field === field.key))
-          setRows([...rows, { id: nextId, entryId: entry?.id ?? '', field: available?.key ?? '' }])
+          setRows([...rows, { id: nextId, entryId: entry?.id ?? '', field: available?.key ?? (entry ? 'status' : '') }])
           setNextId(nextId + 1)
         }}>{rows.length ? 'Add another change' : 'Add a state change'}</button>
       )}
@@ -359,6 +411,7 @@ export function WikiEvidenceForm({ edit, entries, at, ...actions }: FormActions 
       : {
           op: 'record_observation', observer_id: String(values.get('observer_id')), source_id: edit.source.id,
           source_kind: edit.sourceKind, learned_at: tick,
+          ...(optionalTime(values, 'about_tick') === null ? {} : { about_tick: Number(values.get('about_tick')) }),
         })
   }
   const title = date ? 'Correct event date' : 'Record observation'
@@ -372,6 +425,7 @@ export function WikiEvidenceForm({ edit, entries, at, ...actions }: FormActions 
         name="tick" label={date ? 'Corrected event time' : 'Learned at'}
         day={edit.kind === 'correct-date' ? edit.event.tick : Math.max(at, 'from_tick' in edit.source ? edit.source.from_tick : edit.source.tick)}
       />
+      {edit.kind === 'observe' && <TimeInput name="about_tick" label="About time (optional)" optional />}
       <Actions {...actions} submit={date ? 'Save corrected date' : 'Save observation'} />
     </form>
   )
@@ -384,7 +438,87 @@ export function WikiEditForm({ edit, ...props }: EntryFormProps & { edit: Articl
   if (edit.kind === 'rename') return <RenameForm {...props} />
   if (edit.kind === 'learn') return <LearnAbilityForm {...props} learned={edit.learned} />
   if (edit.kind === 'correct') return <CanonicalForm {...props} mode="correct" fact={edit.fact} />
-  return <CanonicalForm {...props} mode={edit.kind} />
+  if (edit.kind === 'proposition') return <PropositionForm {...props} record={edit.record} />
+  return <CanonicalForm {...props} mode={edit.kind} initialField={edit.kind === 'fact' ? edit.field : undefined} />
+}
+
+function PropositionForm({ entry, entries, fields, observations = [], record, at, ...actions }: EntryFormProps & {
+  record?: WikiProposition
+}) {
+  const [subjectId, setSubject] = useState(record?.subject_id ?? '')
+  const [fieldKey, setField] = useState(record?.field ?? 'status')
+  const subject = entries.find((item) => item.id === subjectId)
+  const eligible = subject ? fields.filter((field) => field.kinds.includes(subject.kind)) : []
+  const field = eligible.find((item) => item.key === fieldKey)
+  const holder = entries.find((item) => item.id === record?.holder_id) ?? entry
+  const goal = holder.kind === 'goal'
+  const evidence = observations.filter((observation) => observation.observer_id === holder.id)
+  const noun = goal ? 'desired state' : 'belief'
+  const title = (record ? 'Correct ' : 'Record ') + noun
+
+  return (
+    <form className="wiki-form" aria-label={title} onSubmit={(event) => {
+      event.preventDefault()
+      if (!field) return
+      const data = new FormData(event.currentTarget)
+      const qualifier = String(data.get('qualifier') ?? '')
+      const details = {
+        holder_id: holder.id, entry_id: subjectId, field: field.key, value: readValue(data, 'value', field),
+        from_tick: Number(data.get('from_tick')), until_tick: optionalTime(data, 'until_tick'),
+        about_tick: optionalTime(data, 'about_tick'), source: String(data.get('source') ?? ''),
+        evidence_id: String(data.get('evidence') ?? '') || null, author_only: data.has('author_only'),
+        ...(qualifier ? { qualifier_id: qualifier } : {}),
+      }
+      actions.onSave(record
+        ? { ...details, op: 'correct_proposition', proposition_id: record.id }
+        : { ...details, op: 'record_proposition' })
+    }}>
+      <h2>{title}</h2>
+      <p className="muted">{holder.name}</p>
+      <EntryPicker label="Subject" entries={entries} initial={subjectId}
+        onChange={(id) => { setSubject(id); setField('status') }} />
+      {field && <>
+        <label className="field">Field<select value={fieldKey} onChange={(event) => setField(event.target.value)}>
+          {eligible.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
+        </select></label>
+        <ValueInput key={subjectId + ':' + fieldKey} name="value" field={field} entries={entries} entryId={subjectId}
+          initial={record?.subject_id === subjectId && record.field === fieldKey ? record.value : undefined} />
+        <QualifierInput key={'qualifier-' + fieldKey} name="qualifier" field={field} entries={entries} initial={record?.qualifier_id} />
+      </>}
+      <div className="wiki-form-row">
+        <TimeInput name="from_tick" label="Effective from" day={record?.from_tick ?? at} />
+        <TimeInput name="until_tick" label="Effective until (optional)" day={record?.until_tick ?? undefined} optional />
+        <TimeInput name="about_tick" label="About time (optional)" day={record?.about_tick ?? undefined} optional />
+      </div>
+      {!goal && <label className="field">Evidence (optional)
+        <select name="evidence" defaultValue={record?.evidence_id ?? ''}>
+          <option value="">No recorded evidence</option>
+          {evidence.map((observation) => <option key={observation.id} value={observation.id}>
+            {entries.find((candidate) => candidate.id === observation.entry_id)?.name ?? 'Record'} · {fields.find((candidate) => candidate.key === observation.field)?.label}
+            {' · Learned at ' + observation.learned_at}
+          </option>)}
+        </select>
+      </label>}
+      <label className="field">Source (optional)<input name="source" maxLength={500} defaultValue={record?.source} /></label>
+      <label className="wiki-checkbox"><input type="checkbox" name="author_only" defaultChecked={record?.author_only} /> Author only</label>
+      <Actions {...actions} submit={'Save ' + noun} />
+    </form>
+  )
+}
+
+export function WikiCalendarForm({ daysPerYear, ...actions }: FormActions & { daysPerYear: number | null }) {
+  return (
+    <form className="wiki-form" aria-label="World calendar" onSubmit={(event) => {
+      event.preventDefault()
+      actions.onSave({ op: 'set_calendar', days_per_year: optionalTime(new FormData(event.currentTarget), 'days') })
+    }}>
+      <h2>World calendar</h2>
+      <p className="muted">Set the year length in world days to calculate ages from recorded birth times.</p>
+      <label className="field">Days per year<input name="days" type="number" min={1} max={1000000} step={1}
+        defaultValue={daysPerYear ?? undefined} /></label>
+      <Actions {...actions} submit="Save calendar" />
+    </form>
+  )
 }
 
 function RenameForm({ entry, ...actions }: FormActions & { entry: WikiEntry }) {
