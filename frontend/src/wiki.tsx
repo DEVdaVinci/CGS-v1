@@ -154,6 +154,7 @@ function Article({ article, display, onEdit, onTimeline, onGoal, onLayoutEdit }:
   const summary = values.find((item) => item.field === 'description')
   const specificType = values.find((item) => ['place_type', 'group_type', 'item_type', 'ability_type'].includes(item.field))
   const articleKind = specificType?.state === 'value' ? specificType.value : kindLabel[article.entry.kind]
+  const firstLocation = isWikiActor(article.entry) ? article.assertions?.find((fact) => fact.field === 'located_in') : undefined
   const facts = values.filter((item) => item.state === 'conflict' || (
     item.field !== 'description' && item.field !== 'place_type'
   ))
@@ -192,7 +193,8 @@ function Article({ article, display, onEdit, onTimeline, onGoal, onLayoutEdit }:
                 (view.fields.find((field) => field.key === item.field)?.section || 'Overview') === section)
               const identity = section === 'Identity and classification' && article.age_years !== undefined
               const showGoal = section === 'Mind and goals' && isWikiActor(article.entry) && edit
-              if (!group.length && !edit && !identity) return null
+              const locationHistory = section === 'Spatial relationships' ? firstLocation : undefined
+              if (!group.length && !edit && !identity && !locationHistory) return null
               return <section className="wiki-fact-section" aria-label={section} key={section}>
                 <div className="wiki-card-heading">
                   <h3>{section}</h3>
@@ -217,6 +219,7 @@ function Article({ article, display, onEdit, onTimeline, onGoal, onLayoutEdit }:
                     </div>
                   ))}
                 </dl>
+                {locationHistory && <a href={'#wiki-record-' + locationHistory.id}>Location history</a>}
               </section>
             })}
           </section>
@@ -462,7 +465,12 @@ export function Wiki({ account, worldId, onAuthError }: {
         const nextSection = !pending.location.section || pending.location.section === 'all'
           ? 'all' : sectionFor(pending.command.kind)
         setSearch('')
-        setLocation({ ...pending.location, entryId: saved.record_id, section: nextSection })
+        setLocation({
+          ...pending.location,
+          at: pending.command.initial_at ?? pending.location.at,
+          entryId: saved.record_id,
+          section: nextSection,
+        })
       } else {
         setLocation(pending.location.section === 'timeline' ? { ...pending.location, eventId: saved.record_id } : pending.location)
       }
@@ -560,7 +568,7 @@ export function Wiki({ account, worldId, onAuthError }: {
           </nav>
           <div className="wiki-toolbar">
             {section !== 'timeline' && <form className="wiki-time" onSubmit={selectTime}>
-              <label className="field">World time
+              <label className="field">View state at time
                 <input key={location.at} name="at" type="number" min={0} max={Number.MAX_SAFE_INTEGER} step={1} defaultValue={location.at} disabled={navigationLocked} required />
               </label>
               <button className="button secondary" type="submit" disabled={navigationLocked}>Show time</button>
@@ -582,7 +590,7 @@ export function Wiki({ account, worldId, onAuthError }: {
             </label>
             {view.can_edit && section !== 'timeline' && (
               <button className="button secondary" type="button" disabled={navigationLocked}
-                onClick={() => beginEdit({ kind: 'calendar' })}>World calendar</button>
+                onClick={() => beginEdit({ kind: 'calendar' })}>Calendar settings</button>
             )}
           </div>
           {notice && <p className="notice success wiki-message" role="status">{notice}</p>}

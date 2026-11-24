@@ -65,15 +65,22 @@ export function WikiEntryForm({ fixedKind, entries, fields, at, ownerId, ...acti
 }) {
   const [kind, setKind] = useState<WikiKind>(fixedKind ?? 'person')
   const title = fixedKind ? 'New ' + kindLabel[fixedKind].toLowerCase() : 'New entry'
+  const actor = kind === 'person' || kind === 'organism'
   const keys = ['description', ...(initialKeys[kind] ?? [])]
   const initialFields = keys.map((key) => fields.find((field) => field.key === key)).filter((field) => field !== undefined)
+
+  function initialLabel(field: WikiField) {
+    if (field.key === 'description') return 'Overview'
+    if (field.key === 'located_in') return kind === 'place' ? 'Parent place' : 'Starting location'
+    return field.label
+  }
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const values = new FormData(event.currentTarget)
     actions.onSave({
       op: 'create_entry', name: String(values.get('name')), kind,
-      author_only: values.has('author_only'), initial_at: at,
+      author_only: values.has('author_only'), initial_at: Number(values.get('initial_at')),
       initial_values: initialFields.filter((field) => String(values.get(field.key) ?? '').trim()).map((field) => ({
         field: field.key, value: readValue(values, field.key, field), author_only: values.has('author_only'),
       })),
@@ -88,14 +95,19 @@ export function WikiEntryForm({ fixedKind, entries, fields, at, ownerId, ...acti
           {Object.entries(kindLabel).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}
         </select>
       </label>}
-      {initialFields.map((field) => (
-        <ValueInput
-          key={field.key} field={field} entries={entries} entryId="" name={field.key}
-          label={field.key === 'description' ? 'Overview' : field.key === 'located_in' && kind === 'place' ? 'Parent place' : field.label}
-          initial={field.key === 'goal_owner' ? ownerId : undefined}
-          required={false}
-        />
-      ))}
+      <fieldset className="wiki-change-fields">
+        <legend>Initial facts</legend>
+        <TimeInput name="initial_at" label="Initial facts start at time" day={at} />
+        {initialFields.map((field) => (
+          <ValueInput
+            key={field.key} field={field} entries={entries} entryId="" name={field.key}
+            label={initialLabel(field)}
+            initial={field.key === 'goal_owner' ? ownerId : undefined}
+            required={false}
+          />
+        ))}
+        {actor && <p className="muted">Use Record dated change on the saved character article to record later moves.</p>}
+      </fieldset>
       <label className="wiki-checkbox"><input type="checkbox" name="author_only" /> Author only</label>
       <Actions {...actions} submit="Save entry" />
     </form>
@@ -654,12 +666,12 @@ function PropositionForm({ entry, entries, fields, observations = [], record, at
 
 export function WikiCalendarForm({ daysPerYear, ...actions }: FormActions & { daysPerYear: number | null }) {
   return (
-    <form className="wiki-form" aria-label="World calendar" onSubmit={(event) => {
+    <form className="wiki-form" aria-label="Calendar settings" onSubmit={(event) => {
       event.preventDefault()
       actions.onSave({ op: 'set_calendar', days_per_year: optionalTime(new FormData(event.currentTarget), 'days') })
     }}>
-      <h2>World calendar</h2>
-      <p className="muted">Set the year length in world days to calculate ages from recorded birth times.</p>
+      <h2>Calendar settings</h2>
+      <p className="muted">Set the number of world days in a year for age calculations.</p>
       <label className="field">Days per year<input name="days" type="number" min={1} max={1000000} step={1}
         defaultValue={daysPerYear ?? undefined} /></label>
       <Actions {...actions} submit="Save calendar" />
