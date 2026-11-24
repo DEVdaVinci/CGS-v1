@@ -1,6 +1,6 @@
 # CGS milestones at a glance
 
-**Current position** — B0 is verified. W1 is open and is the next milestone. W5 is the complete Phase 1 Wiki. P3 is the first complete tabletop release. The links open the matching deliverables and pass criteria in the [detailed milestone plan](CGS_Milestones_Delivery_Plan.md).
+**Current position** — B0 and W1 are verified. W2 is next. W5 is the complete Phase 1 Wiki. P3 is the first complete tabletop release. The links open the matching deliverables and pass criteria in the [detailed milestone plan](CGS_Milestones_Delivery_Plan.md).
 
 - **[B0 · Working foundation](CGS_Milestones_Delivery_Plan.md#b0-working-foundation)** — Already in the browser. Create basic character and place articles, link events, and inspect dated changes on the same character. This verifies the workflow. The source-designed character and place coverage is W1.
 - **[W1 · Finish core worldbuilding](CGS_Milestones_Delivery_Plan.md#w1-core-worldbuilding)** — Author structured character profiles, relationships, possessions, condition, goals and beliefs. Build nested places and connections. Break down an event into expandable segments and recorded actions, including parallel branches. Inspect what changed, who was there, and what each character knew. This completes core character, place, and timeline authoring. Rule execution comes later.

@@ -480,6 +480,40 @@ a { color: var(--accent); }
 .wiki-fact-section h3 { margin: 0; font-size: 1rem; color: var(--ink); }
 .wiki-fact-section .wiki-facts:empty { display: none; }
 .wiki-default-source { display: flex; gap: 0.35rem; flex-wrap: wrap; color: var(--quiet); margin-top: 0.22rem; }
+.wiki-timeline-filters, .wiki-place-contents {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
+  gap: 0.8rem;
+  margin: 0.9rem 0;
+}
+.wiki-timeline [aria-pressed="true"] { color: var(--accent); background: #edf2ff; }
+.wiki-plan { margin: 1rem 0; max-width: 44rem; }
+.wiki-plan-drawing {
+  position: relative;
+  margin: 1.15rem 0;
+  border: 2px solid #8ea8ce;
+  border-radius: 0.3rem;
+  background-color: #f1f6ff;
+  background-image: linear-gradient(#dce7f7 1px, transparent 1px), linear-gradient(90deg, #dce7f7 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.wiki-plan-marker {
+  position: absolute;
+  width: 0.65rem;
+  height: 0.65rem;
+  transform: translate(-50%, -50%);
+  border: 1px solid white;
+  border-radius: 50%;
+  background: #334e96;
+}
+.wiki-plan-marker-name {
+  margin-left: 0.8rem;
+  background: var(--surface);
+  color: var(--ink);
+  padding: 0.1rem 0.25rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
 
 @media (max-width: 700px) {
   .wiki-layout { grid-template-columns: minmax(0, 1fr); }

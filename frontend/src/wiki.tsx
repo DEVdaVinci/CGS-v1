@@ -6,7 +6,9 @@ import {
   type WikiLocation, type WikiSection, type WikiValue, type WikiView,
 } from './wiki-api'
 import { kindLabel, type ArticleEdit, WikiCalendarForm, WikiEditForm, WikiEntryForm, WikiEventForm, WikiEvidenceForm } from './wiki-forms'
-import { WikiTimeline } from './wiki-timeline'
+import { WikiGroupForm, WikiOrganizeForm } from './wiki-event-outline'
+import { isLayoutEdit, WikiLayoutForm, WikiLayoutPanel, type LayoutEdit } from './wiki-layout'
+import { WikiTimeline, type TimelineEdit } from './wiki-timeline'
 
 const validId = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/
 const sections: { key: WikiSection; label: string }[] = [
@@ -14,8 +16,8 @@ const sections: { key: WikiSection; label: string }[] = [
   { key: 'places', label: 'Places' }, { key: 'timeline', label: 'Timeline' },
   { key: 'library', label: 'Library' },
 ]
-type WikiEdit = ArticleEdit | { kind: 'create'; fixedKind?: WikiKind; ownerId?: string }
-  | { kind: 'new-event' } | { kind: 'calendar' }
+type WikiEdit = ArticleEdit | TimelineEdit | LayoutEdit
+  | { kind: 'create'; fixedKind?: WikiKind; ownerId?: string } | { kind: 'calendar' }
 
 function sectionFor(kind: WikiKind): WikiSection {
   if (kind === 'person' || kind === 'organism') return 'characters'
@@ -138,10 +140,11 @@ function Propositions({ article, display, edit }: { article: WikiArticle; displa
   )
 }
 
-function Article({ article, display, onEdit, onTimeline, onGoal }: {
+function Article({ article, display, onEdit, onTimeline, onGoal, onLayoutEdit }: {
   article: WikiArticle; display: Display; onEdit?: (edit: ArticleEdit) => void
   onTimeline: (event: WikiEvent) => void
   onGoal: (ownerId: string) => void
+  onLayoutEdit?: (edit: LayoutEdit) => void
 }) {
   const { view } = display
   const edit = display.navigationLocked ? undefined : onEdit
@@ -253,18 +256,24 @@ function Article({ article, display, onEdit, onTimeline, onGoal }: {
           {article.contents && (
             <section className="wiki-block" aria-label="Here at the selected time">
               <h2>Here at time {view.at}</h2>
-              {article.contents.length ? (
-                <ul className="wiki-contents">
-                  {article.contents.map((item) => (
-                    <li key={item.id}>
-                      <button type="button" className="wiki-reference" disabled={display.navigationLocked}
-                        onClick={() => display.openEntry(item.id)}>{item.name}</button> <span className="muted">{kindLabel[item.kind]}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : <p className="muted">No entries are linked here at this time.</p>}
+              <div className="wiki-place-contents">
+                {[{ title: 'Parts', items: article.parts ?? [] }, { title: 'Occupants', items: article.occupants ?? [] }].map(({ title, items }) => (
+                  <section key={title} aria-label={title}>
+                    <h3>{title}</h3>
+                    {items.length ? <ul className="wiki-contents">{items.map((item) => (
+                      <li key={item.id}><EntryReference {...display} id={item.id} /> <span className="muted">{kindLabel[item.kind]}</span></li>
+                    ))}</ul> : <p className="muted">None recorded at this time.</p>}
+                  </section>
+                ))}
+              </div>
             </section>
           )}
+          {article.layout && <WikiLayoutPanel layout={article.layout} entries={view.entries}
+            onEdit={display.navigationLocked ? undefined : onLayoutEdit}
+            onOpen={(id) => { if (!display.navigationLocked) display.openEntry(id) }} />}
+          {article.legacy_location_review && <p className="notice wiki-message">
+            Review this group's legacy location. The old record may describe headquarters or physical whereabouts.
+          </p>}
           <section className="wiki-block" aria-label="Consistency findings">
             <h2>Consistency findings</h2>
             {(article.findings ?? []).length === 0 ? <p className="muted">No findings from the current timeline and evidence checks.</p> : (
@@ -318,13 +327,14 @@ function Article({ article, display, onEdit, onTimeline, onGoal }: {
                   <li className="wiki-record" key={event.id} id={'wiki-record-' + event.id}>
                     <div>
                       <strong>{event.name}</strong>
-                      <p className="muted">Time {event.tick}{event.source ? ' · ' + event.source : ''}</p>
+                      <p className="muted">{event.tick === null ? 'Event group' : 'Time ' + event.tick}{event.source ? ' · ' + event.source : ''}</p>
                       {event.description && <p className="wiki-prose">{event.description}</p>}
                     </div>
                     <div className="form-actions">
                       <button className="button secondary" type="button" disabled={display.navigationLocked}
                         onClick={() => onTimeline(event)}>View in timeline</button>
-                      {edit && <button className="button secondary" type="button" onClick={() => edit({ kind: 'correct-date', event })}>Correct event date</button>}
+                      {edit && event.tick !== null && <button className="button secondary" type="button"
+                        onClick={() => edit({ kind: 'correct-date', event })}>Correct event date</button>}
                     </div>
                   </li>
                 ))}
@@ -373,7 +383,7 @@ export function Wiki({ account, worldId, onAuthError }: {
   const [stale, setStale] = useState(false)
   const [notice, setNotice] = useState('')
   const [search, setSearch] = useState('')
-  const key = JSON.stringify([location, refresh])
+  const key = JSON.stringify([location.at, location.viewAs, location.section, location.entryId, refresh])
   const view = result?.key === key ? result.view : undefined
   const failure = result?.key === key ? result.error : undefined
   const section = location.section ?? 'all'
@@ -515,8 +525,12 @@ export function Wiki({ account, worldId, onAuthError }: {
             {view.can_edit && (
               <div className="form-actions">
                 {section === 'timeline' ? (
-                  <button className="button primary" type="button" disabled={navigationLocked}
-                    onClick={() => beginEdit({ kind: 'new-event' })}>New event</button>
+                  <>
+                    <button className="button primary" type="button" disabled={navigationLocked}
+                      onClick={() => beginEdit({ kind: 'new-event' })}>New event</button>
+                    <button className="button secondary" type="button" disabled={navigationLocked}
+                      onClick={() => beginEdit({ kind: 'new-group' })}>New group</button>
+                  </>
                 ) : (
                   <>
                     {section === 'characters' && <button className="button primary" type="button" disabled={navigationLocked}
@@ -583,13 +597,23 @@ export function Wiki({ account, worldId, onAuthError }: {
           )}
           {section === 'timeline' ? (
             <div className="wiki-article">
-              {(editing?.kind === 'new-event' || editing?.kind === 'edit-event') && (
+              {(editing?.kind === 'new-event' || (editing?.kind === 'edit-event' && editing.event.node_kind !== 'group')) && (
                 <WikiEventForm {...actions} fields={view.fields} entries={view.entries} at={view.at}
+                  event={editing.kind === 'edit-event' ? editing.event : undefined}
+                  parents={view.timeline?.filter((event) => event.node_kind === 'group')}
+                  parentId={editing.kind === 'new-event' ? editing.parentId : undefined}
+                  action={editing.kind === 'new-event' && editing.action} />
+              )}
+              {(editing?.kind === 'new-group' || (editing?.kind === 'edit-event' && editing.event.node_kind === 'group')) && (
+                <WikiGroupForm {...actions} entries={view.entries} events={view.timeline ?? []}
+                  parentId={editing.kind === 'new-group' ? editing.parentId : undefined}
                   event={editing.kind === 'edit-event' ? editing.event : undefined} />
               )}
+              {editing?.kind === 'organize' && <WikiOrganizeForm {...actions} event={editing.event} events={view.timeline ?? []} />}
               {editing?.kind === 'correct-date' && <WikiEvidenceForm {...actions} edit={editing} entries={view.entries} at={view.at} />}
               {!editing && <WikiTimeline events={view.timeline ?? []} entries={view.entries} fields={view.fields}
                 currentEvent={location.eventId} onEdit={view.can_edit && !navigationLocked ? beginEdit : undefined}
+                onFocus={(eventId) => navigate({ ...location, eventId })}
                 onOpen={navigationLocked ? undefined : openEntry} />}
             </div>
           ) : <div className="wiki-layout">
@@ -613,7 +637,10 @@ export function Wiki({ account, worldId, onAuthError }: {
               {editing?.kind === 'create' && <WikiEntryForm {...actions} fixedKind={editing.fixedKind} ownerId={editing.ownerId}
                 entries={view.entries} fields={view.fields} at={view.at} />}
               {editing?.kind === 'calendar' && <WikiCalendarForm {...actions} daysPerYear={view.days_per_year ?? null} />}
-              {editing && editing.kind !== 'create' && editing.kind !== 'new-event' && editing.kind !== 'calendar' && view.article && (
+              {editing && isLayoutEdit(editing) && view.article?.layout && <WikiLayoutForm {...actions} edit={editing}
+                entry={view.article.entry} layout={view.article.layout} entries={view.entries} at={view.at} />}
+              {editing && !isLayoutEdit(editing) && editing.kind !== 'create' && editing.kind !== 'new-event'
+                && editing.kind !== 'new-group' && editing.kind !== 'organize' && editing.kind !== 'calendar' && view.article && (
                 <WikiEditForm edit={editing} {...actions} entry={view.article.entry} fields={view.fields} entries={view.entries}
                   at={view.at} observations={view.article.observations} />
               )}
@@ -623,6 +650,7 @@ export function Wiki({ account, worldId, onAuthError }: {
                   display={{ view, navigationLocked, openEntry }}
                   onTimeline={(event) => navigate({ ...location, section: 'timeline', entryId: '', eventId: event.id })}
                   onGoal={(ownerId) => beginEdit({ kind: 'create', fixedKind: 'goal', ownerId })}
+                  onLayoutEdit={view.can_edit ? beginEdit : undefined}
                 />
               )}
               {!editing && !view.article && <p className="muted">Choose an entry to read it at the selected world time.</p>}

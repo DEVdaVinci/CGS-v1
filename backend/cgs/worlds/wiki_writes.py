@@ -15,6 +15,10 @@ from .wiki import (
     at_tick, check_hierarchies, check_interval, contains_tick, entry_for, reject, typed_assertion,
     typed_value, value_slot, wiki_access,
 )
+from .wiki_events import (
+    attach_event, check_event_tree, event_bounds, organize_event, update_event_references,
+)
+from .wiki_layouts import save_connection, save_layout, save_waypoint
 from .wiki_schema import ACTORS, FIELDS
 
 
@@ -128,11 +132,19 @@ def _save_event_details(wiki, event, command):
     event.name = _named(command["name"])
     event.source = command.get("source", event.source)
     event.description = command.get("description", event.description)
+    event.start_tick = command.get("start_tick", event.start_tick)
+    event.end_tick = command.get("end_tick", event.end_tick)
+    event_bounds(event)
     if "ability_use" in command:
         use = command["ability_use"]
+        if use and event.node_kind == WikiEvent.Kind.GROUP:
+            reject("GROUP_EFFECT", "Record ability use on an action or occurrence within the group.")
         event.ability = entry_for(wiki, use["ability_id"], WikiEntry.Kind.ABILITY) if use else None
         event.performed_by = _actor_for(wiki, use["actor_id"]) if use else None
     event.save()
+    check_event_tree(event)
+    if "cross_reference_ids" in command:
+        update_event_references(event, command["cross_reference_ids"])
     for field, role, kinds in EVENT_LINKS:
         if field not in command:
             continue
@@ -147,7 +159,8 @@ def _save_event_details(wiki, event, command):
 
 
 def _record_event(wiki, command):
-    event = WikiEvent(wiki=wiki, tick=command["tick"])
+    event = WikiEvent(wiki=wiki, tick=command["tick"], node_kind=command.get("node_kind", WikiEvent.Kind.OCCURRENCE))
+    attach_event(event, command.get("parent_id"))
     _save_event_details(wiki, event, command)
     affected = set()
     slots = set()
@@ -166,6 +179,13 @@ def _record_event(wiki, command):
     return event.pk, affected
 
 
+def _record_event_group(wiki, command):
+    event = WikiEvent(wiki=wiki, node_kind=WikiEvent.Kind.GROUP)
+    attach_event(event, command.get("parent_id"))
+    _save_event_details(wiki, event, command)
+    return event.pk, set()
+
+
 def _edit_event(wiki, command):
     event = _in_world(WikiEvent.objects.filter(wiki=wiki), command["event_id"])
     _save_event_details(wiki, event, command)
@@ -175,6 +195,8 @@ def _edit_event(wiki, command):
 def _correct_event_date(wiki, command):
     event = _in_world(WikiEvent.objects.filter(wiki=wiki), command["event_id"])
     tick = command["tick"]
+    if event.node_kind == WikiEvent.Kind.GROUP:
+        reject("GROUP_DATE", "Edit the group dates separately from its recorded actions.")
     records = list(
         WikiAssertion.objects.filter(entry__wiki=wiki).filter(Q(opened_by=event) | Q(closed_by=event))
     )
@@ -195,8 +217,15 @@ def _correct_event_date(wiki, command):
         if record.until_tick is not None and record.until_tick <= record.from_tick:
             reject("INTERVENING_BOUNDARY", "This date crosses another boundary on the timeline.")
     WikiAssertion.objects.bulk_update(records, ["from_tick", "until_tick"])
+    offset = tick - event.tick
+    if event.start_tick is not None:
+        event.start_tick += offset
+    if event.end_tick is not None:
+        event.end_tick += offset
     event.tick = tick
-    event.save(update_fields=["tick"])
+    event_bounds(event)
+    event.save(update_fields=["tick", "start_tick", "end_tick"])
+    check_event_tree(event)
     return event.pk, affected
 
 
@@ -302,13 +331,18 @@ OPERATIONS = {
     "record_fact": _record_fact,
     "correct_fact": _correct_fact,
     "record_event": _record_event,
+    "record_event_group": _record_event_group,
     "edit_event": _edit_event,
+    "organize_event": organize_event,
     "correct_event_date": _correct_event_date,
     "record_claim": _record_claim,
     "record_observation": _record_observation,
     "record_proposition": _save_proposition,
     "correct_proposition": _save_proposition,
     "set_calendar": _set_calendar,
+    "save_layout": save_layout,
+    "save_waypoint": save_waypoint,
+    "save_connection": save_connection,
     "record_learned_ability": _record_learned_ability,
     "correct_learned_ability": _correct_learned_ability,
 }

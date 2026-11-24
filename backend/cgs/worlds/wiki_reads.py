@@ -1,3 +1,5 @@
+from collections import Counter, deque
+
 from django.db import transaction
 from django.db.models import Prefetch, Q
 
@@ -8,7 +10,9 @@ from .models import (
     WikiAssertion, WikiClaim, WikiEntry, WikiEvent, WikiEventLink, WikiFinding,
     WikiLearnedAbility, WikiObservation, WikiWorld,
 )
-from .wiki import at_tick, can_edit, wiki_access
+from .wiki import at_tick, can_edit, value_slot, wiki_access
+from .wiki_events import event_bounds
+from .wiki_layouts import place_layout
 from .wiki_records import derived_age, effective_values, incoming_links, observation_visible, propositions_for
 from .wiki_schema import ACTORS, FIELDS
 
@@ -68,30 +72,77 @@ def _serialize_events(query):
     events = query.prefetch_related(
         Prefetch("links", queryset=WikiEventLink.objects.order_by("role", "entry__name", "entry_id")),
         Prefetch("opened_assertions", queryset=WikiAssertion.objects.order_by("entry__name", "field", "id")),
+        Prefetch("closed_assertions", queryset=WikiAssertion.objects.order_by("entry__name", "field", "id")),
+        "cross_references",
     ).order_by("tick", "id")
-    return [
-        {
+    records = []
+    for event in events:
+        bounds = event_bounds(event)
+        records.append({
             "id": str(event.pk), "name": event.name, "tick": event.tick,
             "source": event.source, "description": event.description,
+            "node_kind": event.node_kind, "parent_id": _id(event.parent_id), "sort_order": event.sort_order,
+            "start_tick": event.start_tick, "end_tick": event.end_tick,
+            "display_start": bounds[0] if bounds else None, "display_end": bounds[1] if bounds else None,
+            "cross_reference_ids": [str(target.pk) for target in event.cross_references.all()],
             "links": [{"entry_id": str(link.entry_id), "role": link.role} for link in event.links.all()],
             "ability_use": (
                 {"ability_id": str(event.ability_id), "actor_id": str(event.performed_by_id)}
                 if event.ability_id else None
             ),
-            "changes": [
-                {"entry_id": str(fact.entry_id), "field": fact.field, "value": fact.value}
-                for fact in event.opened_assertions.all()
-            ],
-        }
-        for event in events
-    ]
+            "changes": _event_effects(event),
+        })
+    _derive_group_dates(records)
+    return records
+
+
+def _effect_slot(fact):
+    return fact.entry_id, fact.field, *value_slot(fact.field, fact.qualifier_id, fact.value)
+
+
+def _event_effects(event):
+    closed = {_effect_slot(fact): fact for fact in event.closed_assertions.all()}
+    result = []
+    for fact in event.opened_assertions.all():
+        previous = closed.pop(_effect_slot(fact), None)
+        result.append({
+            "id": str(fact.pk), "entry_id": str(fact.entry_id), "field": fact.field,
+            "qualifier_id": _id(fact.qualifier_id), "value": fact.value,
+            "previous_value": previous.value if previous else None,
+        })
+    for fact in closed.values():
+        result.append({
+            "id": str(fact.pk), "entry_id": str(fact.entry_id), "field": fact.field,
+            "qualifier_id": _id(fact.qualifier_id), "value": None, "previous_value": fact.value,
+        })
+    return result
+
+
+def _derive_group_dates(records):
+    nodes = {node["id"]: node for node in records}
+    children = Counter(node["parent_id"] for node in records)
+    pending = deque(node for node in records if not children[node["id"]])
+    while pending:
+        node = pending.popleft()
+        parent = nodes.get(node["parent_id"])
+        if parent is None:
+            continue
+        if parent["start_tick"] is None and node["display_start"] is not None:
+            if parent["display_start"] is None:
+                parent["display_start"], parent["display_end"] = node["display_start"], node["display_end"]
+            else:
+                parent["display_start"] = min(parent["display_start"], node["display_start"])
+                parent["display_end"] = max(parent["display_end"], node["display_end"])
+        children[parent["id"]] -= 1
+        if children[parent["id"]] == 0:
+            pending.append(parent)
 
 
 def _place_contents(place, at):
     locations = at_tick(WikiAssertion.objects.filter(entry__wiki_id=place.wiki_id, field="located_in"), at)
     here = locations.filter(value=str(place.pk)).values("entry_id")
     elsewhere = locations.exclude(value=str(place.pk)).values("entry_id")
-    entries = WikiEntry.objects.filter(pk__in=here).exclude(pk__in=elsewhere).order_by("name", "id")
+    entries = WikiEntry.objects.filter(pk__in=here).exclude(pk__in=elsewhere).exclude(kind="group").order_by("name", "id")
     return [_describe_entry(item, author=True) for item in entries]
 
 
@@ -133,7 +184,13 @@ def _author_article(entry, at):
         article["learned_abilities"] = _learned_abilities(entry, at)
         article["age_years"] = derived_age(entry, values, at)
     if entry.kind == WikiEntry.Kind.PLACE:
-        article["contents"] = _place_contents(entry, at)
+        contents = _place_contents(entry, at)
+        article["contents"] = contents
+        article["parts"] = [item for item in contents if item["kind"] == "place"]
+        article["occupants"] = [item for item in contents if item["kind"] != "place"]
+        article["layout"] = place_layout(entry, at)
+    if entry.kind == WikiEntry.Kind.GROUP:
+        article["legacy_location_review"] = any(fact.field == "located_in" for fact in facts)
     return article
 
 

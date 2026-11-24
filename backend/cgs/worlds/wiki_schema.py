@@ -138,14 +138,16 @@ FIELDS = {
 }
 
 
-class ExactClock(serializers.IntegerField):
-    def __init__(self, **kwargs):
-        super().__init__(min_value=0, max_value=MAX_CLOCK, **kwargs)
-
+class ExactInteger(serializers.IntegerField):
     def to_internal_value(self, data):
         if type(data) is not int:
             self.fail("invalid")
         return super().to_internal_value(data)
+
+
+class ExactClock(ExactInteger):
+    def __init__(self, **kwargs):
+        super().__init__(min_value=0, max_value=MAX_CLOCK, **kwargs)
 
 
 class WikiRef(serializers.UUIDField):
@@ -214,6 +216,9 @@ class EventDetails(StrictSerializer):
     place_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     item_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     ability_use = AbilityUse(allow_null=True, required=False)
+    start_tick = ExactClock(allow_null=True, required=False)
+    end_tick = ExactClock(allow_null=True, required=False)
+    cross_reference_ids = serializers.ListField(child=WikiRef(), required=False)
 
 
 class EventChange(StateValue):
@@ -226,11 +231,25 @@ class RecordEvent(EventDetails):
     tick = ExactClock()
     source = TextField(max_length=500, allow_blank=True, default="")
     changes = EventChange(many=True, required=False, max_length=40)
+    parent_id = WikiRef(allow_null=True, required=False)
+    node_kind = serializers.ChoiceField(choices=("occurrence", "action"), required=False)
+
+
+class RecordEventGroup(EventDetails):
+    op = serializers.ChoiceField(choices=("record_event_group",))
+    parent_id = WikiRef(allow_null=True, required=False)
 
 
 class EditEvent(EventDetails):
     op = serializers.ChoiceField(choices=("edit_event",))
     event_id = WikiRef()
+
+
+class OrganizeEvent(StrictSerializer):
+    op = serializers.ChoiceField(choices=("organize_event",))
+    event_id = WikiRef()
+    parent_id = WikiRef(allow_null=True)
+    position = ExactClock(required=False)
 
 
 class RecordLearnedAbility(StrictSerializer):
@@ -290,19 +309,61 @@ class SetCalendar(StrictSerializer):
     days_per_year = serializers.IntegerField(allow_null=True, min_value=1, max_value=1_000_000)
 
 
+class SaveLayout(StrictSerializer):
+    op = serializers.ChoiceField(choices=("save_layout",))
+    place_id = WikiRef()
+    name = TextField(max_length=100)
+    from_tick = ExactClock()
+    left_cm = ExactInteger(min_value=-MAX_CLOCK, max_value=MAX_CLOCK)
+    top_cm = ExactInteger(min_value=-MAX_CLOCK, max_value=MAX_CLOCK)
+    width_cm = ExactInteger(min_value=1, max_value=MAX_CLOCK)
+    height_cm = ExactInteger(min_value=1, max_value=MAX_CLOCK)
+
+
+class SaveWaypoint(StrictSerializer):
+    op = serializers.ChoiceField(choices=("save_waypoint",))
+    place_id = WikiRef()
+    name = TextField(max_length=100)
+    from_tick = ExactClock()
+    point_id = WikiRef(required=False)
+    x_cm = ExactInteger(min_value=-MAX_CLOCK, max_value=MAX_CLOCK)
+    y_cm = ExactInteger(min_value=-MAX_CLOCK, max_value=MAX_CLOCK)
+
+
+class SaveConnection(StrictSerializer):
+    op = serializers.ChoiceField(choices=("save_connection",))
+    connection_id = WikiRef(required=False)
+    name = TextField(max_length=100)
+    from_place = WikiRef()
+    from_point = WikiRef()
+    to_place = WikiRef()
+    to_point = WikiRef()
+    from_tick = ExactClock()
+    until_tick = ExactClock(allow_null=True, default=None)
+    bidirectional = serializers.BooleanField(default=True)
+    length_cm = ExactClock(allow_null=True, default=None)
+    description = TextField(max_length=500, allow_blank=True, default="")
+    source = TextField(max_length=500, allow_blank=True, default="")
+
+
 COMMANDS = {
     "create_entry": CreateEntry,
     "rename_entry": RenameEntry,
     "record_fact": RecordFact,
     "correct_fact": CorrectFact,
     "record_event": RecordEvent,
+    "record_event_group": RecordEventGroup,
     "edit_event": EditEvent,
+    "organize_event": OrganizeEvent,
     "correct_event_date": CorrectEvent,
     "record_claim": RecordClaim,
     "record_observation": RecordObservation,
     "record_proposition": RecordProposition,
     "correct_proposition": CorrectProposition,
     "set_calendar": SetCalendar,
+    "save_layout": SaveLayout,
+    "save_waypoint": SaveWaypoint,
+    "save_connection": SaveConnection,
     "record_learned_ability": RecordLearnedAbility,
     "correct_learned_ability": CorrectLearnedAbility,
 }

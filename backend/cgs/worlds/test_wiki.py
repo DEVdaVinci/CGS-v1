@@ -144,6 +144,92 @@ class WikiTests(TransactionTestCase):
         self.assertEqual(self.article(mira)["incoming_links"][0]["entry_id"], goal)
         self.assertEqual(self.article(goal)["propositions"][0]["kind"], "desired_state")
 
+    def test_measured_connections_and_occupants_read_at_the_requested_time(self):
+        hall = self.entry("Harbor Hall")
+        landing = self.entry("Landing")
+        corridor = self.entry("Corridor")
+        mira = self.entry("Mira", "person")
+        group = self.entry("Watch", "group")
+        ankle = self.entry("Ankle", "body_part")
+        self.fact(landing, "located_in", hall)
+        self.fact(corridor, "located_in", hall)
+        self.fact(mira, "located_in", landing)
+        self.fact(mira, "residence", hall)
+        self.fact(mira, "destination", corridor)
+        self.fact(group, "located_in", landing)
+        self.assertTrue(self.article(group)["legacy_location_review"])
+        self.assertEqual([entry["id"] for entry in self.article(landing)["occupants"]], [mira])
+        self.assertEqual({entry["id"] for entry in self.article(hall)["parts"]}, {landing, corridor})
+        for place, name in ((landing, "Upper plan"), (corridor, "Corridor plan")):
+            self.apply({
+                "op": "save_layout", "place_id": place, "name": name, "from_tick": 0,
+                "left_cm": -100, "top_cm": 0, "width_cm": 500, "height_cm": 300,
+            })
+        first = self.apply({"op": "save_waypoint", "place_id": landing, "name": "Landing door",
+                            "x_cm": 125, "y_cm": 150, "from_tick": 0})
+        last = self.apply({"op": "save_waypoint", "place_id": corridor, "name": "Entry",
+                           "x_cm": 0, "y_cm": 150, "from_tick": 3})
+        route = {"op": "save_connection", "name": "Linked doors", "from_place": landing, "from_point": first,
+                 "to_place": corridor, "to_point": last, "from_tick": 3, "length_cm": 250}
+        self.assertEqual(self.post({**route, "from_tick": 2}).status_code, 422)
+        connection = self.apply(route)
+        self.assertEqual(self.article(landing, 2)["layout"]["connections"], [])
+        self.assertEqual(self.article(corridor, 3)["layout"]["connections"][0]["id"], connection)
+        misplaced = self.post({"op": "save_waypoint", "place_id": landing, "point_id": first, "name": "Door",
+                              "x_cm": 999, "y_cm": 150, "from_tick": 4})
+        self.assertEqual(misplaced.json()["field_errors"][0]["code"], "WAYPOINT_BOUNDS")
+        moved = self.apply({"op": "save_waypoint", "place_id": landing, "point_id": first, "name": "Door",
+                            "x_cm": 250, "y_cm": 150, "from_tick": 4})
+        self.assertEqual(moved, first)
+        self.assertEqual(self.article(landing, 3)["layout"]["frame"]["points"][0]["x_cm"], 125)
+        self.assertEqual(self.article(landing, 4)["layout"]["frame"]["points"][0]["x_cm"], 250)
+        event = self.apply({"op": "record_event", "name": "Move and stumble", "tick": 10, "changes": [
+            {"entry_id": mira, "field": "located_in", "value": corridor},
+            {"entry_id": mira, "field": "condition", "qualifier_id": ankle, "value": "Sprained"},
+        ]})
+        self.assertEqual(self.values(mira, 9)["located_in"], landing)
+        self.assertEqual(self.values(mira, 10)["condition"], "Sprained")
+        changes = self.article(mira, 10)["events"][0]["changes"]
+        self.assertEqual({c["field"]: c["previous_value"] for c in changes}, {"located_in": landing, "condition": None})
+        self.apply({"op": "correct_event_date", "event_id": event, "tick": 11})
+        self.assertEqual(self.article(corridor, 10)["occupants"], [])
+        self.assertEqual(self.values(mira, 11)["condition"], "Sprained")
+        cycle = self.post({"op": "record_fact", "entry_id": hall, "field": "located_in", "value": landing, "from_tick": 4})
+        self.assertEqual(cycle.json()["field_errors"][0]["code"], "RELATIONSHIP_CYCLE")
+        self.assertNotIn("layout", self.article(landing, 10, observer=mira))
+
+    def test_nested_events_keep_independent_order_dates_and_effects(self):
+        mira = self.entry("Mira", "person")
+        milk = self.entry("Milk", "item")
+        self.fact(milk, "status", "On shelf")
+        trip = self.apply({"op": "record_event_group", "name": "Grocery trip", "start_tick": 0, "end_tick": 30})
+        arrival = self.apply({"op": "record_event_group", "parent_id": trip, "name": "Arrival"})
+        dairy = self.apply({"op": "record_event_group", "parent_id": trip, "name": "Dairy"})
+        help_group = self.apply({"op": "record_event_group", "parent_id": dairy, "name": "Ask for help"})
+        before = self.apply({"op": "record_event", "parent_id": help_group, "node_kind": "action",
+                             "name": "Clerk points", "tick": 12, "participant_ids": [mira]})
+        cart = self.apply({"op": "record_event", "parent_id": dairy, "node_kind": "action", "name": "Milk in cart",
+                           "tick": 12, "changes": [{"entry_id": milk, "field": "status", "value": "In cart"}]})
+        self.apply({"op": "edit_event", "event_id": arrival, "name": "Arrival", "cross_reference_ids": [cart]})
+        self.apply({"op": "organize_event", "event_id": cart, "parent_id": help_group, "position": 0})
+        cycle = self.post({"op": "organize_event", "event_id": trip, "parent_id": help_group})
+        self.assertEqual(cycle.json()["field_errors"][0]["code"], "EVENT_CYCLE")
+        out_of_range = self.post({"op": "correct_event_date", "event_id": cart, "tick": 32})
+        self.assertEqual(out_of_range.json()["field_errors"][0]["code"], "EVENT_OUTSIDE_PARENT")
+        timeline = self.browser.get(self.path + "/timeline", {"at": 12}).json()["timeline"]
+        records = {event["id"]: event for event in timeline}
+        self.assertEqual(records[cart]["parent_id"], help_group)
+        self.assertEqual(records[cart]["sort_order"], 0)
+        self.assertEqual(records[before]["sort_order"], 1)
+        self.assertEqual(records[arrival]["cross_reference_ids"], [cart])
+        self.assertEqual(records[dairy]["display_start"], 12)
+        self.assertEqual(records[cart]["changes"][0]["previous_value"], "On shelf")
+        self.assertEqual({event["id"] for event in timeline if event["tick"] == 12}, {cart, before})
+        self.assertEqual(self.values(milk, 11)["status"], "On shelf")
+        self.assertEqual(self.values(milk, 12)["status"], "In cart")
+        restricted = self.browser.get(self.path + "/timeline", {"at": 12, "view_as": mira}).json()
+        self.assertEqual(restricted["timeline"], [])
+
     def test_dated_truth_and_scoped_evidence_stay_distinct_through_corrections(self):
         gate = self.entry("Cedar Gate")
         mira = self.entry("Mira", "person")

@@ -37,10 +37,16 @@ export type WikiObservation = {
 type AbilityUse = { ability_id: string; actor_id: string }
 
 export type WikiEvent = {
-  id: string; name: string; tick: number; source: string; description: string
+  id: string; name: string; tick: number | null; source: string; description: string
+  node_kind: 'group' | 'occurrence' | 'action'; parent_id: string | null; sort_order: number
+  start_tick: number | null; end_tick: number | null; display_start: number | null; display_end: number | null
+  cross_reference_ids: string[]
   links: { entry_id: string; role: 'participant' | 'place' | 'item' }[]
   ability_use: AbilityUse | null
-  changes: { entry_id: string; field: string; value: WikiValue }[]
+  changes: {
+    id: string; entry_id: string; field: string; value: WikiValue | null; previous_value: WikiValue | null
+    qualifier_id: string | null
+  }[]
 }
 
 export type WikiLearnedAbility = { id: string; ability_id: string; learned_at: number; source: string }
@@ -60,6 +66,19 @@ export type WikiProposition = {
   field: string; value: WikiValue; qualifier_id: string | null; from_tick: number; until_tick: number | null
   about_tick: number | null; evidence_id: string | null; source: string; author_only: boolean
 }
+export type WikiWaypoint = { id: string; name: string; x_cm: number; y_cm: number }
+export type WikiBounds = { left_cm: number; top_cm: number; width_cm: number; height_cm: number }
+export type WikiLayoutFrame = {
+  id: string; place_id: string; name: string; from_tick: number; points: WikiWaypoint[]
+} & WikiBounds
+export type WikiConnection = {
+  id: string; name: string; from_place: string; from_point: string; to_place: string; to_point: string
+  from_tick: number; until_tick: number | null; bidirectional: boolean; length_cm: number | null
+  description: string; source: string
+}
+export type WikiPlaceLayout = {
+  frame: WikiLayoutFrame | null; available: WikiLayoutFrame[]; connections: WikiConnection[]
+}
 export type WikiArticle = {
   entry: WikiEntry
   values?: WikiEffectiveValue[]
@@ -68,6 +87,10 @@ export type WikiArticle = {
   events?: WikiEvent[]
   learned_abilities?: WikiLearnedAbility[]
   contents?: WikiEntry[]
+  parts?: WikiEntry[]
+  occupants?: WikiEntry[]
+  layout?: WikiPlaceLayout
+  legacy_location_review?: boolean
   observations: WikiObservation[]
   findings?: WikiFinding[]
   incoming_links?: WikiLinkedFact[]
@@ -91,14 +114,18 @@ type EventChange = FieldChange & { mode?: 'set' | 'add' | 'end'; source?: string
 type EventDetails = {
   name: string; source: string; description: string; ability_use: AbilityUse | null
   participant_ids: string[]; place_ids: string[]; item_ids: string[]
+  start_tick?: number | null; end_tick?: number | null
+  cross_reference_ids?: string[]
 }
 export type WikiCommand =
   | { op: 'create_entry'; name: string; kind: WikiKind; author_only: boolean; initial_at?: number; initial_values?: TypedValue[] }
   | { op: 'rename_entry'; entry_id: string; name: string }
   | ({ op: 'record_fact'; from_tick: number; until_tick: number | null; source: string } & FieldChange)
   | { op: 'correct_fact'; assertion_id: string; value: WikiValue; source?: string; author_only?: boolean }
-  | ({ op: 'record_event'; tick: number; changes: EventChange[] } & EventDetails)
+  | ({ op: 'record_event'; tick: number; changes: EventChange[]; parent_id?: string; node_kind?: 'action' | 'occurrence' } & EventDetails)
+  | ({ op: 'record_event_group'; parent_id?: string } & EventDetails)
   | ({ op: 'edit_event'; event_id: string } & EventDetails)
+  | { op: 'organize_event'; event_id: string; parent_id: string | null; position?: number }
   | { op: 'correct_event_date'; event_id: string; tick: number }
   | ({ op: 'record_claim'; speaker_id: string; tick: number; source: string } & FieldChange)
   | { op: 'record_observation'; observer_id: string; source_id: string; source_kind: 'assertion' | 'claim'; learned_at: number; about_tick?: number }
@@ -107,6 +134,9 @@ export type WikiCommand =
     evidence_id: string | null; source: string
   } & FieldChange & ({ op: 'record_proposition' } | { op: 'correct_proposition'; proposition_id: string }))
   | { op: 'set_calendar'; days_per_year: number | null }
+  | ({ op: 'save_layout'; place_id: string; name: string; from_tick: number } & WikiBounds)
+  | { op: 'save_waypoint'; place_id: string; point_id?: string; from_tick: number; name: string; x_cm: number; y_cm: number }
+  | ({ op: 'save_connection'; connection_id?: string } & Omit<WikiConnection, 'id'>)
   | { op: 'record_learned_ability'; character_id: string; ability_id: string; learned_at: number; source: string }
   | { op: 'correct_learned_ability'; learned_ability_id: string; learned_at: number; source: string }
 

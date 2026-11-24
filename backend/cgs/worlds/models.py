@@ -191,11 +191,67 @@ class WikiEntry(CreatedRecord):
         indexes = [models.Index(fields=["wiki", "name", "id"], name="wiki_entry_directory")]
 
 
+class WikiLayout(CreatedRecord):
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    place = models.OneToOneField(WikiEntry, on_delete=models.RESTRICT, related_name="wiki_layout")
+
+
+class WikiLayoutFrame(CreatedRecord):
+    layout = models.ForeignKey(WikiLayout, on_delete=models.RESTRICT, related_name="frames")
+    from_tick = models.PositiveBigIntegerField()
+    name = models.CharField(max_length=100)
+    left_cm = models.BigIntegerField()
+    top_cm = models.BigIntegerField()
+    width_cm = models.PositiveBigIntegerField()
+    height_cm = models.PositiveBigIntegerField()
+    points = models.JSONField(default=list)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["layout", "from_tick"], name="wiki_layout_unique_time"),
+            models.CheckConstraint(condition=Q(width_cm__gt=0, height_cm__gt=0), name="wiki_layout_positive_bounds"),
+        ]
+
+
+class WikiConnection(CreatedRecord):
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    from_layout = models.ForeignKey(WikiLayout, on_delete=models.RESTRICT, related_name="outgoing_connections")
+    from_point = models.UUIDField()
+    to_layout = models.ForeignKey(WikiLayout, on_delete=models.RESTRICT, related_name="incoming_connections")
+    to_point = models.UUIDField()
+    name = models.CharField(max_length=100)
+    description = models.CharField(max_length=500, blank=True)
+    source = models.CharField(max_length=500, blank=True)
+    bidirectional = models.BooleanField(default=True)
+    length_cm = models.PositiveBigIntegerField(null=True)
+    from_tick = models.PositiveBigIntegerField()
+    until_tick = models.PositiveBigIntegerField(null=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(until_tick__isnull=True) | Q(until_tick__gt=F("from_tick")),
+                name="wiki_connection_interval",
+            ),
+        ]
+
+
 class WikiEvent(CreatedRecord):
+    class Kind(models.TextChoices):
+        OCCURRENCE = "occurrence", "Occurrence"
+        GROUP = "group", "Event group"
+        ACTION = "action", "Recorded action"
+
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     wiki = models.ForeignKey(WikiWorld, on_delete=models.RESTRICT)
     name = models.CharField(max_length=120)
-    tick = models.PositiveBigIntegerField()
+    tick = models.PositiveBigIntegerField(null=True)
+    node_kind = models.CharField(max_length=12, choices=Kind, default=Kind.OCCURRENCE)
+    parent = models.ForeignKey("self", on_delete=models.RESTRICT, null=True, related_name="children")
+    sort_order = models.PositiveBigIntegerField(default=0)
+    start_tick = models.PositiveBigIntegerField(null=True)
+    end_tick = models.PositiveBigIntegerField(null=True)
+    cross_references = models.ManyToManyField("self", symmetrical=False, related_name="mentioned_by", blank=True)
     source = models.CharField(max_length=500, blank=True)
     description = models.CharField(max_length=1500, blank=True, default="")
     ability = models.ForeignKey(
@@ -206,13 +262,22 @@ class WikiEvent(CreatedRecord):
     )
 
     class Meta:
-        indexes = [models.Index(fields=["wiki", "tick", "id"], name="wiki_event_timeline")]
+        indexes = [
+            models.Index(fields=["wiki", "tick", "id"], name="wiki_event_timeline"),
+            models.Index(fields=["wiki", "parent", "sort_order", "id"], name="wiki_event_outline"),
+        ]
         constraints = [
             models.CheckConstraint(
                 condition=(Q(ability__isnull=True, performed_by__isnull=True)
                            | Q(ability__isnull=False, performed_by__isnull=False)),
                 name="wiki_event_ability_actor_pair",
             ),
+            models.CheckConstraint(
+                condition=(Q(node_kind="group", tick__isnull=True, ability__isnull=True)
+                           | (~Q(node_kind="group") & Q(tick__isnull=False))),
+                name="wiki_event_kind_clock",
+            ),
+            models.CheckConstraint(condition=~Q(id=F("parent")), name="wiki_event_no_self_parent"),
         ]
 
 

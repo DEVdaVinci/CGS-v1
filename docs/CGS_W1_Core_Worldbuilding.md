@@ -18,7 +18,7 @@ W1 represents what may later drive decisions, including goals, knowledge, belief
 
 ### Baseline recheck
 
-The current backend passed 33 Django tests against disposable PostgreSQL 17. The current browser suite passed all 11 tests against the existing app image and a second disposable database. The browser run used the same static-asset setting as the normal development Compose app. These results establish the starting behavior for W1. The W1 implementation and upgrade checks remain open.
+The pre-W1 backend passed 33 Django tests against disposable PostgreSQL 17. Its browser suite passed all 11 tests against the baseline app image and a second disposable database. The browser run used the same static-asset setting as the normal development Compose app. These results establish the starting behavior for W1.
 
 ## Source concepts and browser deliverables
 
@@ -53,7 +53,7 @@ Use **Characters → New character** and **New entry → Character** as two rout
 
 | Decision | Meaning in W1 |
 | --- | --- |
-| Records and depth | Use a single world-scoped identity and an optional parent link for each timeline node. An **event group** is a container and can have child groups, recorded actions, or other occurrences. A recorded action or occurrence is a leaf and can also stand alone at the top level. Groups have names, sources, notes, and optional links to people, places or items. A group can be empty while the author outlines it. Depth follows the content. The browser loads and expands branches as needed. |
+| Records and depth | Use a single world-scoped identity and an optional parent link for each timeline node. An **event group** is a container and can have child groups, recorded actions, or other occurrences. A recorded action or occurrence is a leaf and can also stand alone at the top level. Groups have names, sources, notes, and optional links to people, places or items. A group can be empty while the author outlines it. Depth follows the content. The browser renders branches as they are expanded from one scoped timeline response. |
 | Organization and references | Each node has at most one structural parent. A leaf can link to several people or places, and another group can cross-reference the same leaf by ID. A cross-reference opens the original record and does not copy it or its effects. The outline can express stages of an errand or parallel theaters of a larger event. Sibling order is author-controlled for reading. |
 | Chronology | A dated leaf has a start and an optional end. Its effective tick controls any state changes, defaults to the start, and must fall within the recorded span. An author can give a group an enclosing start and end, or let it show the span of its dated descendants. Undated groups without dated descendants show as unscheduled. An explicitly dated group accepts children within its bounds, and parallel branches can overlap. The chronology view sorts dated leaves by world time independently of outline order. A simultaneous tick has no implied causal order. |
 | State and correction | Groups organize and summarize. A dated leaf owns any explicitly saved effects, including multiple changes at one tick. A leaf can also record participation without changing state. Grouping, reordering and reparenting preserve leaf IDs, dates and effects. Child dates change only through explicit corrections. To decompose a legacy occurrence with effects, make a group around the original leaf so existing links still land on the same record. W2 defines reusable actions and rule checks, and P2 interprets them in play. |
@@ -135,3 +135,13 @@ Use the existing React, Django/DRF and PostgreSQL stack. Keep the normal Docker 
 3. **Invalid moves and scope.** Attempt to move an ancestor beneath its descendant, use a parent in a different world, and place a child outside a group's authored range. Confirm each fails with a useful explanation and the prior tree and state are intact. A restricted read must withhold inaccessible branch names, links, and counts. Check the expandable outline with the keyboard.
 
 At each report include the check ID, its outcome and evidence, the tested build, and where to try the result. W1 remains open until all required results are verified. The implementation work starts with Pass A.
+
+## Delivery evidence
+
+- **W1-01** — The source map and W1 architecture page match the authoring boundaries. Related records use the existing dated assertion store, with a typed field, matching target kinds, and a qualifier when a link or value needs extra context.
+- **W1-02 and W1-05** — PostgreSQL and browser checks exercised calendar-based age, optional dates, inherited and overriding values, qualified amounts, ownership and possession, authored goals, beliefs, and scoped observations. The false report remained distinct from canon.
+- **W1-03** — The browser created and reopened measured place layouts and linked named waypoints. The PostgreSQL checks verified effective dates, waypoint bounds, distinct parts and occupancy, and rejection of active containment cycles.
+- **W1-04** — Browser tests verified nested groups and recorded actions, concurrent branches, same-time grouping, place filtering, stable links, and keyboard expansion. Backend tests verified before-and-after values, atomic retiming, reparenting, and rejection of invalid moves.
+- **W1-06** — The upgrade rehearsal applied both W1 migrations to a disposable copy of the working app database. Fingerprints of the original values in all 17 inventoried CGS tables matched. Existing owner-scoped Wiki article and timeline reads succeeded.
+
+The final code passed 38 PostgreSQL-backed tests and 14 browser tests. Django's migration check and the TypeScript and Vite build passed. The browser walkthrough uses a single measured plan per place and one scoped timeline response. W5 includes workload checks for larger worlds.

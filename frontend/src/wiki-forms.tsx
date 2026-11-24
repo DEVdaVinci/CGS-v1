@@ -98,7 +98,7 @@ export function TimeInput({ label, name, day, optional = false }: { label: strin
 export function EntryPicker({
   name, label, entries, initial, required = true, onChange,
 }: {
-  name?: string; label: string; entries: WikiEntry[]; initial?: string
+  name?: string; label: string; entries: Pick<WikiEntry, 'id' | 'name'>[]; initial?: string
   required?: boolean; onChange?: (id: string) => void
 }) {
   const [filter, setFilter] = useState('')
@@ -181,7 +181,7 @@ function QualifierInput({ field, entries, name, initial }: {
     initial={initial ?? undefined} />
 }
 
-function optionalTime(values: FormData, name: string) {
+export function optionalTime(values: FormData, name: string) {
   const value = values.get(name)
   return value ? Number(value) : null
 }
@@ -254,7 +254,7 @@ function CanonicalForm({ mode, fact, initialField, entry, fields, entries, at, .
 }
 
 export function EventLinks({ label, name, entries, initial }: {
-  label: string; name: string; entries: WikiEntry[]; initial: string[]
+  label: string; name: string; entries: Pick<WikiEntry, 'id' | 'name'>[]; initial: string[]
 }) {
   const [filter, setFilter] = useState('')
   const [selected, setSelected] = useState(initial)
@@ -280,13 +280,13 @@ export function EventLinks({ label, name, entries, initial }: {
   )
 }
 
-export function WikiEventForm({ entry, fields, entries, at, event, ...actions }: Omit<EntryFormProps, 'entry'> & {
-  entry?: WikiEntry; event?: WikiEvent
+export function WikiEventForm({ entry, fields, entries, at, event, parents = [], parentId, action, ...actions }: Omit<EntryFormProps, 'entry'> & {
+  entry?: WikiEntry; event?: WikiEvent; parents?: WikiEvent[]; parentId?: string; action?: boolean
 }) {
   const [rows, setRows] = useState(entry ? [{ id: 0, entryId: entry.id, field: 'status' }] : [])
   const [nextId, setNextId] = useState(1)
   const [ability, setAbility] = useState(event?.ability_use?.ability_id ?? '')
-  const title = event ? 'Edit event details' : entry ? 'Record dated change' : 'New event'
+  const title = event ? 'Edit event details' : entry ? 'Record dated change' : action ? 'Record action' : 'New event'
   const fieldsFor = (id: string) => fields.filter((field) => {
     const kind = entries.find((item) => item.id === id)?.kind
     return kind !== undefined && field.kinds.includes(kind)
@@ -301,6 +301,7 @@ export function WikiEventForm({ entry, fields, entries, at, event, ...actions }:
       participant_ids: values.getAll('participants').map(String),
       place_ids: values.getAll('places').map(String), item_ids: values.getAll('items').map(String),
       ability_use: ability ? { ability_id: ability, actor_id: String(values.get('actor_id')) } : null,
+      start_tick: optionalTime(values, 'start_tick'), end_tick: optionalTime(values, 'end_tick'),
     }
     if (event) {
       actions.onSave({ ...details, op: 'edit_event', event_id: event.id })
@@ -315,7 +316,11 @@ export function WikiEventForm({ entry, fields, entries, at, event, ...actions }:
           ...(qualifier ? { qualifier_id: qualifier } : {}),
         }
       })
-      actions.onSave({ ...details, op: 'record_event', tick: Number(values.get('tick')), changes })
+      const parent = parents.length ? String(values.get('parent_id') ?? '') : parentId
+      actions.onSave({
+        ...details, op: 'record_event', tick: Number(values.get('tick')), changes,
+        ...(parent ? { parent_id: parent } : {}), ...(action ? { node_kind: 'action' } : {}),
+      })
     }
   }
   return (
@@ -325,6 +330,15 @@ export function WikiEventForm({ entry, fields, entries, at, event, ...actions }:
         <label className="field">Event name<input name="name" maxLength={120} defaultValue={event?.name} required /></label>
         {event ? <p className="muted">Time {event.tick}</p> : <TimeInput name="tick" label="Event time" day={at} />}
       </div>
+      {!event && parents.length > 0 && <EntryPicker name="parent_id" label="Parent event (optional)"
+        entries={parents} initial={parentId} required={false} />}
+      <details className="wiki-event-options" open={event?.start_tick != null || event?.end_tick != null}>
+        <summary>Event duration</summary>
+        <div className="wiki-form-row">
+          <TimeInput name="start_tick" label="Start time (optional)" day={event?.start_tick ?? undefined} optional />
+          <TimeInput name="end_tick" label="End time (optional)" day={event?.end_tick ?? undefined} optional />
+        </div>
+      </details>
       <label className="field">What happened<textarea name="description" rows={3} maxLength={1500} defaultValue={event?.description} /></label>
       <details className="wiki-event-options" open={!entry || Boolean(event)}>
         <summary>Participants, places, and items</summary>
@@ -393,7 +407,7 @@ export function WikiEventForm({ entry, fields, entries, at, event, ...actions }:
         }}>{rows.length ? 'Add another change' : 'Add a state change'}</button>
       )}
       <label className="field">Source (optional)<input name="source" maxLength={500} defaultValue={event?.source} /></label>
-      <Actions {...actions} submit={event ? 'Save event details' : entry ? 'Save dated change' : 'Save event'} />
+      <Actions {...actions} submit={event ? 'Save event details' : entry ? 'Save dated change' : action ? 'Save action' : 'Save event'} />
     </form>
   )
 }
@@ -423,7 +437,7 @@ export function WikiEvidenceForm({ edit, entries, at, ...actions }: FormActions 
       )}
       <TimeInput
         name="tick" label={date ? 'Corrected event time' : 'Learned at'}
-        day={edit.kind === 'correct-date' ? edit.event.tick : Math.max(at, 'from_tick' in edit.source ? edit.source.from_tick : edit.source.tick)}
+        day={edit.kind === 'correct-date' ? edit.event.tick ?? undefined : Math.max(at, 'from_tick' in edit.source ? edit.source.from_tick : edit.source.tick)}
       />
       {edit.kind === 'observe' && <TimeInput name="about_tick" label="About time (optional)" optional />}
       <Actions {...actions} submit={date ? 'Save corrected date' : 'Save observation'} />

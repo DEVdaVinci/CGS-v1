@@ -17,7 +17,7 @@ docker compose exec api python manage.py createsuperuser
 
 Open [CGS](http://127.0.0.1:8000/), sign in, and select **Create world**. Open a world and select **Edit draft**.
 
-Select **Open Wiki** on the world page. Use **Characters** and **Places** to create and browse articles, and **Library** to create class, ability, item, and group records. Link a character to a class and a starting location, or link a room to its parent building. In **Timeline**, create events with participants, places, items, and optional dated changes. You can follow an event link to an article at that event's time. Use **View as** to preview what a character had learned. The Wiki uses its own records alongside the dungeon draft.
+Select **Open Wiki** on the world page. Use **Characters** to create profiles, relationships, goals, condition, possessions, and beliefs. Use **Library** for reusable records such as species, classes, roles, and resources. In **Places**, link parts and occupants, then open **Layout** to set measured bounds, waypoints, and connections. In **Timeline**, start with **New group** to organize segments and recorded actions, or choose **New event** for a standalone occurrence. Switch between **Outline** and **Chronology** to inspect the same dated records and their changes. Use **View as** to preview a character's recorded knowledge. The Wiki uses its own records alongside the dungeon draft.
 
 1. In **Entries**, create places, roles, characters, and items and link the related records.
 2. In **Layout & facts**, stage room bounds, points, paths, and facts. Select **Save layout and facts** to save the group. A secret path and its revealing fact can go in the same group.

@@ -2,7 +2,7 @@
 
 [Read the quick reference](CGS_Milestones_Quick_Reference.md)
 
-**Current position** — The working foundation is verified. Core worldbuilding is open. The last implementation proved dated character, place, and event authoring with a small record set. This plan makes the remaining core coverage part of W1 and gives the complete Wiki, the event engine, and the first playable tabletop release their own finish lines.
+**Current position** — The working foundation and W1 core worldbuilding are verified. W2 is the next milestone. The complete Wiki, the event engine, and the first playable tabletop release each have their own finish lines.
 
 ## How to read a completion report
 
@@ -42,7 +42,7 @@ Author-facing revision browsing, branching, and restoration are scheduled after 
 
 The [W1 implementation plan](CGS_W1_Core_Worldbuilding.md) contains the source trace, record and browser contracts, build order, and verification cases for this milestone.
 
-**Status and finish line** — Open and next. At completion, the core character, place, and timeline workflows are usable end to end, including structured fields and relationships that later systems will read. W2 expands meaning and validation for powers, actions, and institutional rules. W3 finishes the remaining domain catalog and discovery tools.
+**Status and finish line** — Implemented and verified. Authors can use the core character, place, and timeline workflows end to end, including structured fields and relationships that later systems will read. W2 expands meaning and validation for powers, actions, and institutional rules. W3 finishes the remaining domain catalog and discovery tools.
 
 **What you will see in the browser**
 
