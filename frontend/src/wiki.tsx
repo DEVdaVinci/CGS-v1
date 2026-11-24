@@ -6,6 +6,7 @@ import {
   type WikiLocation, type WikiSection, type WikiValue, type WikiView,
 } from './wiki-api'
 import { kindLabel, type ArticleEdit, WikiCalendarForm, WikiEditForm, WikiEntryForm, WikiEventForm, WikiEvidenceForm } from './wiki-forms'
+import { formatDistribution } from './wiki-distribution'
 import { WikiGroupForm, WikiOrganizeForm } from './wiki-event-outline'
 import { isLayoutEdit, WikiLayoutForm, WikiLayoutPanel, type LayoutEdit } from './wiki-layout'
 import { WikiTimeline, type TimelineEdit } from './wiki-timeline'
@@ -67,6 +68,7 @@ function EntryReference({ id, view, openEntry, navigationLocked }: Display & { i
 
 function ValueText({ field, value, ...display }: Display & { field: string; value: WikiValue }) {
   const definition = display.view.fields.find((item) => item.key === field)
+  if (definition?.value_kind === 'distribution') return <span>{formatDistribution(value)}</span>
   return definition?.target_kinds.length && typeof value === 'string' ? <EntryReference {...display} id={value} /> : <span>{value}</span>
 }
 
@@ -150,8 +152,8 @@ function Article({ article, display, onEdit, onTimeline, onGoal, onLayoutEdit }:
   const edit = display.navigationLocked ? undefined : onEdit
   const values = (article.values ?? []).filter((item) => item.state !== 'unknown' || item.field === 'death_tick')
   const summary = values.find((item) => item.field === 'description')
-  const placeType = values.find((item) => item.field === 'place_type')
-  const articleKind = placeType?.state === 'value' ? placeType.value : kindLabel[article.entry.kind]
+  const specificType = values.find((item) => ['place_type', 'group_type', 'item_type', 'ability_type'].includes(item.field))
+  const articleKind = specificType?.state === 'value' ? specificType.value : kindLabel[article.entry.kind]
   const facts = values.filter((item) => item.state === 'conflict' || (
     item.field !== 'description' && item.field !== 'place_type'
   ))
@@ -328,7 +330,9 @@ function Article({ article, display, onEdit, onTimeline, onGoal, onLayoutEdit }:
                     <div>
                       <strong>{event.name}</strong>
                       <p className="muted">{event.tick === null ? 'Event group' : 'Time ' + event.tick}{event.source ? ' · ' + event.source : ''}</p>
-                      {event.description && <p className="wiki-prose">{event.description}</p>}
+                      {event.links.some((link) => link.role === 'backstory' && link.entry_id === article.entry.id)
+                        && <p className="muted">Backstory</p>}
+                      {(event.summary || event.description) && <p className="wiki-prose">{event.summary || event.description}</p>}
                     </div>
                     <div className="form-actions">
                       <button className="button secondary" type="button" disabled={display.navigationLocked}
@@ -598,14 +602,14 @@ export function Wiki({ account, worldId, onAuthError }: {
           {section === 'timeline' ? (
             <div className="wiki-article">
               {(editing?.kind === 'new-event' || (editing?.kind === 'edit-event' && editing.event.node_kind !== 'group')) && (
-                <WikiEventForm {...actions} fields={view.fields} entries={view.entries} at={view.at}
+                <WikiEventForm {...actions} worldId={worldId} fields={view.fields} entries={view.entries} at={view.at} events={view.timeline}
                   event={editing.kind === 'edit-event' ? editing.event : undefined}
                   parents={view.timeline?.filter((event) => event.node_kind === 'group')}
                   parentId={editing.kind === 'new-event' ? editing.parentId : undefined}
                   action={editing.kind === 'new-event' && editing.action} />
               )}
               {(editing?.kind === 'new-group' || (editing?.kind === 'edit-event' && editing.event.node_kind === 'group')) && (
-                <WikiGroupForm {...actions} entries={view.entries} events={view.timeline ?? []}
+                <WikiGroupForm {...actions} worldId={worldId} fields={view.fields} at={view.at} entries={view.entries} events={view.timeline ?? []}
                   parentId={editing.kind === 'new-group' ? editing.parentId : undefined}
                   event={editing.kind === 'edit-event' ? editing.event : undefined} />
               )}
@@ -641,7 +645,7 @@ export function Wiki({ account, worldId, onAuthError }: {
                 entry={view.article.entry} layout={view.article.layout} entries={view.entries} at={view.at} />}
               {editing && !isLayoutEdit(editing) && editing.kind !== 'create' && editing.kind !== 'new-event'
                 && editing.kind !== 'new-group' && editing.kind !== 'organize' && editing.kind !== 'calendar' && view.article && (
-                <WikiEditForm edit={editing} {...actions} entry={view.article.entry} fields={view.fields} entries={view.entries}
+                <WikiEditForm edit={editing} {...actions} worldId={worldId} entry={view.article.entry} fields={view.fields} entries={view.entries}
                   at={view.at} observations={view.article.observations} />
               )}
               {!editing && view.article && (

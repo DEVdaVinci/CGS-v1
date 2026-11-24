@@ -92,6 +92,28 @@ def update_event_references(event, references):
     event.cross_references.set(targets)
 
 
+def update_event_causes(event, references):
+    ids = set(references)
+    targets = list(WikiEvent.objects.filter(wiki=event.wiki, pk__in=ids))
+    if len(targets) != len(ids):
+        reject("INVALID_EVENT_CAUSE", "Choose cause events in this world.")
+    prior_causes = defaultdict(list)
+    for dependent, cause in WikiEvent.objects.filter(
+        wiki=event.wiki, cause_events__isnull=False,
+    ).values_list("id", "cause_events__id"):
+        prior_causes[dependent].append(cause)
+    pending = [target.pk for target in targets]
+    visited = set()
+    while pending:
+        cause = pending.pop()
+        if cause == event.pk:
+            reject("EVENT_CAUSE_CYCLE", "An event cannot be its own cause, directly or through other cause links.")
+        if cause not in visited:
+            visited.add(cause)
+            pending.extend(prior_causes[cause])
+    event.cause_events.set(targets)
+
+
 def organize_event(wiki, command):
     event = event_for(wiki, command["event_id"])
     old_parent = event.parent_id

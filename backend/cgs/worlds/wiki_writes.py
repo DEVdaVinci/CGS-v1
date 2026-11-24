@@ -16,10 +16,10 @@ from .wiki import (
     typed_value, value_slot, wiki_access,
 )
 from .wiki_events import (
-    attach_event, check_event_tree, event_bounds, organize_event, update_event_references,
+    attach_event, check_event_tree, event_bounds, organize_event, update_event_causes, update_event_references,
 )
 from .wiki_layouts import save_connection, save_layout, save_waypoint
-from .wiki_schema import ACTORS, FIELDS
+from .wiki_schema import ACTORS, ENTITY_KINDS, FIELDS
 
 
 def _in_world(query, record_id):
@@ -125,6 +125,9 @@ EVENT_LINKS = (
     ("participant_ids", WikiEventLink.Role.PARTICIPANT, (*ACTORS, WikiEntry.Kind.GROUP)),
     ("place_ids", WikiEventLink.Role.PLACE, (WikiEntry.Kind.PLACE,)),
     ("item_ids", WikiEventLink.Role.ITEM, (WikiEntry.Kind.ITEM,)),
+    ("purpose_ids", WikiEventLink.Role.PURPOSE, (WikiEntry.Kind.GOAL,)),
+    ("backstory_ids", WikiEventLink.Role.BACKSTORY, ENTITY_KINDS),
+    ("era_ids", WikiEventLink.Role.ERA, (WikiEntry.Kind.ERA,)),
 )
 
 
@@ -132,6 +135,8 @@ def _save_event_details(wiki, event, command):
     event.name = _named(command["name"])
     event.source = command.get("source", event.source)
     event.description = command.get("description", event.description)
+    event.summary = command.get("summary", event.summary)
+    event.method = command.get("method", event.method)
     event.start_tick = command.get("start_tick", event.start_tick)
     event.end_tick = command.get("end_tick", event.end_tick)
     event_bounds(event)
@@ -145,6 +150,14 @@ def _save_event_details(wiki, event, command):
     check_event_tree(event)
     if "cross_reference_ids" in command:
         update_event_references(event, command["cross_reference_ids"])
+    if "cause_event_ids" in command:
+        update_event_causes(event, command["cause_event_ids"])
+    if "cause_assertion_ids" in command:
+        ids = set(command["cause_assertion_ids"])
+        causes = list(WikiAssertion.objects.filter(entry__wiki=wiki, pk__in=ids).exclude(opened_by=event))
+        if len(causes) != len(ids):
+            reject("INVALID_STATE_CAUSE", "Choose facts in this world that were established independently of this event.")
+        event.cause_assertions.set(causes)
     for field, role, kinds in EVENT_LINKS:
         if field not in command:
             continue

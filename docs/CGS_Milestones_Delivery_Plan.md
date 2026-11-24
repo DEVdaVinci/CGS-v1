@@ -2,7 +2,7 @@
 
 [Read the quick reference](CGS_Milestones_Quick_Reference.md)
 
-**Current position** — The working foundation and W1 core worldbuilding are verified. W2 is the next milestone. The complete Wiki, the event engine, and the first playable tabletop release each have their own finish lines.
+**Current position** — The working foundation is verified. W1 core worldbuilding is implemented and acceptance is open for the behavior checks recorded in the [Lucidchart field trace](CGS_Wiki_Field_Trace.md). W2 follows W1 acceptance. The complete Wiki, the event engine, and the first playable tabletop release each have their own finish lines.
 
 ## How to read a completion report
 
@@ -40,9 +40,9 @@ Author-facing revision browsing, branching, and restoration are scheduled after 
 
 ## W1 Core worldbuilding
 
-The [W1 implementation plan](CGS_W1_Core_Worldbuilding.md) contains the source trace, record and browser contracts, build order, and verification cases for this milestone.
+The [W1 implementation plan](CGS_W1_Core_Worldbuilding.md) contains the record and browser contracts, build order, and verification cases for this milestone. The [Lucidchart field trace](CGS_Wiki_Field_Trace.md) records each named source field, its prior coverage, and the reason for the representation or schedule.
 
-**Status and finish line** — Implemented and verified. Authors can use the core character, place, and timeline workflows end to end, including structured fields and relationships that later systems will read. W2 expands meaning and validation for powers, actions, and institutional rules. W3 finishes the remaining domain catalog and discovery tools.
+**Status and finish line** — The core character, place, and timeline workflows are available. Acceptance requires passing the remaining W1 behavior checks alongside the field coverage tests. W2 expands meaning and validation for powers, actions, and institutional rules. W3 finishes the remaining domain catalog and discovery tools.
 
 **What you will see in the browser**
 

@@ -1,6 +1,6 @@
 # W1 core worldbuilding implementation plan
 
-[Milestone quick reference](CGS_Milestones_Quick_Reference.md) · [W1 delivery criteria](CGS_Milestones_Delivery_Plan.md#w1-core-worldbuilding) · [Phase 1 world model](CGS_Phase_1_Wiki_Design.md) · [Editable architecture](CGS_Codex_Local_Handoff/CGS_First_Playable_Architecture.drawio)
+[Milestone quick reference](CGS_Milestones_Quick_Reference.md) · [W1 delivery criteria](CGS_Milestones_Delivery_Plan.md#w1-core-worldbuilding) · [Lucidchart field trace](CGS_Wiki_Field_Trace.md) · [Phase 1 world model](CGS_Phase_1_Wiki_Design.md) · [Editable architecture](CGS_Codex_Local_Handoff/CGS_First_Playable_Architecture.drawio)
 
 ## Readiness and scope
 
@@ -137,6 +137,8 @@ Use the existing React, Django/DRF and PostgreSQL stack. Keep the normal Docker 
 At each report include the check ID, its outcome and evidence, the tested build, and where to try the result. W1 remains open until all required results are verified. The implementation work starts with Pass A.
 
 ## Delivery evidence
+
+The [field reconciliation](CGS_Wiki_Field_Trace.md) records the fields added and the specific reasons for retaining a different representation or scheduling executable and editorial functionality later. The W1 workflow evidence below covers the original delivery. The later review reopened acceptance for same-time end and set, conflicting class defaults, derived group dates, historical layout waypoints, unit changes, and actor-view directory visibility.
 
 - **W1-01** — The source map and W1 architecture page match the authoring boundaries. Related records use the existing dated assertion store, with a typed field, matching target kinds, and a qualifier when a link or value needs extra context.
 - **W1-02 and W1-05** — PostgreSQL and browser checks exercised calendar-based age, optional dates, inherited and overriding values, qualified amounts, ownership and possession, authored goals, beliefs, and scoped observations. The false report remained distinct from canon.

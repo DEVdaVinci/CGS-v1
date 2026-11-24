@@ -180,6 +180,13 @@ class WikiEntry(CreatedRecord):
         BODY_PART = "body_part", "Body part"
         TRAIT = "trait", "Trait"
         GOAL = "goal", "Goal"
+        IMAGE = "image", "Image"
+        MODEL_3D = "model_3d", "3D model"
+        TEXTURE = "texture", "Texture"
+        ANIMATION = "animation", "Animation"
+        MAP = "map", "Map"
+        TERRITORY = "territory", "Territory"
+        ERA = "era", "Era"
 
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     wiki = models.ForeignKey(WikiWorld, on_delete=models.RESTRICT)
@@ -254,6 +261,10 @@ class WikiEvent(CreatedRecord):
     cross_references = models.ManyToManyField("self", symmetrical=False, related_name="mentioned_by", blank=True)
     source = models.CharField(max_length=500, blank=True)
     description = models.CharField(max_length=1500, blank=True, default="")
+    summary = models.CharField(max_length=500, blank=True, default="")
+    method = models.CharField(max_length=1500, blank=True, default="")
+    cause_events = models.ManyToManyField("self", symmetrical=False, related_name="caused_events", blank=True)
+    cause_assertions = models.ManyToManyField("WikiAssertion", related_name="events_caused", blank=True)
     ability = models.ForeignKey(
         WikiEntry, null=True, on_delete=models.RESTRICT, related_name="wiki_uses",
     )
@@ -286,6 +297,9 @@ class WikiEventLink(models.Model):
         PARTICIPANT = "participant", "Participant"
         PLACE = "place", "Place"
         ITEM = "item", "Item"
+        PURPOSE = "purpose", "Purpose"
+        BACKSTORY = "backstory", "Backstory"
+        ERA = "era", "Era"
 
     event = models.ForeignKey(WikiEvent, on_delete=models.CASCADE, related_name="links")
     entry = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, related_name="wiki_event_links")

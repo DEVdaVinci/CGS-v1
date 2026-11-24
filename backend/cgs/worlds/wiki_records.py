@@ -5,7 +5,7 @@ from django.db.models import Q
 
 from .models import WikiAssertion, WikiProposition
 from .wiki import at_tick, contains_tick, value_slot
-from .wiki_schema import ACTORS, DEFINITIONS, FIELDS
+from .wiki_schema import ACTORS, DEFINITIONS, FIELDS, MEASURED_TRAITS
 
 
 def _slot(record):
@@ -88,22 +88,31 @@ def effective_values(entry, facts, at):
     own = _direct_values(active)
     defaults = _definition_values(entry, at, active) if entry.kind in (*ACTORS, *DEFINITIONS) else []
     values = _describe_values(entry, _inherit(own, defaults), own)
-    resources = [item["qualifier_id"] for item in values if item["field"] == "resource_amount"]
+    measured = {"resource_amount", *MEASURED_TRAITS}
+    unit_ids = {item["qualifier_id"] for item in values if item["field"] in measured}
     units = defaultdict(set)
     for entry_id, unit in at_tick(WikiAssertion.objects.filter(
-        entry__wiki_id=entry.wiki_id, entry_id__in=resources, field="unit",
+        entry__wiki_id=entry.wiki_id, entry_id__in=unit_ids, field="unit",
     ), at).values_list("entry_id", "value"):
         units[str(entry_id)].add(unit)
     for value in values:
-        if value["field"] == "resource_amount" and len(units[value["qualifier_id"]]) == 1:
+        if value["field"] in measured and len(units[value["qualifier_id"]]) == 1:
             value["unit"] = next(iter(units[value["qualifier_id"]]))
     return values
 
 
 def derived_age(entry, values, at):
-    birth = next((item.get("value") for item in values if item["field"] == "birth_tick"), None)
+    start_key, end_key = ("birth_tick", "death_tick") if entry.kind in ACTORS else (
+        "creation_tick", "extinction_tick" if entry.kind == "species" else "destruction_tick"
+    )
+    dates = {item["field"]: item for item in values if item["field"] in (start_key, end_key)}
+    start = dates[start_key].get("value")
+    end = dates[end_key].get("value")
+    if dates[end_key]["state"] == "conflict" or (end is not None and start is not None and end < start):
+        return None
     year = entry.wiki.days_per_year
-    return (at - birth) // year if year and birth is not None and at >= birth else None
+    age_at = min(at, end) if end is not None else at
+    return (age_at - start) // year if year and start is not None and age_at >= start else None
 
 
 def incoming_links(entry, at):

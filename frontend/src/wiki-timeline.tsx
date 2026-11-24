@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { isWikiActor, type WikiEntry, type WikiEvent, type WikiField, type WikiValue } from './wiki-api'
+import { formatDistribution } from './wiki-distribution'
 import { type ArticleEdit } from './wiki-forms'
 
 export type TimelineEdit =
@@ -14,7 +15,10 @@ type TimelineProps = {
   onEdit?: (edit: ArticleEdit | TimelineEdit) => void
 }
 
-const linkLabels = { participant: 'Participants', place: 'Places', item: 'Items' } as const
+const linkLabels = {
+  participant: 'Participants', place: 'Places', item: 'Items', purpose: 'Purpose goals',
+  backstory: 'Backstory of', era: 'Eras',
+} as const
 
 function ancestors(event: WikiEvent, index: Map<string, WikiEvent>) {
   const path: WikiEvent[] = []
@@ -41,6 +45,7 @@ export function WikiTimeline({ events, entries, fields, currentEvent, onOpen, on
   const [expanded, setExpanded] = useState(new Set<string>())
   const [person, setPerson] = useState('')
   const [place, setPlace] = useState('')
+  const [era, setEra] = useState('')
   const [date, setDate] = useState('')
   const displayMode = mode ?? (events.some((event) => event.node_kind === 'group') ? 'outline' : 'chronology')
   const index = new Map(events.map((event) => [event.id, event]))
@@ -48,10 +53,11 @@ export function WikiTimeline({ events, entries, fields, currentEvent, onOpen, on
   const definitions = new Map(fields.map((field) => [field.key, field]))
   const selected = currentEvent ? index.get(currentEvent) : undefined
   const activePath = selected ? new Set(ancestors(selected, index).map((group) => group.id)) : new Set<string>()
-  const filtered = Boolean(person || place || date !== '')
+  const filtered = Boolean(person || place || era || date !== '')
   const matches = events.filter((event) => {
     if (person && event.ability_use?.actor_id !== person && !event.links.some((link) => link.role === 'participant' && link.entry_id === person)) return false
     if (place && !event.links.some((link) => link.role === 'place' && link.entry_id === place)) return false
+    if (era && !event.links.some((link) => link.role === 'era' && link.entry_id === era)) return false
     return date === '' || (event.display_start !== null && event.display_end !== null
       && event.display_start <= Number(date) && event.display_end >= Number(date))
   })
@@ -103,13 +109,17 @@ export function WikiTimeline({ events, entries, fields, currentEvent, onOpen, on
 
   function displayValue(field: string, value: WikiValue | null, at: number) {
     if (value === null) return 'No recorded value'
-    return definitions.get(field)?.target_kinds.length && typeof value === 'string' ? linked(value, at) : value
+    const definition = definitions.get(field)
+    if (definition?.value_kind === 'distribution') return formatDistribution(value)
+    return definition?.target_kinds.length && typeof value === 'string' ? linked(value, at) : value
   }
 
   function focus(id: string) {
     setPerson('')
     setPlace('')
+    setEra('')
     setDate('')
+    if (index.get(id)?.node_kind === 'group') setMode('outline')
     onFocus(id)
   }
 
@@ -154,7 +164,25 @@ export function WikiTimeline({ events, entries, fields, currentEvent, onOpen, on
         {path.length > 0 && (filtered || displayMode === 'chronology') && (
           <p className="muted">{path.map((ancestor) => ancestor.name).join(' → ')}</p>
         )}
+        {event.summary && <p className="wiki-prose"><strong>Summary</strong> {event.summary}</p>}
         {event.description && <p className="wiki-prose">{event.description}</p>}
+        {event.method && <p className="wiki-prose"><strong>How</strong> {event.method}</p>}
+        {(event.cause_event_ids.length > 0 || event.cause_state.length > 0) && (
+          <section className="wiki-event-effects" aria-label="Causes">
+            <h5>Causes</h5>
+            <ul>
+              {event.cause_event_ids.map((id) => <li key={id}>
+                <button type="button" className="wiki-reference" onClick={() => focus(id)}>{index.get(id)?.name ?? 'Cause event'}</button>
+              </li>)}
+              {event.cause_state.map((fact) => <li key={fact.id}>
+                {linked(fact.entry_id, fact.from_tick)} · {definitions.get(fact.field)?.label ?? fact.field}
+                {fact.qualifier_id && <> · {linked(fact.qualifier_id, fact.from_tick)}</>}
+                {' · '}{displayValue(fact.field, fact.value, fact.from_tick)} · From time {fact.from_tick}
+                {fact.until_tick !== null && ' until time ' + fact.until_tick}
+              </li>)}
+            </ul>
+          </section>
+        )}
         {event.links.length > 0 && <dl className="wiki-event-roles">
           {Object.entries(linkLabels).map(([role, label]) => {
             const related = event.links.filter((link) => link.role === role)
@@ -206,6 +234,13 @@ export function WikiTimeline({ events, entries, fields, currentEvent, onOpen, on
             <option key={entry.id} value={entry.id}>{entry.name}</option>
           ))}
         </select></label>
+        {entries.some((entry) => entry.kind === 'era') && (
+          <label className="field">Filter by era<select value={era} onChange={(event) => setEra(event.target.value)}>
+            <option value="">All eras</option>{entries.filter((entry) => entry.kind === 'era').map((entry) => (
+              <option key={entry.id} value={entry.id}>{entry.name}</option>
+            ))}
+          </select></label>
+        )}
         <label className="field">Filter by time<input type="number" min={0} value={date} onChange={(event) => setDate(event.target.value)} /></label>
       </div>}
       {events.length === 0 && <p className="muted">No events recorded in this view.</p>}

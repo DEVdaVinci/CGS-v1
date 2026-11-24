@@ -2,12 +2,13 @@ import { request } from './api'
 
 export type WikiKind = 'person' | 'place' | 'group' | 'class' | 'ability' | 'item'
   | 'species' | 'organism' | 'culture' | 'role' | 'resource' | 'body_part' | 'trait' | 'goal'
+  | 'image' | 'model_3d' | 'texture' | 'animation' | 'map' | 'territory' | 'era'
 export type WikiEntry = { id: string; name: string; kind: WikiKind; author_only?: boolean }
 export type WikiField = {
   key: string
   label: string
   kinds: WikiKind[]
-  value_kind: 'text' | 'integer' | 'decimal' | 'reference'
+  value_kind: 'text' | 'integer' | 'decimal' | 'reference' | 'distribution'
   target_kind: WikiKind | null
   choices: string[]
   section: string
@@ -38,10 +39,13 @@ type AbilityUse = { ability_id: string; actor_id: string }
 
 export type WikiEvent = {
   id: string; name: string; tick: number | null; source: string; description: string
+  summary: string; method: string
   node_kind: 'group' | 'occurrence' | 'action'; parent_id: string | null; sort_order: number
   start_tick: number | null; end_tick: number | null; display_start: number | null; display_end: number | null
   cross_reference_ids: string[]
-  links: { entry_id: string; role: 'participant' | 'place' | 'item' }[]
+  cause_event_ids: string[]
+  cause_state: (WikiAssertion & { entry_id: string })[]
+  links: { entry_id: string; role: 'participant' | 'place' | 'item' | 'purpose' | 'backstory' | 'era' }[]
   ability_use: AbilityUse | null
   changes: {
     id: string; entry_id: string; field: string; value: WikiValue | null; previous_value: WikiValue | null
@@ -114,6 +118,9 @@ type EventChange = FieldChange & { mode?: 'set' | 'add' | 'end'; source?: string
 type EventDetails = {
   name: string; source: string; description: string; ability_use: AbilityUse | null
   participant_ids: string[]; place_ids: string[]; item_ids: string[]
+  summary?: string; method?: string
+  cause_event_ids?: string[]; cause_assertion_ids?: string[]
+  purpose_ids?: string[]; backstory_ids?: string[]; era_ids?: string[]
   start_tick?: number | null; end_tick?: number | null
   cross_reference_ids?: string[]
 }

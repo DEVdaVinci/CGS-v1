@@ -1,14 +1,17 @@
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 import {
-  isWikiActor,
+  getWiki, isWikiActor,
   type WikiAssertion, type WikiClaim, type WikiCommand, type WikiEntry, type WikiEvent,
   type WikiField, type WikiKind, type WikiLearnedAbility, type WikiObservation, type WikiProposition, type WikiValue,
 } from './wiki-api'
+import { DistributionInput, formatDistribution } from './wiki-distribution'
 
 export const kindLabel: Record<WikiKind, string> = {
   person: 'Character', place: 'Place', group: 'Group', class: 'Class', ability: 'Ability', item: 'Item',
   species: 'Species', organism: 'Organism', culture: 'Culture', role: 'Role or title',
   resource: 'Resource', body_part: 'Body part', trait: 'Trait', goal: 'Goal',
+  image: 'Image', model_3d: '3D model', texture: 'Texture', animation: 'Animation',
+  map: 'Map', territory: 'Territory', era: 'Era',
 }
 
 export type ArticleEdit =
@@ -37,11 +40,23 @@ export function Actions({ busy, onCancel, submit }: Pick<FormActions, 'busy' | '
   )
 }
 
+const dimensions = ['height_cm', 'width_cm', 'length_cm', 'mass_kg']
 const initialKeys: Partial<Record<WikiKind, string[]>> = {
-  person: ['birth_tick', 'death_tick', 'species', 'character_class', 'located_in', 'appearance', 'background'],
-  organism: ['birth_tick', 'death_tick', 'species', 'located_in', 'appearance'],
+  person: ['birth_tick', 'death_tick', 'species', 'character_class', 'located_in', 'appearance', 'background', ...dimensions],
+  organism: ['birth_tick', 'death_tick', 'species', 'located_in', 'appearance', ...dimensions],
   place: ['place_type', 'located_in'],
+  item: ['item_type', 'creation_tick', 'destruction_tick', ...dimensions],
+  group: ['group_type'],
+  ability: ['ability_type'],
+  territory: ['landscape'],
+  era: ['era_start', 'era_end'],
+  image: ['asset_location'],
+  model_3d: ['asset_location'],
+  texture: ['asset_location'],
+  animation: ['asset_location'],
+  map: ['asset_location'],
   resource: ['unit'],
+  trait: ['unit'],
   goal: ['goal_owner', 'parent_goal', 'goal_subject', 'priority', 'status'],
 }
 
@@ -51,7 +66,7 @@ export function WikiEntryForm({ fixedKind, entries, fields, at, ownerId, ...acti
   const [kind, setKind] = useState<WikiKind>(fixedKind ?? 'person')
   const title = fixedKind ? 'New ' + kindLabel[fixedKind].toLowerCase() : 'New entry'
   const keys = ['description', ...(initialKeys[kind] ?? [])]
-  const initialFields = keys.map((key) => fields.find((field) => field.key === key)!)
+  const initialFields = keys.map((key) => fields.find((field) => field.key === key)).filter((field) => field !== undefined)
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -142,6 +157,9 @@ export function ValueInput({
         entries={entries.filter((entry) => field.target_kinds.includes(entry.kind) && entry.id !== entryId
           && (field.key !== 'inherits_from' || entry.kind === selectedKind))} />
     )
+  }
+  if (field.value_kind === 'distribution') {
+    return <DistributionInput name={name} label={label} initial={initial} required={required} />
   }
   return (
     <label className="field">{label}
@@ -280,7 +298,120 @@ export function EventLinks({ label, name, entries, initial }: {
   )
 }
 
-export function WikiEventForm({ entry, fields, entries, at, event, parents = [], parentId, action, ...actions }: Omit<EntryFormProps, 'entry'> & {
+export function readEventContext(values: FormData) {
+  return {
+    summary: String(values.get('summary') ?? ''), method: String(values.get('method') ?? ''),
+    cause_event_ids: values.getAll('cause_events').map(String),
+    cause_assertion_ids: values.getAll('cause_assertions').map(String),
+    purpose_ids: values.getAll('purposes').map(String), backstory_ids: values.getAll('backstories').map(String),
+    era_ids: values.getAll('eras').map(String),
+  }
+}
+
+export type EventContextProps = {
+  worldId: string; entries: WikiEntry[]; fields: WikiField[]; at: number; event?: WikiEvent; events?: WikiEvent[]
+}
+
+export function EventContextFields({ worldId, entries, fields, at, event, events }: EventContextProps) {
+  const [open, setOpen] = useState(false)
+  const [timeline, setTimeline] = useState<WikiEvent[]>([])
+  const [timelineError, setTimelineError] = useState(false)
+  const [subject, setSubject] = useState('')
+  const [source, setSource] = useState<{ subject: string; facts: WikiAssertion[]; failed?: boolean }>()
+  const [candidate, setCandidate] = useState('')
+  const [causes, setCauses] = useState(event?.cause_state ?? [])
+
+  useEffect(() => {
+    if (events || !open) return
+    const controller = new AbortController()
+    void getWiki(worldId, { section: 'timeline', at, viewAs: '', entryId: '' }, controller.signal).then((view) => {
+      setTimeline(view.timeline ?? [])
+      setTimelineError(false)
+    }).catch(() => { if (!controller.signal.aborted) setTimelineError(true) })
+    return () => controller.abort()
+  }, [worldId, at, events, open])
+
+  useEffect(() => {
+    if (!subject) return
+    const controller = new AbortController()
+    void getWiki(worldId, { at, viewAs: '', entryId: subject }, controller.signal).then((view) => {
+      setSource({ subject, facts: view.article?.assertions ?? [] })
+    }).catch(() => {
+      if (!controller.signal.aborted) setSource({ subject, facts: [], failed: true })
+    })
+    return () => controller.abort()
+  }, [worldId, at, subject])
+
+  const storedCauseEvents = event?.cause_event_ids ?? []
+  const eventOptions = (events ?? timeline).filter((item) => item.id !== event?.id)
+  const missingEventOptions = storedCauseEvents.filter((id) => !eventOptions.some((item) => item.id === id))
+  const sourceOptions = source?.subject === subject
+    ? source.facts.filter((fact) => fact.event_id !== event?.id && !causes.some((item) => item.id === fact.id)) : []
+  const causeCandidate = sourceOptions.find((fact) => fact.id === candidate)
+  const linked = (role: 'purpose' | 'backstory' | 'era') =>
+    event?.links.filter((link) => link.role === role).map((link) => link.entry_id) ?? []
+  const hasContext = Boolean(storedCauseEvents.length || causes.length || linked('purpose').length
+    || linked('backstory').length || linked('era').length)
+
+  function factLabel(fact: WikiAssertion) {
+    const definition = fields.find((field) => field.key === fact.field)
+    const name = entries.find((item) => item.id === fact.value)?.name
+    const qualifier = entries.find((item) => item.id === fact.qualifier_id)?.name
+    const value = definition?.value_kind === 'distribution' ? formatDistribution(fact.value) : name ?? fact.value
+    return [definition?.label ?? fact.field, qualifier, value, 'from time ' + fact.from_tick].filter((part) => part != null).join(' · ')
+  }
+
+  return (
+    <>
+      <label className="field">Summary<input name="summary" maxLength={500} defaultValue={event?.summary} /></label>
+      <label className="field">How<textarea name="method" rows={2} maxLength={1500} defaultValue={event?.method} /></label>
+      <details className="wiki-event-options" open={hasContext} onToggle={(toggle) => setOpen(toggle.currentTarget.open)}>
+        <summary>Cause, purpose, and context</summary>
+        {timelineError && <p className="muted">Cause events could not load. Close and reopen these details to retry.</p>}
+        <EventLinks label="Cause events" name="cause_events" initial={storedCauseEvents}
+          entries={[...eventOptions, ...missingEventOptions.map((id) => ({ id, name: 'Saved cause event' }))]} />
+        <fieldset className="wiki-change-fields">
+          <legend>Cause state</legend>
+          <EntryPicker label="Cause state subject" entries={entries} required={false} onChange={(id) => {
+            setSubject(id)
+            setCandidate('')
+          }} />
+          {subject && source?.subject !== subject && <p className="muted">Loading dated facts…</p>}
+          {subject && source?.subject === subject && source.failed && <p className="muted">Could not load facts for this entry.</p>}
+          {subject && source?.subject === subject && !source.failed && (
+            <div className="wiki-form-row">
+              <label className="field">State fact<select value={candidate} onChange={(change) => setCandidate(change.target.value)}>
+                <option value="">{sourceOptions.length ? 'Choose a fact' : 'No other facts available'}</option>
+                {sourceOptions.map((fact) => <option key={fact.id} value={fact.id}>{factLabel(fact)}</option>)}
+              </select></label>
+              <button className="button secondary" type="button" disabled={!causeCandidate || causes.length >= 40}
+                onClick={() => {
+                  if (causeCandidate) setCauses((items) => [...items, { ...causeCandidate, entry_id: subject }])
+                  setCandidate('')
+                }}>Add cause state</button>
+            </div>
+          )}
+          {causes.length > 0 && <ul className="wiki-records">{causes.map((fact) => (
+            <li className="wiki-record" key={fact.id}>
+              <input type="hidden" name="cause_assertions" value={fact.id} />
+              <span>{entries.find((item) => item.id === fact.entry_id)?.name} · {factLabel(fact)}</span>
+              <button className="button secondary" type="button"
+                onClick={() => setCauses((items) => items.filter((item) => item.id !== fact.id))}>Remove cause state</button>
+            </li>
+          ))}</ul>}
+        </fieldset>
+        <div className="wiki-event-links">
+          <EventLinks label="Purpose goals" name="purposes" entries={entries.filter((entry) => entry.kind === 'goal')} initial={linked('purpose')} />
+          <EventLinks label="Backstory of" name="backstories" entries={entries} initial={linked('backstory')} />
+          <EventLinks label="Eras" name="eras" entries={entries.filter((entry) => entry.kind === 'era')} initial={linked('era')} />
+        </div>
+      </details>
+    </>
+  )
+}
+
+export function WikiEventForm({ worldId, entry, fields, entries, at, event, events, parents = [], parentId, action, ...actions }: Omit<EntryFormProps, 'entry'> & {
+  worldId: string; events?: WikiEvent[]
   entry?: WikiEntry; event?: WikiEvent; parents?: WikiEvent[]; parentId?: string; action?: boolean
 }) {
   const [rows, setRows] = useState(entry ? [{ id: 0, entryId: entry.id, field: 'status' }] : [])
@@ -296,7 +427,7 @@ export function WikiEventForm({ entry, fields, entries, at, event, parents = [],
     submission.preventDefault()
     const values = new FormData(submission.currentTarget)
     const details = {
-      name: String(values.get('name')), source: String(values.get('source') ?? ''),
+      ...readEventContext(values), name: String(values.get('name')), source: String(values.get('source') ?? ''),
       description: String(values.get('description') ?? ''),
       participant_ids: values.getAll('participants').map(String),
       place_ids: values.getAll('places').map(String), item_ids: values.getAll('items').map(String),
@@ -340,6 +471,7 @@ export function WikiEventForm({ entry, fields, entries, at, event, parents = [],
         </div>
       </details>
       <label className="field">What happened<textarea name="description" rows={3} maxLength={1500} defaultValue={event?.description} /></label>
+      <EventContextFields worldId={worldId} entries={entries} fields={fields} at={at} event={event} events={events} />
       <details className="wiki-event-options" open={!entry || Boolean(event)}>
         <summary>Participants, places, and items</summary>
         <div className="wiki-event-links">
@@ -357,7 +489,7 @@ export function WikiEventForm({ entry, fields, entries, at, event, parents = [],
           <div className="wiki-form-row">
             <EntryPicker label="Ability definition" entries={entries.filter((e) => e.kind === 'ability')}
               initial={ability} required={false} onChange={setAbility} />
-            {ability && <EntryPicker name="actor_id" label="Used by" entries={entries.filter((e) => e.kind === 'person')}
+            {ability && <EntryPicker name="actor_id" label="Used by" entries={entries.filter(isWikiActor)}
               initial={event?.ability_use?.actor_id} />}
           </div>
         </details>
@@ -445,7 +577,7 @@ export function WikiEvidenceForm({ edit, entries, at, ...actions }: FormActions 
   )
 }
 
-export function WikiEditForm({ edit, ...props }: EntryFormProps & { edit: ArticleEdit }) {
+export function WikiEditForm({ edit, ...props }: EntryFormProps & { edit: ArticleEdit; worldId: string }) {
   if (edit.kind === 'event') return <WikiEventForm {...props} />
   if (edit.kind === 'edit-event') return <WikiEventForm {...props} entry={undefined} event={edit.event} />
   if (edit.kind === 'correct-date' || edit.kind === 'observe') return <WikiEvidenceForm {...props} edit={edit} />

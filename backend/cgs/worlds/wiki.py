@@ -1,5 +1,6 @@
 from collections import defaultdict
 from decimal import Decimal
+import json
 import re
 
 from django.db.models import Q
@@ -9,6 +10,9 @@ from cgs.api import CgsError, parse_id, resource_unavailable
 from .models import WikiAssertion, WikiEntry, WorldAccess
 from .services import get_membership
 from .wiki_schema import FIELDS, MAX_CLOCK
+
+
+EXACT_DECIMAL = re.compile(r"-?\d{1,15}(?:\.\d{1,9})?", re.ASCII)
 
 
 def wiki_access(world_id, account_id, *, writing=False):
@@ -40,6 +44,39 @@ def entry_for(wiki, entry_id, kind=None):
     return entry
 
 
+def _decimal_text(amount):
+    return format(amount.normalize(), "f") if amount else "0"
+
+
+def _distribution(value, label):
+    def invalid():
+        reject("INVALID_DISTRIBUTION", f"{label} needs 1 to 40 unique numeric outcomes with positive weights.")
+
+    if not isinstance(value, str) or len(value) > 4096:
+        invalid()
+    try:
+        rows = json.loads(value)
+    except (ValueError, RecursionError):
+        invalid()
+    if not isinstance(rows, list) or not 1 <= len(rows) <= 40:
+        invalid()
+    weights = {}
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != {"value", "weight"}:
+            invalid()
+        outcome, weight = row["value"], row["weight"]
+        if any(not isinstance(number, str) or not EXACT_DECIMAL.fullmatch(number) for number in (outcome, weight)):
+            invalid()
+        outcome, weight = Decimal(outcome), Decimal(weight)
+        if weight <= 0 or outcome in weights:
+            invalid()
+        weights[outcome] = weight
+    return json.dumps(
+        [{"value": _decimal_text(outcome), "weight": _decimal_text(weights[outcome])} for outcome in sorted(weights)],
+        separators=(",", ":"),
+    )
+
+
 def typed_value(entry, field, value):
     definition = FIELDS[field]
     if entry.kind not in definition.kinds:
@@ -55,12 +92,14 @@ def typed_value(entry, field, value):
         if type(value) is not int or not 0 <= value <= MAX_CLOCK:
             reject("INVALID_VALUE", f"{definition.label} requires a nonnegative whole number.")
     elif definition.value_kind == "decimal":
-        if not isinstance(value, str) or not re.fullmatch(r"-?\d{1,15}(?:\.\d{1,9})?", value, re.ASCII):
+        if not isinstance(value, str) or not EXACT_DECIMAL.fullmatch(value):
             reject("INVALID_VALUE", f"{definition.label} requires an exact decimal number.")
         amount = Decimal(value)
-        if field == "mass_kg" and amount < 0:
-            reject("INVALID_VALUE", "Mass must be nonnegative.")
-        return format(amount.normalize(), "f") if amount else "0"
+        if field in {"mass_kg", "width_cm", "length_cm"} and amount < 0:
+            reject("INVALID_VALUE", f"{definition.label} must be nonnegative.")
+        return _decimal_text(amount)
+    elif definition.value_kind == "distribution":
+        return _distribution(value, definition.label)
     elif not isinstance(value, str) or not value.strip() or len(value) > 500:
         reject("INVALID_VALUE", f"{definition.label} requires text of 1 to 500 characters.")
     if definition.choices and value not in definition.choices:

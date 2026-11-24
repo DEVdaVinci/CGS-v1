@@ -1,9 +1,12 @@
 import { useState } from 'react'
-import { isWikiActor, type WikiEntry, type WikiEvent } from './wiki-api'
-import { Actions, EntryPicker, EventLinks, optionalTime, TimeInput, type FormActions } from './wiki-forms'
+import { isWikiActor, type WikiEvent } from './wiki-api'
+import {
+  Actions, EntryPicker, EventContextFields, EventLinks, optionalTime, readEventContext, TimeInput,
+  type EventContextProps, type FormActions,
+} from './wiki-forms'
 
-export function WikiGroupForm({ events, entries, event, parentId, ...actions }: FormActions & {
-  events: WikiEvent[]; entries: WikiEntry[]; event?: WikiEvent; parentId?: string
+export function WikiGroupForm({ events, entries, event, parentId, worldId, fields, at, ...actions }: FormActions & EventContextProps & {
+  events: WikiEvent[]; parentId?: string
 }) {
   const title = event ? 'Edit event group' : parentId ? 'Add segment' : 'New event group'
   const groups = events.filter((item) => item.node_kind === 'group')
@@ -15,7 +18,7 @@ export function WikiGroupForm({ events, entries, event, parentId, ...actions }: 
       const values = new FormData(submission.currentTarget)
       const parent = groups.length ? String(values.get('parent_id') ?? '') : parentId
       const details = {
-        name: String(values.get('name')), source: String(values.get('source') ?? ''),
+        ...readEventContext(values), name: String(values.get('name')), source: String(values.get('source') ?? ''),
         description: String(values.get('description') ?? ''), ability_use: null,
         participant_ids: values.getAll('participants').map(String), place_ids: values.getAll('places').map(String),
         item_ids: values.getAll('items').map(String), cross_reference_ids: values.getAll('references').map(String),
@@ -28,7 +31,8 @@ export function WikiGroupForm({ events, entries, event, parentId, ...actions }: 
       <label className="field">Group name<input name="name" maxLength={120} defaultValue={event?.name} required /></label>
       {!event && groups.length > 0 && <EntryPicker name="parent_id" label="Parent event (optional)"
         initial={parentId} entries={groups} required={false} />}
-      <label className="field">Description<textarea name="description" maxLength={1500} rows={3} defaultValue={event?.description} /></label>
+      <label className="field">What happened<textarea name="description" maxLength={1500} rows={3} defaultValue={event?.description} /></label>
+      <EventContextFields worldId={worldId} entries={entries} fields={fields} at={at} event={event} events={events} />
       <div className="wiki-form-row">
         <TimeInput label="Earliest time (optional)" name="start" day={event?.start_tick ?? undefined} optional />
         <TimeInput label="Latest time (optional)" name="end" day={event?.end_tick ?? undefined} optional />

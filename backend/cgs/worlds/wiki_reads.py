@@ -14,7 +14,7 @@ from .wiki import at_tick, can_edit, value_slot, wiki_access
 from .wiki_events import event_bounds
 from .wiki_layouts import place_layout
 from .wiki_records import derived_age, effective_values, incoming_links, observation_visible, propositions_for
-from .wiki_schema import ACTORS, FIELDS
+from .wiki_schema import ACTORS, FIELDS, NONLIVING
 
 
 def _describe_entry(entry, *, author=False):
@@ -73,18 +73,23 @@ def _serialize_events(query):
         Prefetch("links", queryset=WikiEventLink.objects.order_by("role", "entry__name", "entry_id")),
         Prefetch("opened_assertions", queryset=WikiAssertion.objects.order_by("entry__name", "field", "id")),
         Prefetch("closed_assertions", queryset=WikiAssertion.objects.order_by("entry__name", "field", "id")),
-        "cross_references",
+        "cross_references", "cause_events",
+        Prefetch("cause_assertions", queryset=WikiAssertion.objects.order_by("entry__name", "field", "from_tick", "id")),
     ).order_by("tick", "id")
     records = []
     for event in events:
         bounds = event_bounds(event)
         records.append({
             "id": str(event.pk), "name": event.name, "tick": event.tick,
-            "source": event.source, "description": event.description,
+            "source": event.source, "description": event.description, "summary": event.summary, "method": event.method,
             "node_kind": event.node_kind, "parent_id": _id(event.parent_id), "sort_order": event.sort_order,
             "start_tick": event.start_tick, "end_tick": event.end_tick,
             "display_start": bounds[0] if bounds else None, "display_end": bounds[1] if bounds else None,
             "cross_reference_ids": [str(target.pk) for target in event.cross_references.all()],
+            "cause_event_ids": [str(target.pk) for target in event.cause_events.all()],
+            "cause_state": [
+                {**_serialize_assertion(fact), "entry_id": str(fact.entry_id)} for fact in event.cause_assertions.all()
+            ],
             "links": [{"entry_id": str(link.entry_id), "role": link.role} for link in event.links.all()],
             "ability_use": (
                 {"ability_id": str(event.ability_id), "actor_id": str(event.performed_by_id)}
@@ -159,7 +164,7 @@ def _author_article(entry, at):
     claims = WikiClaim.objects.filter(entry=entry).order_by("tick", "id")
     events = WikiEvent.objects.filter(wiki_id=entry.wiki_id).filter(
         Q(opened_assertions__entry=entry) | Q(closed_assertions__entry=entry)
-        | Q(links__entry=entry) | Q(ability=entry) | Q(performed_by=entry)
+        | Q(links__entry=entry) | Q(ability=entry) | Q(performed_by=entry) | Q(cause_assertions__entry=entry)
     ).distinct()
     findings = WikiFinding.objects.filter(entry=entry, resolved_at_edit__isnull=True).order_by("from_tick", "id")
     values = effective_values(entry, facts, at)
@@ -182,6 +187,7 @@ def _author_article(entry, at):
     }
     if entry.kind in ACTORS:
         article["learned_abilities"] = _learned_abilities(entry, at)
+    if entry.kind in (*ACTORS, *NONLIVING, "species"):
         article["age_years"] = derived_age(entry, values, at)
     if entry.kind == WikiEntry.Kind.PLACE:
         contents = _place_contents(entry, at)

@@ -11,12 +11,21 @@ from .models import WikiEntry
 MAX_CLOCK = 9_007_199_254_740_991
 ACTORS = ("person", "organism")
 DEFINITIONS = ("class", "species")
+ENTITY_KINDS = tuple(WikiEntry.Kind.values)
+VISUAL_ASSETS = ("image", "model_3d", "texture", "animation", "map")
+PHYSICAL_ENTITIES = (*ACTORS, *DEFINITIONS, "item", "place")
+NONLIVING = ("item", "place", "group", "culture", "territory", *VISUAL_ASSETS)
+MEASURED_TRAITS = (
+    "actual_rating", "physical_average", "physical_distribution", "power_average", "power_distribution",
+)
 IDENTITY = "Identity and classification"
 PHYSICAL = "Physical traits and condition"
 RELATIONSHIPS = "Relationships and affiliations"
 RESOURCES = "Resources and inventory"
 MIND = "Mind and goals"
 SPATIAL = "Spatial relationships"
+VISUALS = "Visual references"
+SPECIES_PROFILE = "Species population"
 
 
 @dataclass(frozen=True)
@@ -61,7 +70,11 @@ FIELDS = {
     for field in (
         WikiField("status", "Status", tuple(WikiEntry.Kind.values)),
         WikiField("description", "Description", tuple(WikiEntry.Kind.values)),
-        WikiField("height_cm", "Height (cm)", (*ACTORS, *DEFINITIONS, "place"), "integer",
+        WikiField("height_cm", "Height (cm)", PHYSICAL_ENTITIES, "integer",
+                  section=PHYSICAL, inherited=True),
+        WikiField("width_cm", "Width (cm)", PHYSICAL_ENTITIES, "decimal",
+                  section=PHYSICAL, inherited=True),
+        WikiField("length_cm", "Length (cm)", PHYSICAL_ENTITIES, "decimal",
                   section=PHYSICAL, inherited=True),
         WikiField("located_in", "Location", (*ACTORS, "place", "group", "item"), "reference", "place",
                   section=SPATIAL),
@@ -72,9 +85,14 @@ FIELDS = {
         WikiField("character_class", "Class", ACTORS, "reference", "class", section=IDENTITY),
         WikiField("place_type", "Place type", ("place",), section=SPATIAL,
                   choices=("Area", "Region", "Settlement", "Terrain", "Building", "Wing", "Floor", "Room", "Landmark")),
-        WikiField("alias", "Alias", ACTORS, section=IDENTITY, many=True),
+        WikiField("alias", "Alias", ENTITY_KINDS, section=IDENTITY, many=True),
         WikiField("birth_tick", "Birth time", ACTORS, "integer", section=IDENTITY),
         WikiField("death_tick", "Death time", ACTORS, "integer", section=IDENTITY),
+        WikiField("creation_tick", "Creation time", (*NONLIVING, "species"), "integer", section=IDENTITY),
+        WikiField("destruction_tick", "Destruction time", NONLIVING, "integer", section=IDENTITY),
+        WikiField("extinction_tick", "Extinction time", ("species",), "integer", section=IDENTITY),
+        WikiField("era_start", "Period start", ("era",), "integer", section=IDENTITY),
+        WikiField("era_end", "Period end", ("era",), "integer", section=IDENTITY),
         WikiField("species", "Species", ACTORS, "reference", "species", section=IDENTITY),
         WikiField("extra_class", "Additional class", ACTORS, "reference", "class", section=IDENTITY, many=True),
         WikiField("inherits_from", "Parent definition", DEFINITIONS, "reference",
@@ -84,7 +102,7 @@ FIELDS = {
                   section=IDENTITY, targets=("group", "place"), many=True),
         WikiField("residence", "Residence", ACTORS, "reference", "place", section=SPATIAL),
         WikiField("destination", "Destination", ACTORS, "reference", "place", section=SPATIAL),
-        WikiField("mass_kg", "Mass (kg)", (*ACTORS, *DEFINITIONS), "decimal", section=PHYSICAL, inherited=True),
+        WikiField("mass_kg", "Mass (kg)", PHYSICAL_ENTITIES, "decimal", section=PHYSICAL, inherited=True),
         WikiField("physical_trait", "Physical trait", (*ACTORS, *DEFINITIONS), section=PHYSICAL,
                   qualifier_kind="trait", qualifier_required=True, inherited=True),
         WikiField("anatomy", "Body part", (*ACTORS, *DEFINITIONS), "reference", "body_part",
@@ -101,15 +119,33 @@ FIELDS = {
                   targets=ACTORS, qualifier_kind="role", many=True, inverse="Personal links"),
         WikiField("membership", "Membership", ACTORS, "reference", "group",
                   section=RELATIONSHIPS, many=True, inverse="Members"),
-        WikiField("culture", "Cultural affiliation", ACTORS, "reference", "culture",
-                  section=RELATIONSHIPS, many=True, inverse="Affiliated people and organisms"),
+        WikiField("culture", "Cultural affiliation", (*ACTORS, "group"), "reference", "culture",
+                  section=RELATIONSHIPS, many=True, inverse="Affiliated entries"),
+        WikiField("place_affiliation", "Place affiliation", (*ACTORS, "group", "item"), "reference", "place",
+                  section=RELATIONSHIPS, many=True, inverse="Affiliated entries"),
+        WikiField("group_type", "Group type", ("group",), section=IDENTITY,
+                  choices=("Organization", "Society", "Family", "Government", "Nation", "Community")),
+        WikiField("item_type", "Item type", ("item",), section=IDENTITY,
+                  choices=("Vehicle", "Furniture", "Tool", "Weapon", "Clothing", "Device", "Structure",
+                           "Storage", "Container", "Material")),
+        WikiField("group_place", "Group place", ("group",), "reference", "place",
+                  section=SPATIAL, many=True, inverse="Associated groups"),
+        WikiField("era", "Era", ("culture",), "reference", "era",
+                  section=RELATIONSHIPS, many=True, inverse="Cultures"),
+        WikiField("territory", "Territory", ("place", "group"), "reference", "territory",
+                  section=SPATIAL, many=True, inverse="Places and groups in this territory"),
+        WikiField("map", "Map", ("place", "group", "territory"), "reference", "map",
+                  section=SPATIAL, many=True),
+        WikiField("landscape", "Landscape", ("territory",), section=SPATIAL),
+        WikiField("terrain", "Terrain reference", ("territory",), "reference", "place",
+                  section=SPATIAL, many=True),
         WikiField("role", "Assigned role", ACTORS, "reference", "role",
                   section=RELATIONSHIPS, qualifier_kind="group", many=True, inverse="Role holders"),
         WikiField("job", "Job", ACTORS, "reference", "role",
                   section=RELATIONSHIPS, qualifier_kind="group", many=True, inverse="Job holders"),
-        WikiField("title", "Title", ACTORS, "reference", "role",
+        WikiField("title", "Title", ENTITY_KINDS, "reference", "role",
                   section=RELATIONSHIPS, qualifier_kind="group", many=True, inverse="Title holders"),
-        WikiField("actual_rating", "Actual rating", ACTORS, "decimal",
+        WikiField("actual_rating", "Actual rating", (*ACTORS, "item"), "decimal",
                   section=PHYSICAL, qualifier_kind="trait", qualifier_required=True),
         WikiField("registered_rating", "Registered rating", ACTORS, "reference", "role",
                   section=RELATIONSHIPS, qualifier_kind="group", many=True),
@@ -117,11 +153,40 @@ FIELDS = {
                   targets=(*ACTORS, "group"), inverse="Owned items"),
         WikiField("possessor", "Possessor", ("item",), "reference", section=RESOURCES,
                   targets=(*ACTORS, "group"), inverse="Held items"),
-        WikiField("inventory", "Inventory quantity", (*ACTORS, "group"), "integer",
-                  section=RESOURCES, qualifier_kind="item", qualifier_required=True),
+        WikiField("item_affiliation", "Related item", (*ACTORS, "group", "place"), "reference", "item",
+                  section=RESOURCES, qualifier_kind="role", many=True, inverse="Related entries"),
+        WikiField("item_container", "Contained in item", ("item",), "reference", "item",
+                  section=SPATIAL, inverse="Contents", acyclic=True),
+        WikiField("material", "Material or component", ("item",), "reference", "item",
+                  section=PHYSICAL, many=True, inverse="Used in items"),
+        WikiField("inventory", "Inventory quantity", (*ACTORS, *DEFINITIONS, "group"), "integer",
+                  section=RESOURCES, qualifier_kind="item", qualifier_required=True, inherited=True),
         WikiField("resource_amount", "Resource amount", (*ACTORS, "group"), "decimal",
                   section=RESOURCES, qualifier_kind="resource", qualifier_required=True),
-        WikiField("unit", "Unit", ("resource",), section=RESOURCES),
+        WikiField("unit", "Unit", ("resource", "trait"), section=RESOURCES),
+        WikiField("image", "Image", ENTITY_KINDS, "reference", "image", section=VISUALS, many=True),
+        WikiField("model_3d", "3D model", ENTITY_KINDS, "reference", "model_3d", section=VISUALS, many=True),
+        WikiField("texture", "Texture", ENTITY_KINDS, "reference", "texture", section=VISUALS, many=True),
+        WikiField("animation", "Animation", ENTITY_KINDS, "reference", "animation", section=VISUALS, many=True),
+        WikiField("asset_location", "Asset location", VISUAL_ASSETS, section=VISUALS),
+        WikiField("typical_ability", "Typical ability", DEFINITIONS, "reference", "ability",
+                  section=SPECIES_PROFILE, many=True),
+        WikiField("typical_item", "Typical item", DEFINITIONS, "reference", "item",
+                  section=SPECIES_PROFILE, many=True),
+        WikiField("ability_type", "Ability type", ("ability",), section=IDENTITY,
+                  choices=("Power", "Ability", "Technique")),
+        WikiField("ability_domain", "Ability domain", ("ability",), section=IDENTITY,
+                  choices=("Physical", "Mental"), many=True),
+        WikiField("physical_average", "Average physical measurement", ("species",), "decimal",
+                  section=SPECIES_PROFILE, qualifier_kind="trait", qualifier_required=True),
+        WikiField("physical_distribution", "Physical measurement distribution", ("species",), "distribution",
+                  section=SPECIES_PROFILE, qualifier_kind="trait", qualifier_required=True),
+        WikiField("power_average", "Average power rating", ("species",), "decimal",
+                  section=SPECIES_PROFILE, qualifier_kind="trait", qualifier_required=True),
+        WikiField("power_distribution", "Power rating distribution", ("species",), "distribution",
+                  section=SPECIES_PROFILE, qualifier_kind="trait", qualifier_required=True),
+        WikiField("personality_average", "Typical personality", ("species",), section=SPECIES_PROFILE,
+                  qualifier_kind="trait", qualifier_required=True),
         WikiField("personality", "Personality trait", (*ACTORS, *DEFINITIONS), section=MIND,
                   qualifier_kind="trait", qualifier_required=True, inherited=True),
         WikiField("values", "Value", ACTORS, section=MIND, many=True),
@@ -212,9 +277,16 @@ class EventDetails(StrictSerializer):
     name = TextField(max_length=120)
     source = TextField(max_length=500, allow_blank=True, required=False)
     description = TextField(max_length=1500, allow_blank=True, required=False)
+    summary = TextField(max_length=500, allow_blank=True, required=False)
+    method = TextField(max_length=1500, allow_blank=True, required=False)
     participant_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     place_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     item_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
+    purpose_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
+    backstory_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
+    era_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
+    cause_event_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
+    cause_assertion_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     ability_use = AbilityUse(allow_null=True, required=False)
     start_tick = ExactClock(allow_null=True, required=False)
     end_tick = ExactClock(allow_null=True, required=False)

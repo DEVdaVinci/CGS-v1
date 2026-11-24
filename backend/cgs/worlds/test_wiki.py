@@ -63,6 +63,128 @@ class WikiTests(TransactionTestCase):
     def values(self, entry, at):
         return {item["field"]: item.get("value", item["state"]) for item in self.article(entry, at)["values"]}
 
+    def test_lucidchart_dimensions_visual_references_lifetimes_and_population_profiles(self):
+        mira = self.entry("Mira", "person")
+        lantern = self.entry("Lantern", "item")
+        species = self.entry("Cliff fox", "species")
+        trait = self.entry("Running speed", "trait")
+        ability = self.entry("Glide", "ability")
+        self.fact(trait, "unit", "m/s")
+        self.fact(ability, "ability_type", "Technique")
+        self.fact(ability, "ability_domain", "Physical")
+        self.fact(ability, "ability_domain", "Mental")
+        for field, name in (
+            ("image", "Lantern photo"), ("model_3d", "Lantern mesh"),
+            ("texture", "Lantern finish"), ("animation", "Lantern swing"),
+        ):
+            asset = self.entry(name, field)
+            self.fact(asset, "asset_location", "assets/lantern/" + field)
+            self.fact(lantern, field, asset)
+            self.assertEqual(self.values(lantern, 0)[field], asset)
+        self.fact(mira, "width_cm", "37.50")
+        self.fact(lantern, "length_cm", "3.125")
+        self.fact(lantern, "mass_kg", "0.03")
+        self.fact(lantern, "creation_tick", 2)
+        self.fact(lantern, "destruction_tick", 370)
+        self.fact(species, "creation_tick", 0)
+        self.fact(species, "extinction_tick", 3600)
+        self.apply({"op": "set_calendar", "days_per_year": 360})
+        self.assertEqual(self.values(mira, 0)["width_cm"], "37.5")
+        self.assertEqual(self.values(lantern, 0)["length_cm"], "3.125")
+        self.assertEqual(self.values(lantern, 0)["mass_kg"], "0.03")
+        self.assertIsNone(self.article(lantern, 1)["age_years"])
+        self.assertEqual(self.article(lantern, 1080)["age_years"], 1)
+        self.assertEqual(self.article(species, 7200)["age_years"], 10)
+        self.fact(species, "typical_ability", ability)
+        self.fact(species, "typical_item", lantern)
+        self.fact(species, "physical_average", "1.75", qualifier_id=trait)
+        self.fact(species, "personality_average", "Observant", qualifier_id=trait)
+        self.fact(species, "power_average", "2", qualifier_id=trait)
+        profile = '[{"value":"2.00","weight":"3"},{"value":"1","weight":"1.0"}]'
+        self.fact(species, "power_distribution", profile, qualifier_id=trait)
+        self.fact(species, "physical_distribution", profile, qualifier_id=trait)
+        expected = '[{"value":"1","weight":"1"},{"value":"2","weight":"3"}]'
+        values = {value["field"]: value for value in self.article(species)["values"]}
+        self.assertEqual((values["physical_distribution"]["value"], values["physical_distribution"]["unit"]), (expected, "m/s"))
+        self.assertEqual(values["power_distribution"]["value"], expected)
+        self.assertEqual(values["typical_ability"]["value"], ability)
+        self.assertEqual(values["typical_item"]["value"], lantern)
+        self.fact(mira, "species", species)
+        self.assertNotIn("power_distribution", self.values(mira, 0))
+        self.assertNotIn("inventory", self.values(mira, 0))
+        for field, value, expected_code, extra in (
+            ("image", lantern, "INVALID_REFERENCE", {}),
+            ("width_cm", "-1", "INVALID_VALUE", {}),
+            ("power_distribution", '[{"value":"2","weight":"0"}]', "INVALID_DISTRIBUTION", {"qualifier_id": trait}),
+            ("power_distribution", '[{"value":"2","weight":"1"},{"value":"2.0","weight":"1"}]',
+             "INVALID_DISTRIBUTION", {"qualifier_id": trait}),
+        ):
+            response = self.post({
+                "op": "record_fact", "entry_id": species, "field": field, "value": value, "from_tick": 0, **extra,
+            })
+            self.assertEqual(response.status_code, 422)
+            self.assertEqual(response.json()["field_errors"][0]["code"], expected_code)
+
+    def test_lucidchart_territory_relationships_and_event_context_are_distinct(self):
+        watch = self.entry("Harbor society", "group")
+        coast = self.entry("Coastal culture", "culture")
+        era = self.entry("Cedar era", "era")
+        territory = self.entry("Harbor district", "territory")
+        terrain = self.entry("Dunes")
+        harbor = self.entry("Harbor gate")
+        map_entry = self.entry("Harbor map", "map")
+        mira = self.entry("Mira", "person")
+        goal = self.entry("Keep the gate open", "goal")
+        self.fact(mira, "place_affiliation", harbor)
+        for subject, field, value in (
+            (watch, "group_type", "Society"), (watch, "culture", coast), (coast, "era", era),
+            (era, "era_start", 0), (era, "era_end", 100),
+            (watch, "group_place", harbor), (watch, "territory", territory), (watch, "map", map_entry),
+            (harbor, "territory", territory), (harbor, "map", map_entry),
+            (territory, "landscape", "Dunes and a protected inlet"), (territory, "terrain", terrain),
+            (territory, "map", map_entry), (terrain, "place_type", "Terrain"), (goal, "goal_owner", mira),
+        ):
+            self.fact(subject, field, value)
+        self.assertEqual(self.values(watch, 0)["culture"], coast)
+        self.assertEqual(self.values(territory, 0)["terrain"], terrain)
+        links = self.article(territory)["incoming_links"]
+        self.assertEqual({row["entry_id"] for row in links}, {harbor, watch})
+        self.assertNotEqual(self.values(mira, 0)["located_in"], harbor)
+
+        blocked = self.fact(harbor, "status", "Blocked", author_only=True)
+        report = self.event("Obstruction reported", 1)
+        event = self.apply({
+            "op": "record_event", "name": "Gate cleared", "tick": 2, "summary": "Passage reopened",
+            "description": "The gate opened", "method": "Moved the obstruction with a lever",
+            "purpose_ids": [goal], "backstory_ids": [mira, harbor], "era_ids": [era],
+            "cause_event_ids": [report], "cause_assertion_ids": [blocked], "participant_ids": [mira],
+            "changes": [{"entry_id": harbor, "field": "status", "value": "Open"}],
+        })
+        self.apply({"op": "edit_event", "event_id": event, "name": "Gate cleared"})
+        readback = next(item for item in self.article(mira, 2)["events"] if item["id"] == event)
+        self.assertEqual(readback["summary"], "Passage reopened")
+        self.assertEqual(readback["method"], "Moved the obstruction with a lever")
+        self.assertEqual(readback["cause_event_ids"], [report])
+        self.assertEqual(readback["cause_state"][0]["id"], blocked)
+        self.assertEqual(readback["cause_state"][0]["value"], "Blocked")
+        self.assertEqual(readback["changes"][0]["value"], "Open")
+        self.assertIn({"entry_id": goal, "role": "purpose"}, readback["links"])
+        self.assertIn({"entry_id": harbor, "role": "backstory"}, readback["links"])
+        self.assertIn({"entry_id": era, "role": "era"}, readback["links"])
+        for event_id, fields, code in (
+            (report, {"cause_event_ids": [event]}, "EVENT_CAUSE_CYCLE"),
+            (event, {"cause_event_ids": [str(uuid4())]}, "INVALID_EVENT_CAUSE"),
+            (event, {"cause_assertion_ids": [readback["changes"][0]["id"]]}, "INVALID_STATE_CAUSE"),
+            (event, {"purpose_ids": [mira]}, "INVALID_EVENT_LINK"),
+        ):
+            response = self.post({"op": "edit_event", "event_id": event_id, "name": "Rejected edit", **fields})
+            self.assertEqual(response.status_code, 422)
+            self.assertEqual(response.json()["field_errors"][0]["code"], code)
+        after = next(item for item in self.article(mira, 2)["events"] if item["id"] == event)
+        self.assertEqual(after, readback)
+        preview = self.browser.get(self.path + "/timeline", {"at": 2, "view_as": mira}).json()
+        self.assertEqual(preview["timeline"], [])
+
     def test_world_calendar_and_conflicting_defaults_resolve_without_changing_other_characters(self):
         first = self.entry("Ridge folk", "species")
         second = self.entry("Valley folk", "species")
