@@ -13,9 +13,11 @@ from rest_framework.views import APIView, exception_handler
 
 
 class CgsError(APIException):
-    def __init__(self, status, code, message):
+    def __init__(self, status, code, message, field_errors=(), *, conflict_revision=None):
         self.status_code = status
-        self.envelope = error_body(code, message)
+        self.envelope = error_body(code, message, field_errors)
+        if conflict_revision is not None:
+            self.envelope["conflict_revision"] = conflict_revision
         super().__init__(message, code=code)
 
 

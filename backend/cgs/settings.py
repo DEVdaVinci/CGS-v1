@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 
 SECRET_KEY = os.environ["CGS_SECRET_KEY"]
@@ -75,4 +76,6 @@ REST_FRAMEWORK = {
 USE_TZ = True
 TIME_ZONE = "UTC"
 STATIC_URL = "/static/"
+FRONTEND_BUILD_DIR = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+STATICFILES_DIRS = [("cgs", FRONTEND_BUILD_DIR)] if FRONTEND_BUILD_DIR.is_dir() else []
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

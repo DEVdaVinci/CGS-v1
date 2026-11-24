@@ -70,6 +70,7 @@ class DraftRevision(CreatedRecord):
     world_id = models.UUIDField()
     revision = models.PositiveBigIntegerField()
     previous_revision = models.PositiveBigIntegerField(null=True)
+    policy_version = models.PositiveBigIntegerField(db_default=1)
     author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.RESTRICT)
     document = models.JSONField()
     digest = models.CharField(max_length=64)
@@ -115,6 +116,7 @@ class MutationReceipt(CreatedRecord):
     input_digest = models.CharField(max_length=64)
     response_status = models.PositiveIntegerField()
     result = models.JSONField()
+    draft_response = models.JSONField(null=True)
     world = models.ForeignKey(World, on_delete=models.RESTRICT, null=True, db_index=False)
 
     class Meta:
@@ -125,4 +127,195 @@ class MutationReceipt(CreatedRecord):
                 fields=["principal", "operation", "scope_key", "request_key"],
                 name="unique_scoped_mutation_request",
             )
+        ]
+
+
+class EntityKey(CreatedRecord):
+    id = models.UUIDField(primary_key=True, editable=False)
+    world = models.ForeignKey(World, on_delete=models.RESTRICT, db_index=False)
+    draft = models.ForeignKey(WorldDraft, on_delete=models.RESTRICT, db_constraint=False, db_index=False)
+    kind = models.CharField(max_length=16)
+    first_revision = models.PositiveBigIntegerField()
+
+    class Meta:
+        db_table = "entity_key"
+        constraints = [
+            models.UniqueConstraint(fields=["world", "id"], name="entity_key_world_scope"),
+            models.CheckConstraint(
+                condition=Q(kind__in=["place", "actor", "item", "role"]),
+                name="entity_key_valid_kind",
+            ),
+        ]
+
+
+class DraftLinkKey(CreatedRecord):
+    pk = models.CompositePrimaryKey("draft_id", "link_id")
+    draft = models.ForeignKey(WorldDraft, on_delete=models.RESTRICT, db_constraint=False, db_index=False)
+    link_id = models.UUIDField()
+    first_revision = models.PositiveBigIntegerField()
+
+    class Meta:
+        db_table = "draft_link_key"
+
+
+class WikiWorld(models.Model):
+    world = models.OneToOneField(World, primary_key=True, on_delete=models.RESTRICT)
+    edit_counter = models.PositiveBigIntegerField(default=0)
+
+
+class WikiEntry(CreatedRecord):
+    class Kind(models.TextChoices):
+        PERSON = "person", "Person"
+        PLACE = "place", "Place"
+        GROUP = "group", "Group"
+        CLASS = "class", "Class"
+        ABILITY = "ability", "Ability"
+        ITEM = "item", "Item"
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    wiki = models.ForeignKey(WikiWorld, on_delete=models.RESTRICT)
+    kind = models.CharField(max_length=12, choices=Kind)
+    name = models.CharField(max_length=100)
+    author_only = models.BooleanField(default=False)
+
+    class Meta:
+        indexes = [models.Index(fields=["wiki", "name", "id"], name="wiki_entry_directory")]
+
+
+class WikiEvent(CreatedRecord):
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    wiki = models.ForeignKey(WikiWorld, on_delete=models.RESTRICT)
+    name = models.CharField(max_length=120)
+    tick = models.PositiveBigIntegerField()
+    source = models.CharField(max_length=500, blank=True)
+    description = models.CharField(max_length=1500, blank=True, default="")
+    ability = models.ForeignKey(
+        WikiEntry, null=True, on_delete=models.RESTRICT, related_name="wiki_uses",
+    )
+    performed_by = models.ForeignKey(
+        WikiEntry, null=True, on_delete=models.RESTRICT, related_name="wiki_performed_events",
+    )
+
+    class Meta:
+        indexes = [models.Index(fields=["wiki", "tick", "id"], name="wiki_event_timeline")]
+        constraints = [
+            models.CheckConstraint(
+                condition=(Q(ability__isnull=True, performed_by__isnull=True)
+                           | Q(ability__isnull=False, performed_by__isnull=False)),
+                name="wiki_event_ability_actor_pair",
+            ),
+        ]
+
+
+class WikiEventLink(models.Model):
+    class Role(models.TextChoices):
+        PARTICIPANT = "participant", "Participant"
+        PLACE = "place", "Place"
+        ITEM = "item", "Item"
+
+    event = models.ForeignKey(WikiEvent, on_delete=models.CASCADE, related_name="links")
+    entry = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, related_name="wiki_event_links")
+    role = models.CharField(max_length=12, choices=Role)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["event", "entry", "role"], name="wiki_event_unique_link"),
+        ]
+
+
+class WikiLearnedAbility(CreatedRecord):
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    character = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, related_name="wiki_learned_abilities")
+    ability = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, related_name="wiki_learners")
+    learned_at = models.PositiveBigIntegerField()
+    source = models.CharField(max_length=500, blank=True, default="")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["character", "ability"], name="wiki_unique_learned_ability"),
+        ]
+
+
+class WikiAssertion(CreatedRecord):
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    entry = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT)
+    field = models.CharField(max_length=32)
+    value = models.JSONField()
+    from_tick = models.PositiveBigIntegerField()
+    until_tick = models.PositiveBigIntegerField(null=True)
+    source = models.CharField(max_length=500, blank=True)
+    author_only = models.BooleanField(default=False)
+    opened_by = models.ForeignKey(
+        WikiEvent, on_delete=models.RESTRICT, null=True, related_name="opened_assertions",
+    )
+    closed_by = models.ForeignKey(
+        WikiEvent, on_delete=models.RESTRICT, null=True, related_name="closed_assertions",
+    )
+
+    class Meta:
+        indexes = [models.Index(fields=["entry", "field", "from_tick"], name="wiki_assertion_timeline")]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(until_tick__isnull=True) | Q(until_tick__gt=F("from_tick")),
+                name="wiki_assertion_interval",
+            ),
+        ]
+
+
+class WikiClaim(CreatedRecord):
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    entry = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT)
+    speaker = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, related_name="wiki_testimony")
+    field = models.CharField(max_length=32)
+    value = models.JSONField()
+    tick = models.PositiveBigIntegerField()
+    source = models.CharField(max_length=500, blank=True)
+    author_only = models.BooleanField(default=False)
+
+    class Meta:
+        indexes = [models.Index(fields=["entry", "tick"], name="wiki_claim_timeline")]
+
+
+class WikiObservation(CreatedRecord):
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    observer = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, related_name="wiki_knowledge")
+    assertion = models.ForeignKey(WikiAssertion, null=True, on_delete=models.RESTRICT)
+    claim = models.ForeignKey(WikiClaim, null=True, on_delete=models.RESTRICT)
+    value = models.JSONField()
+    about_tick = models.PositiveBigIntegerField()
+    learned_at = models.PositiveBigIntegerField()
+
+    class Meta:
+        indexes = [models.Index(fields=["observer", "learned_at"], name="wiki_observation_timeline")]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(assertion__isnull=False, claim__isnull=True)
+                    | Q(assertion__isnull=True, claim__isnull=False)
+                ),
+                name="wiki_observation_one_source",
+            ),
+            models.CheckConstraint(
+                condition=Q(learned_at__gte=F("about_tick")), name="wiki_observation_after_source",
+            ),
+        ]
+
+
+class WikiFinding(CreatedRecord):
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    entry = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT)
+    field = models.CharField(max_length=32)
+    key = models.CharField(max_length=100, unique=True)
+    code = models.CharField(max_length=32)
+    record_ids = models.JSONField()
+    from_tick = models.PositiveBigIntegerField()
+    until_tick = models.PositiveBigIntegerField(null=True)
+    resolved_at_edit = models.PositiveBigIntegerField(null=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["entry", "field"], condition=Q(resolved_at_edit__isnull=True),
+                name="wiki_open_findings",
+            ),
         ]

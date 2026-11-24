@@ -1,6 +1,8 @@
 x-backend: &backend
   image: cgs-backend:local
-  build: ./backend
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
   environment:
     CGS_SECRET_KEY: ${CGS_SECRET_KEY:?Copy .env.example to .env}
     CGS_DEBUG: "1"

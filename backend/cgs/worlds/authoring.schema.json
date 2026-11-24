@@ -1,0 +1,1626 @@
+{
+  "$defs": {
+    "Id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "Revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "Digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "Audience": {
+      "type": "string",
+      "pattern": "^(party|actor:[0-9a-f-]{36})$"
+    },
+    "AudienceGrants": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Audience"
+      },
+      "maxItems": 30,
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "IdArray": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Id"
+      },
+      "maxItems": 500,
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "PointCm": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "x_cm": {
+          "type": "integer",
+          "minimum": -100000000,
+          "maximum": 100000000
+        },
+        "y_cm": {
+          "type": "integer",
+          "minimum": -100000000,
+          "maximum": 100000000
+        }
+      },
+      "required": [
+        "x_cm",
+        "y_cm"
+      ]
+    },
+    "BoundsCm": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "x_min_cm": {
+          "type": "integer",
+          "minimum": -100000000,
+          "maximum": 100000000
+        },
+        "y_min_cm": {
+          "type": "integer",
+          "minimum": -100000000,
+          "maximum": 100000000
+        },
+        "x_max_cm": {
+          "type": "integer",
+          "minimum": -100000000,
+          "maximum": 100000000
+        },
+        "y_max_cm": {
+          "type": "integer",
+          "minimum": -100000000,
+          "maximum": 100000000
+        }
+      },
+      "required": [
+        "x_min_cm",
+        "y_min_cm",
+        "x_max_cm",
+        "y_max_cm"
+      ]
+    },
+    "LayoutPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "place_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "at": {
+          "$ref": "#/$defs/PointCm"
+        },
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "public",
+            "observed",
+            "author"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "place_id",
+        "at",
+        "visibility"
+      ]
+    },
+    "LayoutEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "from_point_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "to_point_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "traversable": {
+          "type": "boolean"
+        },
+        "required_fact_id": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/Id"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "from_point_id",
+        "to_point_id",
+        "traversable",
+        "required_fact_id"
+      ]
+    },
+    "Layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "frame_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "unit": {
+          "const": "cm"
+        },
+        "origin": {
+          "$ref": "#/$defs/PointCm"
+        },
+        "grid_cm": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        },
+        "points": {
+          "type": "object",
+          "patternProperties": {
+            "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$": {
+              "$ref": "#/$defs/LayoutPoint"
+            }
+          },
+          "additionalProperties": false,
+          "maxProperties": 100
+        },
+        "edges": {
+          "type": "object",
+          "patternProperties": {
+            "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$": {
+              "$ref": "#/$defs/LayoutEdge"
+            }
+          },
+          "additionalProperties": false,
+          "maxProperties": 300
+        }
+      },
+      "required": [
+        "frame_id",
+        "unit",
+        "origin",
+        "grid_cm",
+        "points",
+        "edges"
+      ]
+    },
+    "ActorPolicy": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "const": "hold"
+            }
+          },
+          "required": [
+            "mode"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "const": "alarm_move"
+            },
+            "stimulus_fact_id": {
+              "$ref": "#/$defs/Id"
+            },
+            "destination_point_id": {
+              "$ref": "#/$defs/Id"
+            },
+            "move_rule_id": {
+              "$ref": "#/$defs/Id"
+            }
+          },
+          "required": [
+            "mode",
+            "stimulus_fact_id",
+            "destination_point_id",
+            "move_rule_id"
+          ]
+        }
+      ]
+    },
+    "Entity": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "place"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "visibility": {
+              "type": "string",
+              "enum": [
+                "public",
+                "observed",
+                "author"
+              ]
+            },
+            "parent_place_id": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/Id"
+                }
+              ]
+            },
+            "bounds": {
+              "$ref": "#/$defs/BoundsCm"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "name",
+            "visibility",
+            "parent_place_id",
+            "bounds"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "actor"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "visibility": {
+              "type": "string",
+              "enum": [
+                "public",
+                "observed",
+                "author"
+              ]
+            },
+            "archetype": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "role_id": {
+              "$ref": "#/$defs/Id"
+            },
+            "action_rule_ids": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Id"
+              },
+              "maxItems": 30,
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "policy": {
+              "$ref": "#/$defs/ActorPolicy"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "name",
+            "visibility",
+            "archetype",
+            "role_id",
+            "action_rule_ids",
+            "policy"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "item"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "visibility": {
+              "type": "string",
+              "enum": [
+                "public",
+                "observed",
+                "author"
+              ]
+            },
+            "description": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "action_rule_ids": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Id"
+              },
+              "maxItems": 20,
+              "minItems": 0,
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "name",
+            "visibility",
+            "action_rule_ids"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "role"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "visibility": {
+              "type": "string",
+              "enum": [
+                "public",
+                "observed",
+                "author"
+              ]
+            },
+            "description": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "authority": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,63}$"
+              },
+              "maxItems": 20,
+              "minItems": 0,
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "name",
+            "visibility",
+            "authority"
+          ]
+        }
+      ]
+    },
+    "DraftEntity": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "place"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "visibility": {
+              "type": "string",
+              "enum": [
+                "public",
+                "observed",
+                "author"
+              ]
+            },
+            "parent_place_id": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/Id"
+                }
+              ]
+            },
+            "bounds": {
+              "$ref": "#/$defs/BoundsCm"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "actor"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "visibility": {
+              "type": "string",
+              "enum": [
+                "public",
+                "observed",
+                "author"
+              ]
+            },
+            "archetype": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "role_id": {
+              "$ref": "#/$defs/Id"
+            },
+            "action_rule_ids": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Id"
+              },
+              "maxItems": 30,
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "policy": {
+              "$ref": "#/$defs/ActorPolicy"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "item"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "visibility": {
+              "type": "string",
+              "enum": [
+                "public",
+                "observed",
+                "author"
+              ]
+            },
+            "description": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "action_rule_ids": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Id"
+              },
+              "maxItems": 20,
+              "minItems": 0,
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "role"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "visibility": {
+              "type": "string",
+              "enum": [
+                "public",
+                "observed",
+                "author"
+              ]
+            },
+            "description": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "authority": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,63}$"
+              },
+              "maxItems": 20,
+              "minItems": 0,
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ]
+        }
+      ]
+    },
+    "Link": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "affiliation",
+            "located_in",
+            "owns",
+            "carries",
+            "requires"
+          ]
+        },
+        "from_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "to_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "public",
+            "observed",
+            "author"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "from_id",
+        "to_id",
+        "visibility"
+      ]
+    },
+    "FactValue": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "boolean"
+            },
+            "value": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "integer"
+            },
+            "value": {
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "text"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "reference"
+            },
+            "value": {
+              "$ref": "#/$defs/Id"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "references"
+            },
+            "value": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Id"
+              },
+              "maxItems": 30,
+              "minItems": 1,
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ]
+        }
+      ]
+    },
+    "Fact": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "truth"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "subject_id": {
+              "$ref": "#/$defs/Id"
+            },
+            "predicate": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{0,63}$"
+            },
+            "value": {
+              "$ref": "#/$defs/FactValue"
+            },
+            "effective_from_tick": {
+              "$ref": "#/$defs/Revision"
+            },
+            "effective_until_tick": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/Revision"
+                }
+              ]
+            },
+            "visibility": {
+              "type": "string",
+              "enum": [
+                "public",
+                "observed",
+                "author"
+              ]
+            },
+            "source_ref_ids": {
+              "$ref": "#/$defs/IdArray"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "subject_id",
+            "predicate",
+            "value",
+            "effective_from_tick",
+            "effective_until_tick",
+            "visibility",
+            "source_ref_ids"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "claim"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "subject_id": {
+              "$ref": "#/$defs/Id"
+            },
+            "predicate": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{0,63}$"
+            },
+            "value": {
+              "$ref": "#/$defs/FactValue"
+            },
+            "effective_from_tick": {
+              "$ref": "#/$defs/Revision"
+            },
+            "effective_until_tick": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/Revision"
+                }
+              ]
+            },
+            "visibility": {
+              "type": "string",
+              "enum": [
+                "public",
+                "observed",
+                "author"
+              ]
+            },
+            "source_ref_ids": {
+              "$ref": "#/$defs/IdArray"
+            },
+            "claimant_id": {
+              "$ref": "#/$defs/Id"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "subject_id",
+            "predicate",
+            "value",
+            "effective_from_tick",
+            "effective_until_tick",
+            "visibility",
+            "source_ref_ids",
+            "claimant_id"
+          ]
+        }
+      ]
+    },
+    "InitialObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "audience": {
+          "$ref": "#/$defs/Audience"
+        },
+        "fact_id": {
+          "$ref": "#/$defs/Id"
+        }
+      },
+      "required": [
+        "audience",
+        "fact_id"
+      ]
+    },
+    "Attributes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "strength": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "agility": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "perception": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "strength",
+        "agility",
+        "perception"
+      ]
+    },
+    "ActorState": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "point_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "hp": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "hp_max": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "focus": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "focus_max": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "xp": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "level": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "rank": {
+          "type": "string",
+          "enum": [
+            "F",
+            "E",
+            "D",
+            "C",
+            "B",
+            "A",
+            "S"
+          ]
+        },
+        "class_key": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "unspent_points": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "attributes": {
+          "$ref": "#/$defs/Attributes"
+        },
+        "extra_rule_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Id"
+          },
+          "maxItems": 30,
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "occupies": {
+          "type": "boolean"
+        },
+        "statuses": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "defeated"
+            ]
+          },
+          "maxItems": 1,
+          "minItems": 0,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "point_id",
+        "hp",
+        "hp_max",
+        "focus",
+        "focus_max",
+        "xp",
+        "level",
+        "rank",
+        "class_key",
+        "unspent_points",
+        "attributes",
+        "extra_rule_ids",
+        "occupies",
+        "statuses"
+      ]
+    },
+    "StartState": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tick": {
+          "$ref": "#/$defs/Revision"
+        },
+        "actors": {
+          "type": "object",
+          "patternProperties": {
+            "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$": {
+              "$ref": "#/$defs/ActorState"
+            }
+          },
+          "additionalProperties": false,
+          "maxProperties": 50
+        },
+        "item_positions": {
+          "type": "object",
+          "patternProperties": {
+            "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$": {
+              "$ref": "#/$defs/Id"
+            }
+          },
+          "additionalProperties": false,
+          "maxProperties": 100
+        },
+        "controlled_player_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "scout_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Id"
+          },
+          "maxItems": 10,
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "initial_observations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/InitialObservation"
+          },
+          "maxItems": 200,
+          "minItems": 0
+        },
+        "encounter_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "sentry_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "progress_rule_id": {
+          "$ref": "#/$defs/Id"
+        }
+      },
+      "required": [
+        "tick",
+        "actors",
+        "item_positions",
+        "controlled_player_id",
+        "scout_ids",
+        "initial_observations",
+        "encounter_id",
+        "sentry_id",
+        "progress_rule_id"
+      ]
+    },
+    "DraftRule": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "template": {
+              "const": "search"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "rule_version": {
+              "const": 1
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "site_id": {
+                  "$ref": "#/$defs/Id"
+                },
+                "discovery_fact_ids": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Id"
+                  },
+                  "maxItems": 30,
+                  "minItems": 1,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "site_id",
+                "discovery_fact_ids"
+              ]
+            }
+          },
+          "required": [
+            "template",
+            "id",
+            "rule_version"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "template": {
+              "const": "report"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "rule_version": {
+              "const": 1
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "audiences": {
+                  "$ref": "#/$defs/AudienceGrants"
+                }
+              },
+              "required": [
+                "audiences"
+              ]
+            }
+          },
+          "required": [
+            "template",
+            "id",
+            "rule_version"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "template": {
+              "const": "move"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "rule_version": {
+              "const": 1
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "maximum_cm": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10000
+                },
+                "focus_cost": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                }
+              },
+              "required": [
+                "maximum_cm",
+                "focus_cost"
+              ]
+            }
+          },
+          "required": [
+            "template",
+            "id",
+            "rule_version"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "template": {
+              "const": "cast"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "rule_version": {
+              "const": 1
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "range_cm": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10000
+                },
+                "focus_cost": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "hit_min_d20": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 20
+                },
+                "damage": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                },
+                "target_role_id": {
+                  "$ref": "#/$defs/Id"
+                },
+                "on_attempt_fact_id": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/$defs/Id"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "range_cm",
+                "focus_cost",
+                "hit_min_d20",
+                "damage",
+                "target_role_id",
+                "on_attempt_fact_id"
+              ]
+            }
+          },
+          "required": [
+            "template",
+            "id",
+            "rule_version"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "template": {
+              "const": "progress"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "rule_version": {
+              "const": 1
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "xp_award": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                },
+                "unlock_at_xp": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000000
+                },
+                "points": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 20
+                },
+                "unlock_level": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                },
+                "class_key": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]{0,63}$"
+                },
+                "unlock_rule_id": {
+                  "$ref": "#/$defs/Id"
+                }
+              },
+              "required": [
+                "xp_award",
+                "unlock_at_xp",
+                "points",
+                "unlock_level",
+                "class_key",
+                "unlock_rule_id"
+              ]
+            }
+          },
+          "required": [
+            "template",
+            "id",
+            "rule_version"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "template": {
+              "const": "allocate"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "rule_version": {
+              "const": 1
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {},
+              "required": []
+            }
+          },
+          "required": [
+            "template",
+            "id",
+            "rule_version"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "template": {
+              "const": "wait"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "rule_version": {
+              "const": 1
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {},
+              "required": []
+            }
+          },
+          "required": [
+            "template",
+            "id",
+            "rule_version"
+          ]
+        }
+      ]
+    },
+    "DraftWorld": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "entities": {
+          "type": "object",
+          "patternProperties": {
+            "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$": {
+              "$ref": "#/$defs/DraftEntity"
+            }
+          },
+          "additionalProperties": false,
+          "maxProperties": 200
+        },
+        "facts": {
+          "type": "object",
+          "patternProperties": {
+            "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$": {
+              "$ref": "#/$defs/Fact"
+            }
+          },
+          "additionalProperties": false,
+          "maxProperties": 500
+        },
+        "links": {
+          "type": "object",
+          "patternProperties": {
+            "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$": {
+              "$ref": "#/$defs/Link"
+            }
+          },
+          "additionalProperties": false,
+          "maxProperties": 500
+        },
+        "layout": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/Layout"
+            }
+          ]
+        },
+        "rules": {
+          "type": "object",
+          "patternProperties": {
+            "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$": {
+              "$ref": "#/$defs/DraftRule"
+            }
+          },
+          "additionalProperties": false,
+          "maxProperties": 100
+        },
+        "start": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/StartState"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "entities",
+        "facts",
+        "links",
+        "layout",
+        "rules",
+        "start"
+      ]
+    },
+    "Edit": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "const": "add"
+            },
+            "pointer": {
+              "type": "string",
+              "pattern": "^/(entities|facts|links|layout|rules|start)(/[^/~]+)*$",
+              "maxLength": 160
+            },
+            "value": {}
+          },
+          "required": [
+            "op",
+            "pointer",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "const": "set"
+            },
+            "pointer": {
+              "type": "string",
+              "pattern": "^/(entities|facts|links|layout|rules|start)(/[^/~]+)*$",
+              "maxLength": 160
+            },
+            "value": {}
+          },
+          "required": [
+            "op",
+            "pointer",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "const": "remove"
+            },
+            "pointer": {
+              "type": "string",
+              "pattern": "^/(entities|facts|links|layout|rules|start)(/[^/~]+)*$",
+              "maxLength": 160
+            }
+          },
+          "required": [
+            "op",
+            "pointer"
+          ]
+        }
+      ]
+    },
+    "DraftWrite": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "const": "manual"
+            },
+            "expected_revision": {
+              "$ref": "#/$defs/Revision"
+            },
+            "edits": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Edit"
+              },
+              "maxItems": 40,
+              "minItems": 1
+            }
+          },
+          "required": [
+            "mode",
+            "expected_revision",
+            "edits"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "const": "approve_and_apply"
+            },
+            "expected_revision": {
+              "$ref": "#/$defs/Revision"
+            },
+            "proposal_id": {
+              "$ref": "#/$defs/Id"
+            },
+            "proposal_digest": {
+              "$ref": "#/$defs/Digest"
+            }
+          },
+          "required": [
+            "mode",
+            "expected_revision",
+            "proposal_id",
+            "proposal_digest"
+          ]
+        }
+      ]
+    }
+  }
+}
