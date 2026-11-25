@@ -33,7 +33,8 @@ const navigation: { title: string; destinations: Destination[] }[] = [
     { key: 'maps', label: 'Maps', create: [{ type: 'map', label: 'Add map reference' }] },
     { key: 'timeline', label: 'Timeline' },
     { key: 'definitions', label: 'Definitions', chooser: {
-      label: 'New definition', types: ['class', 'role', 'ability', 'resource', 'body_part', 'trait', 'goal', 'milestone', 'process', 'skill', 'era'],
+      label: 'New definition', types: ['class', 'role', 'status_def', 'ability', 'resource', 'body_part', 'trait',
+        'goal', 'milestone', 'requirement', 'method', 'process', 'skill', 'era'],
     } },
     { key: 'sources', label: 'Sources', create: [{ type: 'source', label: 'New source' }] },
     { key: 'media', label: 'Media', chooser: {

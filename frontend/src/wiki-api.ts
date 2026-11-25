@@ -4,6 +4,7 @@ export type WikiKind = 'person' | 'place' | 'group' | 'class' | 'ability' | 'ite
   | 'species' | 'organism' | 'culture' | 'role' | 'resource' | 'body_part' | 'trait' | 'goal'
   | 'image' | 'model_3d' | 'texture' | 'animation' | 'map' | 'territory' | 'era'
   | 'source' | 'process' | 'skill' | 'milestone'
+  | 'requirement' | 'method' | 'status_def'
 export type WikiEntry = {
   id: string; name: string; kind: WikiKind; author_only?: boolean
   catalog_type?: 'vehicle'; classification_needs_review?: boolean
@@ -21,6 +22,7 @@ export type WikiField = {
   qualifier_kind: WikiKind | null
   qualifier_required: boolean
   many: boolean
+  uses_unit?: boolean
   minimum?: number | null
   maximum?: number | null
 }
@@ -35,17 +37,21 @@ export type WikiAssertion = {
   author_only: boolean; source: string; event_id: string | null
   citation_id: string | null
   qualifier_id?: string | null
+  unit?: string | null
 }
 export type WikiClaim = {
-  id: string; field: string; value: WikiValue; tick: number; speaker_id: string | null
+  id: string; field: string; value: WikiValue; tick: number | null; speaker_id: string | null
+  date_precision: EventDatePrecision; start_tick: number | null; end_tick: number | null
   author_only: boolean; source: string
   citation_id: string | null
   qualifier_id?: string | null
+  unit?: string | null
 }
 export type WikiObservation = {
-  id: string; field: string; value: WikiValue; about_tick: number; learned_at: number
+  id: string; field: string; value: WikiValue; about_tick: number | null; learned_at: number
   observer_id: string; source_kind: 'assertion' | 'claim'; source_id?: string; speaker_id?: string
   entry_id: string; qualifier_id?: string | null
+  unit?: string | null
 }
 type AbilityUse = { ability_id: string; actor_id: string }
 export type EventDatePrecision = 'exact' | 'bounded' | 'unknown'
@@ -65,6 +71,7 @@ export type WikiEvent = {
   changes: {
     id: string; entry_id: string; field: string; value: WikiValue | null; previous_value: WikiValue | null
     qualifier_id: string | null
+    unit?: string | null; previous_unit?: string | null
   }[]
 }
 
@@ -79,11 +86,13 @@ export type WikiEffectiveValue = {
 export type WikiLinkedFact = {
   id: string; entry_id: string; field: string; label: string; qualifier_id: string | null
   from_tick: number; until_tick: number | null; source: string
+  order?: number | null; order_conflict?: boolean
 }
 export type WikiProposition = {
   id: string; holder_id: string; subject_id: string; kind: 'belief' | 'desired_state'
   field: string; value: WikiValue; qualifier_id: string | null; from_tick: number; until_tick: number | null
   about_tick: number | null; evidence_id: string | null; source: string; author_only: boolean
+  unit?: string | null
 }
 export type WikiWaypoint = { id: string; name: string; x_cm: number; y_cm: number }
 export type WikiBounds = { left_cm: number; top_cm: number; width_cm: number; height_cm: number }
@@ -167,6 +176,7 @@ type EventDetails = {
   start_tick?: number | null; end_tick?: number | null
   cross_reference_ids?: string[]
 }
+type ClaimDate = { tick: number | null; date_precision: EventDatePrecision; start_tick: number | null; end_tick: number | null }
 export type WikiCommand =
   | {
     op: 'create_entry'; name: string; kind: WikiKind; author_only: boolean; overview?: string
@@ -179,7 +189,7 @@ export type WikiCommand =
   | ({ op: 'set_discovery'; entry_id: string; learned_at: number | null } & Pick<WikiDiscovery, 'observer_id' | 'source'>)
   | { op: 'update_article_sections'; entry_id: string; sections: WikiArticleSection[] }
   | ({ op: 'record_fact'; from_tick: number; until_tick: number | null; source: string; citation_id?: string | null } & FieldChange)
-  | { op: 'correct_fact'; assertion_id: string; value: WikiValue; source?: string; citation_id?: string | null; author_only?: boolean }
+  | { op: 'correct_fact'; assertion_id: string; value: WikiValue; source?: string; citation_id?: string | null; author_only?: boolean; bind_unit?: boolean }
   | ({
     op: 'record_event'; tick: number | null; date_precision?: EventDatePrecision
     changes: EventChange[]; parent_id?: string; node_kind?: 'action' | 'occurrence'
@@ -188,7 +198,11 @@ export type WikiCommand =
   | ({ op: 'edit_event'; event_id: string; tick?: number | null; date_precision?: EventDatePrecision } & EventDetails)
   | { op: 'organize_event'; event_id: string; parent_id: string | null; position?: number }
   | { op: 'correct_event_date'; event_id: string; tick: number }
-  | ({ op: 'record_claim'; speaker_id: string | null; tick: number; source: string; citation_id?: string | null } & FieldChange)
+  | ({ op: 'record_claim'; speaker_id: string | null; source: string; citation_id?: string | null } & FieldChange & ClaimDate)
+  | ({
+    op: 'correct_claim'; claim_id: string; value: WikiValue; source: string; citation_id: string | null
+    author_only: boolean; bind_unit?: boolean
+  } & ClaimDate)
   | { op: 'record_observation'; observer_id: string; source_id: string; source_kind: 'assertion' | 'claim'; learned_at: number; about_tick?: number }
   | ({
     holder_id: string; from_tick: number; until_tick: number | null; about_tick: number | null

@@ -10,7 +10,7 @@ from .models import (
     WikiAssertion, WikiClaim, WikiDiscovery, WikiEntry, WikiEvent, WikiEventLink, WikiFinding,
     WikiLearnedAbility, WikiMapImage, WikiObservation, WikiWorld,
 )
-from .wiki import at_tick, can_edit, value_slot, wiki_access
+from .wiki import at_tick, can_edit, value_slot, visible_unit, wiki_access
 from .wiki_events import event_bounds
 from .wiki_layouts import place_layout
 from .wiki_maps import describe_image_map
@@ -115,6 +115,7 @@ def _id(value):
 def _serialize_assertion(fact):
     return {
         "id": str(fact.pk), "field": fact.field, "value": fact.value,
+        "unit": fact.recorded_unit,
         "from_tick": fact.from_tick, "until_tick": fact.until_tick, "source": fact.source,
         "citation_id": _id(fact.citation_id),
         "author_only": fact.author_only, "event_id": _id(fact.opened_by_id),
@@ -125,7 +126,9 @@ def _serialize_assertion(fact):
 def _serialize_claim(claim):
     return {
         "id": str(claim.pk), "field": claim.field, "value": claim.value,
+        "unit": claim.recorded_unit,
         "tick": claim.tick, "speaker_id": _id(claim.speaker_id),
+        "date_precision": claim.date_precision, "start_tick": claim.start_tick, "end_tick": claim.end_tick,
         "source": claim.source, "citation_id": _id(claim.citation_id), "author_only": claim.author_only,
         "qualifier_id": _id(claim.qualifier_id),
     }
@@ -134,13 +137,14 @@ def _serialize_claim(claim):
 def _observations_about(entry):
     return WikiObservation.objects.filter(
         Q(assertion__entry=entry) | Q(claim__entry=entry) | Q(observer=entry)
-    ).select_related("assertion", "claim", "claim__speaker").order_by("learned_at", "id")
+    ).select_related("assertion", "claim", "claim__speaker", "unit_source").order_by("learned_at", "id")
 
 
 def _serialize_observation(observation, *, author=False):
     source = observation.assertion or observation.claim
     evidence = {
         "id": str(observation.pk), "field": source.field, "value": observation.value,
+        "unit": observation.recorded_unit if author else visible_unit(observation),
         "about_tick": observation.about_tick, "learned_at": observation.learned_at,
         "observer_id": str(observation.observer_id),
         "source_kind": "claim" if observation.claim_id else "assertion",
@@ -208,12 +212,14 @@ def _event_effects(event):
         result.append({
             "id": str(fact.pk), "entry_id": str(fact.entry_id), "field": fact.field,
             "qualifier_id": _id(fact.qualifier_id), "value": fact.value,
+            "unit": fact.recorded_unit, "previous_unit": previous.recorded_unit if previous else None,
             "previous_value": previous.value if previous else None,
         })
     for fact in closed.values():
         result.append({
             "id": str(fact.pk), "entry_id": str(fact.entry_id), "field": fact.field,
             "qualifier_id": _id(fact.qualifier_id), "value": None, "previous_value": fact.value,
+            "unit": None, "previous_unit": fact.recorded_unit,
         })
     return result
 

@@ -80,10 +80,12 @@ function EntryReference({ id, at, view, openEntry, entryHref, navigationLocked }
   ) : <span>Unavailable entry</span>
 }
 
-function ValueText({ field, value, ...display }: Display & { field: string; value: WikiValue }) {
+function ValueText({ field, value, unit, ...display }: Display & { field: string; value: WikiValue; unit?: string | null }) {
   const definition = display.view.fields.find((item) => item.key === field)
-  if (definition?.value_kind === 'distribution') return <span>{formatDistribution(value)}</span>
-  return definition?.target_kinds.length && typeof value === 'string' ? <EntryReference {...display} id={value} /> : <span>{value}</span>
+  if (definition?.target_kinds.length && typeof value === 'string') return <EntryReference {...display} id={value} />
+  return <><span>{definition?.value_kind === 'distribution' ? formatDistribution(value) : value}</span>
+    {unit ? ' ' + unit : definition?.uses_unit && <small className="muted"> · Unit unspecified</small>}
+  </>
 }
 
 function times(from: number, until: number | null) {
@@ -105,10 +107,10 @@ function Observations({ article, display }: { article: WikiArticle; display: Dis
                 <strong>{fieldLabel(display.view, item.field)}</strong>
                 {' · '}<EntryReference {...display} id={item.entry_id} />
                 {item.qualifier_id && <> · <EntryReference {...display} id={item.qualifier_id} /></>}
-                <div><ValueText {...display} field={item.field} value={item.value} /></div>
+                <div><ValueText {...display} field={item.field} value={item.value} unit={item.unit} /></div>
                 <p className="muted">
                   {viewpoint ? 'Learned' : (entryName(display.view, item.observer_id) ?? 'Character') + ' learned'} at time {item.learned_at}
-                  {' · About time ' + item.about_tick}
+                  {item.about_tick === null ? ' · About time unspecified' : ' · About time ' + item.about_tick}
                   {item.speaker_id ? ' · Statement by ' + (entryName(display.view, item.speaker_id) ?? 'a character') : ''}
                 </p>
               </div>
@@ -122,7 +124,7 @@ function Observations({ article, display }: { article: WikiArticle; display: Dis
 
 function Propositions({ article, display, edit }: { article: WikiArticle; display: Display; edit?: (value: ArticleEdit) => void }) {
   const records = article.propositions ?? []
-  const goal = article.entry.kind === 'goal'
+  const goal = article.entry.kind === 'goal' || article.entry.kind === 'milestone'
   const label = goal ? 'Desired state' : 'Beliefs'
   const canRecord = isWikiActor(article.entry) || goal
   if (!canRecord && !records.length) return null
@@ -141,7 +143,7 @@ function Propositions({ article, display, edit }: { article: WikiArticle; displa
             {' · '}<EntryReference {...display} id={record.holder_id} />
             <p><EntryReference {...display} id={record.subject_id} /> · {fieldLabel(display.view, record.field)}
               {record.qualifier_id && <> · <EntryReference {...display} id={record.qualifier_id} /></>}
-              {' · '}<ValueText {...display} field={record.field} value={record.value} /></p>
+              {' · '}<ValueText {...display} field={record.field} value={record.value} unit={record.unit} /></p>
             <p className="muted">{times(record.from_tick, record.until_tick)}
               {record.about_tick === null ? '' : ' · About time ' + record.about_tick}
               {record.author_only ? ' · Author only' : ''}</p>
@@ -206,7 +208,7 @@ function ArticleOverview({ article, display }: { article: WikiArticle; display: 
           <div><dt>Type</dt><dd>{entryLabel(article.entry)}</dd></div>
           {identity.map((fact) => <div key={fact.id}>
             <dt>{fieldLabel(view, fact.field, article.entry.kind)}</dt>
-            <dd><ValueText {...display} field={fact.field} value={fact.value} />
+            <dd><ValueText {...display} field={fact.field} value={fact.value} unit={fact.unit} />
               <small>Recorded from time {fact.from_tick}</small>
             </dd>
           </div>)}
@@ -322,7 +324,7 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
                       <dt>{fieldLabel(view, item.field, article.entry.kind)}
                         {item.qualifier_id && <> · <EntryReference {...display} id={item.qualifier_id} /></>}
                       </dt>
-                      <dd>{item.state === 'value' ? <><ValueText {...display} field={item.field} value={item.value} />{item.unit && ' ' + item.unit}</>
+                      <dd>{item.state === 'value' ? <ValueText {...display} field={item.field} value={item.value} unit={item.unit} />
                         : item.state === 'conflict' ? <span className="wiki-conflict">Conflicting values</span>
                         : <span className="muted">Unknown at this time</span>}
                         {item.default_sources?.length ? <small className="wiki-default-source">From {item.default_sources.map((id) =>
@@ -343,7 +345,11 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
                 <li key={link.id} className="wiki-record">
                   <div><EntryReference {...display} id={link.entry_id} />
                     {link.qualifier_id && <> · <EntryReference {...display} id={link.qualifier_id} /></>}
-                    <p className="muted">{times(link.from_tick, link.until_tick)}{link.source ? ' · ' + link.source : ''}</p>
+                    <p className="muted">
+                      {link.order_conflict ? 'Conflicting order · ' : link.order === null ? 'Order unspecified · '
+                        : link.order !== undefined ? 'Position ' + link.order + ' · ' : ''}
+                      {times(link.from_tick, link.until_tick)}{link.source ? ' · ' + link.source : ''}
+                    </p>
                   </div>
                 </li>
               ))}</ul>
@@ -422,7 +428,7 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
                   <li className="wiki-record" key={fact.id} id={'wiki-record-' + fact.id}>
                     <div>
                       <strong>{fieldLabel(view, fact.field)}</strong>
-                      <div><ValueText {...display} field={fact.field} value={fact.value} /></div>
+                      <div><ValueText {...display} field={fact.field} value={fact.value} unit={fact.unit} /></div>
                       <p className="muted">{times(fact.from_tick, fact.until_tick)}{fact.author_only ? ' · Author only' : ''}</p>
                       {fact.citation_id && <p>Source article <EntryReference {...display} id={fact.citation_id} at={null} /></p>}
                       {fact.source && <p className="muted">Source: {fact.source}</p>}
@@ -456,14 +462,20 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
                     <div>
                     <strong>{fieldLabel(view, claim.field)}</strong>
                     {claim.qualifier_id && <> · <EntryReference {...display} id={claim.qualifier_id} /></>}
-                      <div><ValueText {...display} field={claim.field} value={claim.value} /></div>
-                      <p className="muted">{claim.speaker_id ? entryName(view, claim.speaker_id) : 'Unknown speaker'} at time {claim.tick}{claim.author_only ? ' · Author only' : ''}</p>
+                      <div><ValueText {...display} field={claim.field} value={claim.value} unit={claim.unit} /></div>
+                      <p className="muted">{claim.speaker_id ? entryName(view, claim.speaker_id) : 'Unknown speaker'}
+                        {claim.tick !== null ? ' at time ' + claim.tick : claim.start_tick !== null
+                          ? ' · Possible time ' + claim.start_tick + ' to ' + claim.end_tick : ' · Statement date unknown'}
+                        {claim.author_only ? ' · Author only' : ''}
+                      </p>
                       {claim.citation_id && <p>Source article <EntryReference {...display} id={claim.citation_id} at={null} /></p>}
                       {claim.source && <p className="muted">Source: {claim.source}</p>}
                     </div>
-                    {edit && !claim.author_only && !article.entry.author_only && (
-                      <button className="button secondary" type="button" onClick={() => edit({ kind: 'observe', source: claim, sourceKind: 'claim' })}>Record observation</button>
-                    )}
+                    {edit && <div className="form-actions">
+                      <button className="button secondary" type="button" onClick={() => edit({ kind: 'correct-claim', claim })}>Correct claim</button>
+                      {!claim.author_only && !article.entry.author_only && <button className="button secondary" type="button"
+                        onClick={() => edit({ kind: 'observe', source: claim, sourceKind: 'claim' })}>Record observation</button>}
+                    </div>}
                   </li>
                 ))}
               </ul>
@@ -735,7 +747,8 @@ export function Wiki({ account, worldId, onAuthError }: {
           command.op === 'record_event' || command.op === 'record_event_group' || command.op === 'edit_event'
           || command.op === 'organize_event' || command.op === 'correct_event_date'
         )
-        navigate({ ...pending.location, at: savedTime, eventId: focusEvent ? saved.record_id : pending.location.eventId })
+        const history = pending.location.history || command.op === 'record_claim' || command.op === 'correct_claim'
+        navigate({ ...pending.location, at: savedTime, history, eventId: focusEvent ? saved.record_id : pending.location.eventId })
       }
       setNotice('Wiki change saved.')
       setRefresh((previous) => previous + 1)

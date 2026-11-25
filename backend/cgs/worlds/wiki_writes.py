@@ -1,4 +1,5 @@
 from collections import defaultdict
+from itertools import chain
 
 from django.db import transaction
 from django.db.models import Q
@@ -13,7 +14,7 @@ from .models import (
 from .services import digest_json
 from .wiki import (
     at_tick, check_hierarchies, check_interval, contains_tick, entry_for, reject, typed_assertion,
-    typed_value, value_slot, wiki_access,
+    typed_value, unit_at, value_slot, wiki_access,
 )
 from .wiki_events import (
     attach_event, check_event_tree, event_bounds, organize_event, update_event_causes, update_event_references,
@@ -34,8 +35,8 @@ def _field_of(record):
     return record.entry_id, record.field
 
 
-def _value_arguments(entry, data):
-    return typed_assertion(entry, data["field"], data["value"], data.get("qualifier_id"))
+def _value_arguments(entry, data, tick):
+    return typed_assertion(entry, data["field"], data["value"], data.get("qualifier_id"), tick=tick)
 
 
 def _citation(wiki, citation_id):
@@ -63,7 +64,7 @@ def _create_entry(wiki, command):
     values = {}
     for fact in command.get("initial_values", ()):
         assertion = WikiAssertion(
-            **_value_arguments(entry, fact),
+            **_value_arguments(entry, fact, tick),
             from_tick=tick, author_only=fact["author_only"],
         )
         slot = (assertion.field, *value_slot(assertion.field, assertion.qualifier_id, assertion.value))
@@ -147,7 +148,7 @@ def _record_fact(wiki, command):
     start, end = command["from_tick"], command["until_tick"]
     check_interval(start, end)
     fact = WikiAssertion.objects.create(
-        **_value_arguments(entry, command),
+        **_value_arguments(entry, command, start),
         from_tick=start, until_tick=end, author_only=command["author_only"], source=command["source"],
         citation=_citation(wiki, command.get("citation_id")),
     )
@@ -161,7 +162,11 @@ def _correct_fact(wiki, command):
     if "citation_id" in command:
         fact.citation = _citation(wiki, command["citation_id"])
     fact.author_only = command.get("author_only", fact.author_only)
-    fact.save(update_fields=["value", "source", "citation", "author_only"])
+    if command.get("bind_unit"):
+        fact.recorded_unit, fact.unit_source_id = unit_at(fact.field, fact.qualifier_id, fact.from_tick)
+        if fact.recorded_unit is None:
+            reject("UNIT_UNAVAILABLE", "Define one applicable unit on the measurement's Resource or Trait before rebinding it.")
+    fact.save(update_fields=["value", "source", "citation", "author_only", "recorded_unit", "unit_source"])
     return fact.pk, {_field_of(fact)}
 
 
@@ -264,7 +269,7 @@ def _record_event(wiki, command):
     for change in command.get("changes", ()):
         entry = entry_for(wiki, change["entry_id"])
         fact = WikiAssertion(
-            **_value_arguments(entry, change), author_only=change["author_only"], source=change.get("source", ""),
+            **_value_arguments(entry, change, event.tick), author_only=change["author_only"], source=change.get("source", ""),
         )
         slot = (entry.pk, fact.field, *value_slot(fact.field, fact.qualifier_id, fact.value))
         if slot in slots:
@@ -337,17 +342,63 @@ def _correct_event_date(wiki, command):
     return event.pk, affected
 
 
+def _claim_dates(command, claim=None):
+    dates = {
+        key: command.get(key, getattr(claim, key, None))
+        for key in ("tick", "start_tick", "end_tick")
+    }
+    precision = command.get("date_precision", claim.date_precision if claim else "exact")
+    tick, start, end = dates["tick"], dates["start_tick"], dates["end_tick"]
+    valid = (
+        (precision == "exact" and tick is not None and start is None and end is None)
+        or (precision == "bounded" and tick is None and start is not None and end is not None and start < end)
+        or (precision == "unknown" and all(value is None for value in dates.values()))
+    )
+    if not valid:
+        reject("CLAIM_DATE", "Enter an exact time, an ordered range, or choose Unknown and leave the dates blank.")
+    return {"date_precision": precision, **dates}
+
+
 def _record_claim(wiki, command):
     entry = entry_for(wiki, command["entry_id"])
     speaker = _actor_for(wiki, command["speaker_id"]) if command.get("speaker_id") else None
     citation = _citation(wiki, command.get("citation_id"))
     if speaker is None and citation is None:
         reject("CLAIM_ATTRIBUTION_REQUIRED", "Choose a speaker or cite a source article for the claim.")
+    dates = _claim_dates(command)
     claim = WikiClaim.objects.create(
-        **_value_arguments(entry, command), speaker=speaker, citation=citation,
-        tick=command["tick"], source=command["source"], author_only=command["author_only"],
+        **_value_arguments(entry, command, dates["tick"]), **dates,
+        speaker=speaker, citation=citation, source=command["source"], author_only=command["author_only"],
     )
     return claim.pk, set()
+
+
+def _correct_claim(wiki, command):
+    claim = _in_world(WikiClaim.objects.filter(entry__wiki=wiki).select_related("entry"), command["claim_id"])
+    dates = _claim_dates(command, claim)
+    claim.value = typed_value(claim.entry, claim.field, command["value"])
+    claim.source = command.get("source", claim.source)
+    claim.author_only = command.get("author_only", claim.author_only)
+    if "citation_id" in command:
+        claim.citation = _citation(wiki, command["citation_id"])
+    if not claim.speaker_id and not claim.citation_id:
+        reject("CLAIM_ATTRIBUTION_REQUIRED", "Keep a source article for this claim while its speaker is unknown.")
+    if command.get("bind_unit"):
+        claim.recorded_unit, claim.unit_source_id = unit_at(claim.field, claim.qualifier_id, dates["tick"])
+        if claim.recorded_unit is None:
+            reject("UNIT_UNAVAILABLE", "Choose an exact statement time with one applicable unit before rebinding it.")
+    for name, value in dates.items():
+        setattr(claim, name, value)
+    claim.save(update_fields=["value", "source", "author_only", "citation", "recorded_unit", "unit_source", *dates])
+    return claim.pk, {_field_of(claim)}
+
+
+def _compatible_claim_time(claim, about, learned):
+    if claim.tick is not None:
+        return claim.tick <= learned and (about is None or about == claim.tick)
+    if claim.start_tick is not None:
+        return claim.start_tick <= learned and (about is None or claim.start_tick <= about <= claim.end_tick)
+    return True
 
 
 def _actor_for(wiki, entry_id):
@@ -372,39 +423,56 @@ def _record_observation(wiki, command):
         reject("PRIVATE_EVIDENCE", "This evidence names an author-only qualifier.")
     if definition.target_kinds and entry_for(wiki, source.value).author_only:
         reject("PRIVATE_EVIDENCE", "This evidence points to an author-only entry.")
-    about_tick = source.from_tick if is_assertion else source.tick
-    if command["learned_at"] < about_tick:
-        reject("INVALID_LEARNING_TIME", "The character learns the evidence at or after the source time.")
-    if "about_tick" in command:
-        about_tick = command["about_tick"]
-        valid = contains_tick(source, about_tick) if is_assertion else source.tick == about_tick
-        if not valid or command["learned_at"] < about_tick:
-            reject("INVALID_LEARNING_TIME", "Choose an observation time within the source and before learning.")
+    about_tick = command.get("about_tick", source.from_tick if is_assertion else source.tick)
+    learned = command["learned_at"]
+    compatible = contains_tick(source, about_tick) if is_assertion else _compatible_claim_time(source, about_tick, learned)
+    if not compatible or (about_tick is not None and learned < about_tick):
+        reject("INVALID_LEARNING_TIME", "Choose an observation time consistent with the source and before learning.")
     observation = WikiObservation.objects.create(
         observer=observer, assertion=source if is_assertion else None, claim=source if not is_assertion else None,
-        value=source.value, about_tick=about_tick, learned_at=command["learned_at"],
+        value=source.value, recorded_unit=source.recorded_unit, unit_source_id=source.unit_source_id,
+        about_tick=about_tick, learned_at=command["learned_at"],
     )
     return observation.pk, set()
 
 
 def _save_proposition(wiki, command):
     holder = entry_for(wiki, command["holder_id"])
-    if holder.kind not in (*ACTORS, "goal"):
-        reject("INVALID_HOLDER", "Choose a character, organism, or goal.")
+    if holder.kind not in (*ACTORS, "goal", "milestone"):
+        reject("INVALID_HOLDER", "Choose a character, organism, goal, or milestone.")
     existing = command.get("proposition_id")
     proposition = _in_world(WikiProposition.objects.filter(holder__wiki=wiki), existing) if existing else WikiProposition()
     subject = entry_for(wiki, command["entry_id"])
-    values = typed_assertion(subject, command["field"], command["value"], command.get("qualifier_id"))
     start, end = command["from_tick"], command["until_tick"]
+    about = command.get("about_tick")
+    measure_at = start if about is None else about
+    values = _value_arguments(subject, command, measure_at)
     check_interval(start, end)
     evidence = None
     if command.get("evidence_id"):
-        evidence = _in_world(WikiObservation.objects.filter(observer=holder), command["evidence_id"])
+        evidence = _in_world(
+            WikiObservation.objects.filter(observer=holder).select_related("assertion", "claim"),
+            command["evidence_id"],
+        )
         if evidence.learned_at > start:
             reject("INVALID_EVIDENCE_TIME", "Choose evidence learned by the start of this belief.")
+    old_measure_at = proposition.from_tick if proposition.about_tick is None else proposition.about_tick
+    qualifier_id = values["qualifier"].pk if values["qualifier"] else None
+    measurement_slot = (subject.pk, values["field"], qualifier_id)
+    previous_slot = (proposition.subject_id, proposition.field, proposition.qualifier_id)
+    evidence_id = evidence.pk if evidence else None
+    binding_changed = (previous_slot, old_measure_at, proposition.evidence_id) != (measurement_slot, measure_at, evidence_id)
+    if not existing or binding_changed:
+        proposition.recorded_unit = values["recorded_unit"]
+        proposition.unit_source_id = values["unit_source_id"]
+        if evidence and evidence.value == values["value"] and (about is None or about == evidence.about_tick):
+            source = evidence.assertion or evidence.claim
+            if (source.entry_id, source.field, source.qualifier_id) == measurement_slot:
+                proposition.recorded_unit = evidence.recorded_unit
+                proposition.unit_source_id = evidence.unit_source_id
     proposition.holder, proposition.subject = holder, subject
     proposition.field, proposition.value, proposition.qualifier = values["field"], values["value"], values["qualifier"]
-    proposition.about_tick = command.get("about_tick")
+    proposition.about_tick = about
     proposition.from_tick, proposition.until_tick = start, end
     proposition.evidence, proposition.source, proposition.author_only = evidence, command["source"], command["author_only"]
     proposition.save()
@@ -455,6 +523,7 @@ OPERATIONS = {
     "organize_event": organize_event,
     "correct_event_date": _correct_event_date,
     "record_claim": _record_claim,
+    "correct_claim": _correct_claim,
     "record_observation": _record_observation,
     "record_proposition": _save_proposition,
     "correct_proposition": _save_proposition,
@@ -474,17 +543,30 @@ def _active_findings(assertions):
         for second in assertions[index + 1:]:
             if first.until_tick is not None and second.from_tick >= first.until_tick:
                 break
-            if first.value != second.value:
+            if (first.value, first.recorded_unit) != (second.value, second.recorded_unit):
                 ids = sorted((str(first.pk), str(second.pk)))
                 end = min((t for t in (first.until_tick, second.until_tick) if t is not None), default=None)
                 yield "canon:" + ":".join(ids), "CANON_CONFLICT", ids, second.from_tick, end
     snapshots = WikiObservation.objects.filter(assertion_id__in=[a.pk for a in assertions]).select_related("assertion")
     for known in snapshots:
         fact = known.assertion
-        if known.value != fact.value or not contains_tick(fact, known.about_tick):
+        if (known.value, known.recorded_unit) != (fact.value, fact.recorded_unit) or not contains_tick(fact, known.about_tick):
             yield (
                 f"evidence:{known.pk}", "OBSERVATION_SOURCE_CHANGED",
                 [str(fact.pk), str(known.pk)], known.about_tick, None,
+            )
+
+
+def _claim_findings(entry_id, field):
+    observations = WikiObservation.objects.filter(claim__entry_id=entry_id, claim__field=field).select_related("claim")
+    for known in observations:
+        claim = known.claim
+        if (known.value, known.recorded_unit) != (claim.value, claim.recorded_unit) or not _compatible_claim_time(
+            claim, known.about_tick, known.learned_at
+        ):
+            yield (
+                f"evidence:{known.pk}", "OBSERVATION_SOURCE_CHANGED",
+                [str(claim.pk), str(known.pk)], known.learned_at if known.about_tick is None else known.about_tick, None,
             )
 
 
@@ -495,15 +577,18 @@ def _refresh_findings(affected, edit_counter):
         slots = defaultdict(list)
         for assertion in assertions:
             slots[value_slot(field, assertion.qualifier_id, assertion.value)].append(assertion)
-        for group in slots.values():
-            for key, code, record_ids, start, end in _active_findings(group):
-                WikiFinding.objects.update_or_create(
-                    key=key, defaults={
-                        "entry_id": entry_id, "field": field, "code": code, "record_ids": record_ids,
-                        "from_tick": start, "until_tick": end, "resolved_at_edit": None,
-                    },
-                )
-                open_keys.append(key)
+        findings = chain(
+            (finding for group in slots.values() for finding in _active_findings(group)),
+            _claim_findings(entry_id, field),
+        )
+        for key, code, record_ids, start, end in findings:
+            WikiFinding.objects.update_or_create(
+                key=key, defaults={
+                    "entry_id": entry_id, "field": field, "code": code, "record_ids": record_ids,
+                    "from_tick": start, "until_tick": end, "resolved_at_edit": None,
+                },
+            )
+            open_keys.append(key)
         WikiFinding.objects.filter(entry_id=entry_id, field=field, resolved_at_edit__isnull=True).exclude(
             key__in=open_keys
         ).update(resolved_at_edit=edit_counter)

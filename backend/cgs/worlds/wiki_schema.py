@@ -15,9 +15,11 @@ DEFINITIONS = ("class", "species")
 ENTITY_KINDS = tuple(WikiEntry.Kind.values)
 VISUAL_ASSETS = ("image", "model_3d", "texture", "animation", "map")
 PHYSICAL_ENTITIES = (*ACTORS, *DEFINITIONS, "item", "place")
+ROLE_DEFINITIONS = ("role", "status_def")
 NONLIVING = ("item", "place", "group", "culture", "territory", *VISUAL_ASSETS)
-MEASURED_TRAITS = (
-    "actual_rating", "physical_average", "physical_distribution", "power_average", "power_distribution",
+MEASURED_FIELDS = (
+    "resource_amount", "declared_reward", "actual_rating", "physical_average", "physical_distribution",
+    "power_average", "power_distribution",
     "processing_speed", "mental_bandwidth", "processing_efficiency", "processing_cost",
     "processing_overload", "emotional_stress",
 )
@@ -67,6 +69,7 @@ class WikiField:
             "qualifier_kind": self.qualifier_kind,
             "qualifier_required": self.qualifier_required,
             "many": self.many,
+            "uses_unit": self.key in MEASURED_FIELDS,
             "minimum": self.minimum,
             "maximum": self.maximum,
         }
@@ -159,6 +162,21 @@ FIELDS = {
                   section=RELATIONSHIPS, qualifier_kind="group", many=True, inverse="Job holders"),
         WikiField("title", "Title", ENTITY_KINDS, "reference", "role",
                   section=RELATIONSHIPS, qualifier_kind="group", many=True, inverse="Title holders"),
+        WikiField("assigned_status", "Status definition", ENTITY_KINDS, "reference", "status_def",
+                  section=RELATIONSHIPS, many=True, inverse="Status holders"),
+        WikiField("role_duty", "Duty or expectation", ROLE_DEFINITIONS, section=RELATIONSHIPS, many=True),
+        WikiField("declared_authority", "Declared authority", ROLE_DEFINITIONS, section=RELATIONSHIPS, many=True),
+        WikiField("authority_scope", "Where authority applies", ROLE_DEFINITIONS, "reference",
+                  section=RELATIONSHIPS, targets=ENTITY_KINDS, many=True),
+        WikiField("declared_capability", "Declared capability", ROLE_DEFINITIONS, "reference",
+                  section=RELATIONSHIPS, targets=("ability", "skill", "process"), many=True, inverse="Declared by"),
+        WikiField("declared_reward", "Declared reward", ROLE_DEFINITIONS, "decimal", section=RESOURCES,
+                  qualifier_kind="resource", qualifier_required=True, minimum=0),
+        WikiField("declared_limitation", "Limitation", ROLE_DEFINITIONS, section=RELATIONSHIPS, many=True),
+        WikiField("acquire_requirement", "Requirement to attain", ROLE_DEFINITIONS, "reference", "requirement",
+                  section=RELATIONSHIPS, many=True, inverse="Required to attain"),
+        WikiField("retain_requirement", "Requirement to maintain", ROLE_DEFINITIONS, "reference", "requirement",
+                  section=RELATIONSHIPS, many=True, inverse="Required to maintain"),
         WikiField("actual_rating", "Actual rating", (*ACTORS, "item"), "decimal",
                   section=PHYSICAL, qualifier_kind="trait", qualifier_required=True),
         WikiField("registered_rating", "Registered rating", ACTORS, "reference", "role",
@@ -230,8 +248,15 @@ FIELDS = {
         WikiField("goal_subject", "Related subject", ("goal",), "reference",
                   section=MIND, targets=tuple(WikiEntry.Kind.values)),
         WikiField("priority", "Priority", ("goal",), "integer", section=MIND),
+        WikiField("goal_mode", "Goal type", ("goal", "milestone"), section=MIND, choices=("Achieve", "Maintain")),
+        WikiField("goal_order", "Order within the plan", ("goal",), "integer", section=MIND),
         WikiField("milestone_goal", "Goal", ("milestone",), "reference", "goal", section=MIND, inverse="Milestones"),
         WikiField("milestone_order", "Order within goal", ("milestone",), "integer", section=MIND),
+        WikiField("plan_requirement", "Requirement", ("goal", "milestone"), "reference", "requirement",
+                  section=MIND, many=True, inverse="Needed for"),
+        WikiField("method_requirement", "Requirement", ("method",), "reference", "requirement",
+                  section=MIND, inverse="Methods"),
+        WikiField("method_order", "Order within the requirement", ("method",), "integer", section=MIND),
         WikiField("source_medium", "Medium", ("source",), section="Source details",
                   choices=("Document", "Artifact", "Recording", "Person", "Other")),
         WikiField("source_locator", "Locator", ("source",), section="Source details"),
@@ -381,6 +406,7 @@ class CorrectFact(StrictSerializer):
     value = serializers.JSONField()
     source = TextField(max_length=500, allow_blank=True, required=False)
     citation_id = WikiRef(allow_null=True, required=False)
+    bind_unit = serializers.BooleanField(required=False)
     author_only = serializers.BooleanField(required=False)
 
 
@@ -471,8 +497,25 @@ class RecordClaim(StateValue):
     op = serializers.ChoiceField(choices=("record_claim",))
     speaker_id = WikiRef(allow_null=True, required=False)
     citation_id = WikiRef(allow_null=True, required=False)
-    tick = ExactClock()
+    tick = ExactClock(allow_null=True)
+    date_precision = serializers.ChoiceField(choices=WikiEvent.Precision.values, required=False)
+    start_tick = ExactClock(allow_null=True, required=False)
+    end_tick = ExactClock(allow_null=True, required=False)
     source = TextField(max_length=500, allow_blank=True, default="")
+
+
+class CorrectClaim(StrictSerializer):
+    op = serializers.ChoiceField(choices=("correct_claim",))
+    claim_id = WikiRef()
+    value = serializers.JSONField()
+    citation_id = WikiRef(allow_null=True, required=False)
+    source = TextField(max_length=500, allow_blank=True, required=False)
+    author_only = serializers.BooleanField(required=False)
+    tick = ExactClock(allow_null=True, required=False)
+    date_precision = serializers.ChoiceField(choices=WikiEvent.Precision.values, required=False)
+    start_tick = ExactClock(allow_null=True, required=False)
+    end_tick = ExactClock(allow_null=True, required=False)
+    bind_unit = serializers.BooleanField(required=False)
 
 
 class RecordObservation(StrictSerializer):
@@ -595,6 +638,7 @@ COMMANDS = {
     "organize_event": OrganizeEvent,
     "correct_event_date": CorrectEvent,
     "record_claim": RecordClaim,
+    "correct_claim": CorrectClaim,
     "record_observation": RecordObservation,
     "record_proposition": RecordProposition,
     "correct_proposition": CorrectProposition,

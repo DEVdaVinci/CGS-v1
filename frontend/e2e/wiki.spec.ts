@@ -40,7 +40,7 @@ async function discover(page: Page, observer: string, learnedAt: number) {
 }
 
 async function fact(page: Page, field: string, value: string, options: {
-  reference?: boolean; secret?: boolean; qualifier?: { label: string; entry: string }
+  reference?: boolean; secret?: boolean; qualifier?: { label: string; entry: string }; from?: number; until?: number
 } = {}) {
   await page.getByRole('button', { name: 'Record fact', exact: true }).click()
   const form = page.getByRole('form', { name: 'Record fact' })
@@ -51,9 +51,11 @@ async function fact(page: Page, field: string, value: string, options: {
     .selectOption({ label: options.qualifier.entry })
   if (options.secret) await form.getByLabel('Author only').check()
   const effectiveFrom = form.getByLabel('Effective from')
-  if (!(await effectiveFrom.inputValue())) await effectiveFrom.fill('0')
+  if (options.from !== undefined || !(await effectiveFrom.inputValue())) await effectiveFrom.fill(String(options.from ?? 0))
+  if (options.until !== undefined) await form.getByLabel('Effective until (optional)', { exact: true }).fill(String(options.until))
   await form.getByRole('button', { name: 'Save fact' }).click()
   await expect(page.getByRole('region', { name: 'Fact history' })).toBeVisible()
+  await expect(form).toHaveCount(0)
 }
 
 test('authors the Lucidchart measurements, visual links, species distributions, and event context', async ({ page }) => {
@@ -281,7 +283,63 @@ test('authors measured layouts, connected places, and distinct spatial relations
   await layout.getByRole('button', { name: 'Corridor · Corridor entrance', exact: true }).click()
   await expect(page.getByRole('region', { name: 'Occupants' })).not.toContainText('Mira')
   await expect(layout).toContainText('Upper walkway')
+  await layout.getByRole('button', { name: 'Edit waypoint', exact: true }).click()
+  const move = page.getByRole('form', { name: 'Edit waypoint' })
+  await move.getByLabel('Effective from').fill('10')
+  await move.getByLabel('X (cm)').fill('150')
+  await move.getByRole('button', { name: 'Save waypoint' }).click()
+  await expect(move).toHaveCount(0)
+  await showTime(page, 10)
+  await expect(layout.getByRole('listitem').filter({ hasText: 'Corridor entrance' }).first()).toContainText('1.5 m')
+  await expect(layout).toContainText('Upper walkway')
+  await showTime(page, 0)
+  await page.reload()
+  await expect(layout.getByRole('listitem').filter({ hasText: 'Corridor entrance' }).first()).toContainText('0 m')
+  await expect(layout).toContainText('Upper walkway')
   if (process.env.CGS_E2E_CAPTURE === '1') await layout.screenshot({ path: info.outputPath('measured-layout.png') })
+})
+
+test('preserves the authored unit when a world changes scales', async ({ page }) => {
+  await openWiki(page)
+  await createEntry(page, 'Records rate', 'Trait')
+  await fact(page, 'Unit', 'records/min', { from: 0, until: 10 })
+  const traitUrl = page.url()
+  await createEntry(page, 'Archivist', 'Character')
+  await fact(page, 'Processing speed', '5.25', { from: 0, qualifier: { label: 'Trait', entry: 'Records rate' } })
+  const characterUrl = page.url()
+  await page.goto(traitUrl)
+  await fact(page, 'Unit', 'records/hour', { from: 10 })
+  await page.goto(characterUrl)
+  await expect(page.getByRole('navigation', { name: 'Article views' })).toBeVisible()
+  await showTime(page, 10)
+  await expect(page.getByRole('region', { name: 'Facts at the selected time' })).toContainText('5.25 records/min')
+  await page.reload()
+  await expect(page.getByRole('region', { name: 'Fact history' })).toContainText('5.25 records/min')
+})
+
+test('reads ordered goals and follows a job into its declared authority', async ({ page }) => {
+  test.setTimeout(70_000)
+  await openWiki(page)
+  await createEntry(page, 'Survey the basin', 'Goal')
+  const goalUrl = page.url()
+  for (const [name, order] of [['Archive the survey', '2'], ['Verify the boundary', '1']]) {
+    await createEntry(page, name, 'Goal milestone')
+    await fact(page, 'Goal', 'Survey the basin', { reference: true })
+    await fact(page, 'Order within goal', order)
+  }
+  await page.goto(goalUrl)
+  await expect(page.getByRole('navigation', { name: 'Article views' })).toBeVisible()
+  await showTime(page, 0)
+  await expect(page.getByRole('region', { name: 'Milestones', exact: true }).getByRole('link')).toHaveText([
+    'Verify the boundary', 'Archive the survey',
+  ])
+  await createEntry(page, 'Survey coordinator', 'Role or title')
+  await fact(page, 'Duty or expectation', 'Review survey records')
+  await fact(page, 'Declared authority', 'Approve survey routes')
+  await createEntry(page, 'Technician', 'Character')
+  await fact(page, 'Job', 'Survey coordinator', { reference: true })
+  await page.getByRole('region', { name: 'Facts at the selected time' }).getByRole('link', { name: 'Survey coordinator', exact: true }).click()
+  await expect(page.getByRole('region', { name: 'Facts at the selected time' })).toContainText('Approve survey routes')
 })
 
 test('keeps article dates deliberate and filters timeline events independently', async ({ page }) => {
@@ -988,6 +1046,7 @@ test('saves the world introduction and ordered encyclopedia sections through the
 })
 
 test('authors sources and approximate dates in the browser', async ({ page }) => {
+  test.setTimeout(60_000)
   await openWiki(page)
   const nav = page.getByRole('navigation', { name: 'Wiki sections' })
   await nav.getByRole('link', { name: 'Sources', exact: true }).click()
@@ -1021,6 +1080,27 @@ test('authors sources and approximate dates in the browser', async ({ page }) =>
   await expect(timeline.getByRole('region', { name: 'Unknown dates' })).toContainText('Uncatalogued letter')
   await timeline.getByRole('link', { name: 'Surveyor ledger', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Surveyor ledger' })).toBeVisible()
+  await createEntry(page, 'East floodgate', 'Place')
+  await page.getByRole('button', { name: 'Record claim', exact: true }).click()
+  const claim = page.getByRole('form', { name: 'Record claim', exact: true })
+  await claim.getByRole('combobox', { name: 'Field', exact: true }).selectOption({ label: 'Status' })
+  await claim.getByLabel('Value', { exact: true }).fill('Inspection pending')
+  await claim.getByRole('combobox', { name: 'Statement date precision' }).selectOption('unknown')
+  await claim.getByRole('combobox', { name: 'Source article', exact: true }).selectOption({ label: 'Surveyor ledger' })
+  await claim.getByRole('button', { name: 'Save claim', exact: true }).click()
+  await expect(claim).toHaveCount(0)
+  const claims = page.getByRole('region', { name: 'Attributed claims' })
+  await expect(claims).toContainText('Statement date unknown')
+  const claimAnchor = await claims.getByRole('listitem').getAttribute('id')
+  await claims.getByRole('button', { name: 'Correct claim', exact: true }).click()
+  const correction = page.getByRole('form', { name: 'Correct claim', exact: true })
+  await correction.getByLabel('Value', { exact: true }).fill('Inspection completed')
+  await correction.getByRole('button', { name: 'Save correction', exact: true }).click()
+  await expect(correction).toHaveCount(0)
+  await page.reload()
+  await expect(claims.getByRole('listitem')).toHaveAttribute('id', claimAnchor!)
+  await expect(claims).toContainText('Inspection completed')
+  await expect(claims.getByRole('link', { name: 'Surveyor ledger', exact: true })).toBeVisible()
 })
 
 test('authors biography, family, and related actions while keeping independent world history', async ({ page }, info) => {

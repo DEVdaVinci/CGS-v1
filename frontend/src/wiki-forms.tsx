@@ -13,6 +13,7 @@ export const kindLabel: Record<WikiKind, string> = {
   image: 'Image', model_3d: '3D model', texture: 'Texture', animation: 'Animation',
   map: 'Map', territory: 'Territory', era: 'Era',
   source: 'Source', process: 'Mental process', skill: 'Skill', milestone: 'Goal milestone',
+  requirement: 'Requirement', method: 'Method', status_def: 'Status definition',
 }
 
 export type ArticleEdit =
@@ -23,6 +24,7 @@ export type ArticleEdit =
   | { kind: 'discovery'; discovery?: WikiDiscovery }
   | { kind: 'edit-event'; event: WikiEvent }
   | { kind: 'correct'; fact: WikiAssertion }
+  | { kind: 'correct-claim'; claim: WikiClaim }
   | { kind: 'correct-date'; event: WikiEvent }
   | { kind: 'observe'; source: WikiAssertion | WikiClaim; sourceKind: 'assertion' | 'claim' }
   | { kind: 'proposition'; record?: WikiProposition }
@@ -61,8 +63,11 @@ const initialKeys: Partial<Record<WikiKind, string[]>> = {
   map: ['asset_location'],
   resource: ['unit'],
   trait: ['unit'],
-  goal: ['goal_owner', 'parent_goal', 'goal_subject', 'priority', 'status'],
-  milestone: ['milestone_goal', 'milestone_order', 'status'],
+  goal: ['goal_owner', 'parent_goal', 'goal_subject', 'goal_mode', 'goal_order', 'priority', 'status'],
+  milestone: ['milestone_goal', 'goal_mode', 'milestone_order', 'status'],
+  method: ['method_requirement', 'method_order', 'status'],
+  role: ['role_duty', 'declared_authority', 'declared_limitation'],
+  status_def: ['role_duty', 'declared_authority', 'declared_limitation'],
   source: ['source_medium', 'source_locator', 'source_excerpt', 'source_person'],
 }
 
@@ -256,13 +261,16 @@ export function optionalTime(values: FormData, name: string) {
   return value ? Number(value) : null
 }
 
-function CanonicalForm({ mode, fact, initialField, entry, fields, entries, at, ...actions }: EntryFormProps & {
-  mode: 'fact' | 'claim' | 'correct'; fact?: WikiAssertion; initialField?: string
+function CanonicalForm({ mode, fact, claim, initialField, entry, fields, entries, at, ...actions }: EntryFormProps & {
+  mode: 'fact' | 'claim' | 'correct' | 'correct-claim'; fact?: WikiAssertion; claim?: WikiClaim; initialField?: string
 }) {
+  const record = fact ?? claim
+  const isStatement = mode === 'claim' || mode === 'correct-claim'
+  const [precision, setPrecision] = useState<EventDatePrecision>(claim?.date_precision ?? 'exact')
   const validFields = fields.filter((field) => field.kinds.includes(entry.kind))
-  const [fieldKey, setFieldKey] = useState(fact?.field ?? initialField ?? validFields[0].key)
+  const [fieldKey, setFieldKey] = useState(record?.field ?? initialField ?? validFields[0].key)
   const field = validFields.find((item) => item.key === fieldKey)!
-  const title = mode === 'correct' ? 'Correct value' : mode === 'claim' ? 'Record claim' : 'Record fact'
+  const title = fact ? 'Correct value' : claim ? 'Correct claim' : isStatement ? 'Record claim' : 'Record fact'
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -271,17 +279,21 @@ function CanonicalForm({ mode, fact, initialField, entry, fields, entries, at, .
     const source = String(values.get('source') ?? '')
     const citation_id = String(values.get('citation_id') ?? '') || null
     const author_only = values.has('author_only')
-    if (fact) {
-      actions.onSave({ op: 'correct_fact', assertion_id: fact.id, value, source, citation_id, author_only })
-      return
+    const details = { value, author_only, source, citation_id }
+    const unit = values.has('bind_unit') ? { bind_unit: true } : {}
+    if (fact) return actions.onSave({ op: 'correct_fact', assertion_id: fact.id, ...details, ...unit })
+    const dates = {
+      date_precision: precision, tick: optionalTime(values, 'tick'),
+      start_tick: optionalTime(values, 'statement_start'), end_tick: optionalTime(values, 'statement_end'),
     }
+    if (claim) return actions.onSave({ op: 'correct_claim', claim_id: claim.id, ...details, ...dates, ...unit })
     const qualifier = String(values.get('qualifier_id') ?? '')
     const change = {
-      entry_id: entry.id, field: field.key, value, author_only, source, citation_id,
+      entry_id: entry.id, field: field.key, ...details,
       ...(qualifier ? { qualifier_id: qualifier } : {}),
     }
-    actions.onSave(mode === 'claim'
-      ? { ...change, op: 'record_claim', speaker_id: String(values.get('speaker_id') ?? '') || null, tick: Number(values.get('tick')) }
+    actions.onSave(isStatement
+      ? { ...change, ...dates, op: 'record_claim', speaker_id: String(values.get('speaker_id') ?? '') || null }
       : {
           ...change, op: 'record_fact', from_tick: Number(values.get('from_tick')),
           until_tick: optionalTime(values, 'until_tick'),
@@ -290,7 +302,7 @@ function CanonicalForm({ mode, fact, initialField, entry, fields, entries, at, .
   return (
     <form className="wiki-form" aria-label={title} onSubmit={submit}>
       <h2>{title}</h2>
-      {fact ? <p className="muted">{field.label} from time {fact.from_tick}. The effective dates stay the same.</p> : (
+      {record ? <p className="muted">{field.label}{fact && ' from time ' + fact.from_tick}</p> : (
         <label className="field">Field
           <select value={fieldKey} onChange={(event) => setFieldKey(event.target.value)}>
             {validFields.map((item) => <option key={item.key} value={item.key}>
@@ -299,29 +311,35 @@ function CanonicalForm({ mode, fact, initialField, entry, fields, entries, at, .
           </select>
         </label>
       )}
-      <ValueInput key={fieldKey} field={field} entries={entries} entryId={entry.id} name="value" initial={fact?.value} />
-      {!fact && <QualifierInput key={'qualifier-' + fieldKey} field={field} entries={entries} name="qualifier_id" />}
-      {fact?.qualifier_id && <p className="muted">{entries.find((item) => item.id === fact.qualifier_id)?.name}</p>}
-      {!fact && (
-        <>
-          {mode === 'claim' ? (
-            <div className="wiki-form-row">
-              <PersonSelect name="speaker_id" label="Speaker" entries={entries} optional />
-              <TimeInput name="tick" label="Statement time" day={at} />
-            </div>
-          ) : (
-            <div className="wiki-form-row">
-              <TimeInput name="from_tick" label="Effective from" day={at} />
-              <TimeInput name="until_tick" label="Effective until (optional)" optional />
-            </div>
-          )}
-        </>
-      )}
+      <ValueInput key={fieldKey} field={field} entries={entries} entryId={entry.id} name="value" initial={record?.value} />
+      {!record && <QualifierInput key={'qualifier-' + fieldKey} field={field} entries={entries} name="qualifier_id" />}
+      {record?.qualifier_id && <p className="muted">{entries.find((item) => item.id === record.qualifier_id)?.name}</p>}
+      {field.uses_unit && (record ? <>
+        <p className="muted">{record.unit ? 'Recorded unit is ' + record.unit + '.' : 'This measurement has no recorded unit.'}</p>
+        {(!isStatement || precision === 'exact') && <label className="wiki-checkbox">
+          <input type="checkbox" name="bind_unit" /> Use the definition’s unit at the record’s date
+        </label>}
+      </> : <p className="muted">An exact date records the unit from the selected definition.</p>)}
+      {mode === 'claim' && <PersonSelect name="speaker_id" label="Speaker" entries={entries} optional />}
+      {isStatement && <>
+        <label className="field">Statement date precision<select value={precision} onChange={(change) => setPrecision(change.target.value as EventDatePrecision)}>
+          <option value="exact">Exact time</option><option value="bounded">Approximate range</option><option value="unknown">Unknown</option>
+        </select></label>
+        {precision === 'exact' && <TimeInput name="tick" label="Statement time" day={claim ? claim.tick : at} />}
+        {precision === 'bounded' && <div className="wiki-form-row">
+          <TimeInput name="statement_start" label="Earliest statement time" day={claim?.start_tick} />
+          <TimeInput name="statement_end" label="Latest statement time" day={claim?.end_tick} />
+        </div>}
+      </>}
+      {!record && !isStatement && <div className="wiki-form-row">
+        <TimeInput name="from_tick" label="Effective from" day={at} />
+        <TimeInput name="until_tick" label="Effective until (optional)" optional />
+      </div>}
       {mode === 'claim' && <p className="muted">Choose a speaker or cite a source article.</p>}
-      <CitationInput entries={entries} initial={fact?.citation_id} />
-      <label className="field">Source (optional)<input name="source" maxLength={500} defaultValue={fact?.source} /></label>
-      <label className="wiki-checkbox"><input type="checkbox" name="author_only" defaultChecked={fact?.author_only} /> Author only</label>
-      <Actions {...actions} submit={mode === 'correct' ? 'Save correction' : mode === 'claim' ? 'Save claim' : 'Save fact'} />
+      <CitationInput entries={entries} initial={record?.citation_id} />
+      <label className="field">Source (optional)<input name="source" maxLength={500} defaultValue={record?.source} /></label>
+      <label className="wiki-checkbox"><input type="checkbox" name="author_only" defaultChecked={record?.author_only} /> Author only</label>
+      <Actions {...actions} submit={record ? 'Save correction' : isStatement ? 'Save claim' : 'Save fact'} />
     </form>
   )
 }
@@ -648,7 +666,7 @@ export function WikiEvidenceForm({ edit, entries, at, ...actions }: FormActions 
       <TimeInput
         name="tick" label={date ? 'Corrected event time' : 'Learned at'}
         day={edit.kind === 'correct-date' ? edit.event.tick : at === null ? null
-          : Math.max(at, 'from_tick' in edit.source ? edit.source.from_tick : edit.source.tick)}
+          : Math.max(at, 'from_tick' in edit.source ? edit.source.from_tick : edit.source.tick ?? edit.source.start_tick ?? 0)}
       />
       {edit.kind === 'observe' && <TimeInput name="about_tick" label="About time (optional)" optional />}
       <Actions {...actions} submit={date ? 'Save corrected date' : 'Save observation'} />
@@ -668,6 +686,7 @@ export function WikiEditForm({ edit, overview, sections, ...props }: EntryFormPr
   if (edit.kind === 'learn') return <LearnAbilityForm {...props} learned={edit.learned} />
   if (edit.kind === 'discovery') return <DiscoveryForm {...props} discovery={edit.discovery} />
   if (edit.kind === 'correct') return <CanonicalForm {...props} mode="correct" fact={edit.fact} />
+  if (edit.kind === 'correct-claim') return <CanonicalForm {...props} mode="correct-claim" claim={edit.claim} />
   if (edit.kind === 'proposition') return <PropositionForm {...props} record={edit.record} />
   return <CanonicalForm {...props} mode={edit.kind} initialField={edit.kind === 'fact' ? edit.field : undefined} />
 }
@@ -709,7 +728,7 @@ function PropositionForm({ entry, entries, fields, observations = [], record, at
   const eligible = subject ? fields.filter((field) => field.kinds.includes(subject.kind)) : []
   const field = eligible.find((item) => item.key === fieldKey)
   const holder = entries.find((item) => item.id === record?.holder_id) ?? entry
-  const goal = holder.kind === 'goal'
+  const goal = holder.kind === 'goal' || holder.kind === 'milestone'
   const evidence = observations.filter((observation) => observation.observer_id === holder.id)
   const noun = goal ? 'desired state' : 'belief'
   const title = (record ? 'Correct ' : 'Record ') + noun

@@ -1036,7 +1036,7 @@ class WikiTests(TransactionTestCase):
         milestone = self.entry("First contour", "milestone")
         self.fact(trait, "unit", "observations/min", until_tick=10)
         self.fact(trait, "unit", "observations/hour", 10)
-        self.fact(actor, "processing_speed", "5.25", qualifier_id=trait)
+        first_speed = self.fact(actor, "processing_speed", "5.25", qualifier_id=trait)
         self.fact(actor, "mental_process", process)
         self.fact(actor, "skill", skill)
         self.fact(actor, "success_probability", "0.6", qualifier_id=skill)
@@ -1052,11 +1052,122 @@ class WikiTests(TransactionTestCase):
         }
         self.assertEqual(self.post(invalid).json()["field_errors"][0]["code"], "INVALID_VALUE")
         self.assertEqual(self.post({**invalid, "qualifier_id": part, "value": "0.2"}).status_code, 422)
-        for time, unit in ((1, "observations/min"), (10, "observations/hour")):
+        for time in (1, 10):
             values = {item["field"]: item for item in self.article(actor, time)["values"]}
-            self.assertEqual(values["processing_speed"]["unit"], unit)
+            self.assertEqual((values["processing_speed"]["value"], values["processing_speed"]["unit"]),
+                             ("5.25", "observations/min"))
             self.assertEqual(values["success_probability"]["qualifier_id"], skill)
             self.assertEqual(values["part_damage_pct"]["qualifier_id"], part)
             self.assertEqual(values["part_function_pct"]["value"], "70")
             self.assertEqual((values["mood"]["value"], values["reported_mood"]["value"]), ("Focused", "Hopeful"))
         self.assertEqual(self.article(goal)["incoming_links"][0]["entry_id"], milestone)
+        learner = self.entry("Field observer", "person")
+        observation = self.apply({
+            "op": "record_observation", "observer_id": learner, "source_kind": "assertion",
+            "source_id": first_speed, "learned_at": 2, "about_tick": 1,
+        })
+        event = self.apply({
+            "op": "record_event", "name": "New reporting standard", "tick": 11,
+            "changes": [{"entry_id": actor, "field": "processing_speed", "value": "315", "qualifier_id": trait}],
+        })
+        article = self.article(actor, 11)
+        current = next(item for item in article["values"] if item["field"] == "processing_speed")
+        self.assertEqual((current["value"], current["unit"]), ("315", "observations/hour"))
+        change = next(item["changes"][0] for item in article["events"] if item["id"] == event)
+        self.assertEqual((change["previous_unit"], change["unit"]), ("observations/min", "observations/hour"))
+        self.assertEqual(self.article(actor, 11, learner)["observations"][0]["unit"], "observations/min")
+        belief = self.apply({
+            "op": "record_proposition", "holder_id": learner, "entry_id": actor, "field": "processing_speed",
+            "qualifier_id": trait, "value": "5.25", "from_tick": 11, "evidence_id": observation,
+        })
+        beliefs = self.article(learner, 11, learner)["propositions"]
+        self.assertEqual([(item["id"], item["unit"]) for item in beliefs], [(belief, "observations/min")])
+        self.apply({"op": "correct_fact", "assertion_id": first_speed, "value": "5"})
+        prior = next(item for item in self.article(actor, 9)["assertions"] if item["id"] == first_speed)
+        self.assertEqual((prior["value"], prior["unit"]), ("5", "observations/min"))
+
+    def test_declarations_and_goal_order_are_dated_and_independent_of_assignments(self):
+        person = self.entry("Survey technician", "person")
+        role = self.entry("Survey coordinator", "role")
+        status = self.entry("Certified observer", "status_def")
+        funds = self.entry("Expense payment", "resource")
+        skill = self.entry("Verify a route", "skill")
+        harbor = self.entry("Harbor")
+        requirement = self.entry("Complete practical training", "requirement")
+        goal = self.entry("Finish the survey", "goal")
+        alpha = self.entry("Archive the results", "milestone")
+        zeta = self.entry("Verify boundary points", "milestone")
+        self.fact(person, "job", role)
+        self.fact(person, "assigned_status", status, 2)
+        self.fact(role, "role_duty", "Review recorded measurements", 2)
+        self.fact(role, "declared_authority", "Approve survey routes", 2)
+        self.fact(role, "authority_scope", harbor, 2)
+        self.fact(role, "declared_capability", skill, 2)
+        self.fact(status, "acquire_requirement", requirement, 2)
+        self.fact(funds, "unit", "credits")
+        self.fact(role, "declared_reward", "12.50", 2, qualifier_id=funds)
+        self.assertNotIn("role_duty", self.values(person, 2))
+        self.assertNotIn("assigned_status", self.values(person, 1))
+        self.assertEqual(self.values(person, 2)["assigned_status"], status)
+        self.assertEqual(self.values(role, 2)["authority_scope"], harbor)
+        self.assertEqual(self.values(status, 2)["acquire_requirement"], requirement)
+        reward = next(value for value in self.article(role, 2)["values"] if value["field"] == "declared_reward")
+        self.assertEqual((reward["value"], reward["unit"]), ("12.5", "credits"))
+        self.fact(alpha, "milestone_goal", goal)
+        self.fact(zeta, "milestone_goal", goal)
+        self.fact(alpha, "milestone_order", 2, until_tick=10)
+        self.fact(alpha, "milestone_order", 0, 10)
+        self.fact(zeta, "milestone_order", 1)
+        self.fact(goal, "plan_requirement", requirement)
+        before = self.article(goal, 9)["incoming_links"]
+        after = self.article(goal, 10)["incoming_links"]
+        self.assertEqual([(link["entry_id"], link["order"]) for link in before], [(zeta, 1), (alpha, 2)])
+        self.assertEqual([(link["entry_id"], link["order"]) for link in after], [(alpha, 0), (zeta, 1)])
+
+    def test_uncertain_claim_and_correction_preserve_learned_evidence(self):
+        harbor = self.entry("Harbor")
+        observer = self.entry("Records clerk", "person")
+        source = self.entry("Found register", "source")
+        self.fact(harbor, "status", "Open")
+        command = {
+            "op": "record_claim", "entry_id": harbor, "field": "status", "value": "Closed for repairs",
+            "citation_id": source, "tick": None, "date_precision": "bounded", "start_tick": 3, "end_tick": 6,
+        }
+        claim = self.apply(command)
+        learn = {
+            "op": "record_observation", "observer_id": observer, "source_kind": "claim",
+            "source_id": claim, "learned_at": 2,
+        }
+        self.assertEqual(self.post(learn).json()["field_errors"][0]["code"], "INVALID_LEARNING_TIME")
+        evidence = self.apply({**learn, "learned_at": 8})
+        self.assertIsNone(self.article(harbor, 8, observer)["observations"][0]["about_tick"])
+        self.assertEqual(self.article(harbor, 8)["claims"][0]["start_tick"], 3)
+        self.apply({
+            "op": "correct_claim", "claim_id": claim, "value": "Closed for inspection",
+            "date_precision": "unknown", "tick": None, "start_tick": None, "end_tick": None,
+        })
+        article = self.article(harbor, 8)
+        self.assertEqual([(item["id"], item["value"], item["date_precision"]) for item in article["claims"]],
+                         [(claim, "Closed for inspection", "unknown")])
+        self.assertEqual(article["findings"][0]["record_ids"], [claim, evidence])
+        self.assertEqual(self.values(harbor, 8)["status"], "Open")
+        self.assertEqual(self.article(harbor, 8, observer)["observations"][0]["value"], "Closed for repairs")
+
+    def test_private_units_do_not_leak_via_shareable_measurements(self):
+        speaker = self.entry("Survey technician", "person")
+        observer = self.entry("Assistant", "person")
+        scale = self.entry("Survey benchmarks", "trait")
+        private_unit = self.fact(scale, "unit", "Restricted benchmark", author_only=True)
+        measurement = self.fact(speaker, "processing_speed", "12", qualifier_id=scale)
+        self.apply({
+            "op": "record_observation", "observer_id": observer, "source_kind": "assertion",
+            "source_id": measurement, "learned_at": 3,
+        })
+        self.assertEqual(self.article(speaker, 3)["observations"][0]["unit"], "Restricted benchmark")
+        projected = self.article(speaker, 3, observer)["observations"][0]
+        self.assertEqual(projected["value"], "12")
+        self.assertIsNone(projected["unit"])
+        self.apply({
+            "op": "correct_fact", "assertion_id": private_unit, "value": "Restricted benchmark", "author_only": False,
+        })
+        self.assertEqual(self.article(speaker, 3, observer)["observations"][0]["unit"], "Restricted benchmark")

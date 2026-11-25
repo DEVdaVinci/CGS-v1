@@ -4,8 +4,15 @@ from graphlib import TopologicalSorter
 from django.db.models import Q
 
 from .models import WikiAssertion, WikiProposition
-from .wiki import at_tick, contains_tick, value_slot
-from .wiki_schema import ACTORS, DEFINITIONS, FIELDS, MEASURED_TRAITS
+from .wiki import at_tick, contains_tick, value_slot, visible_unit
+from .wiki_schema import ACTORS, DEFINITIONS, FIELDS
+
+
+PLAN_ORDERS = {
+    "parent_goal": "goal_order",
+    "milestone_goal": "milestone_order",
+    "method_requirement": "method_order",
+}
 
 
 def _slot(record):
@@ -15,7 +22,7 @@ def _slot(record):
 def _direct_values(facts):
     values = defaultdict(set)
     for fact in facts:
-        values[_slot(fact)].add((fact.value, str(fact.entry_id)))
+        values[_slot(fact)].add((fact.value, fact.recorded_unit, str(fact.entry_id)))
     return values
 
 
@@ -69,14 +76,17 @@ def _describe_values(entry, slots, own):
     values_by_field = defaultdict(list)
     for slot, candidates in slots.items():
         field, qualifier_id, _ = slot
-        values = {value for value, _ in candidates}
+        values = {(value, unit) for value, unit, _ in candidates}
         item = {"field": field, "state": "conflict"}
         if qualifier_id:
             item["qualifier_id"] = str(qualifier_id)
         if len(values) == 1:
-            item.update(state="value", value=next(iter(values)))
-        if slot not in own or any(source != str(entry.id) for _, source in candidates):
-            item["default_sources"] = sorted({source for _, source in candidates})
+            value, unit = next(iter(values))
+            item.update(state="value", value=value)
+            if unit is not None:
+                item["unit"] = unit
+        if slot not in own or any(source != str(entry.id) for _, _, source in candidates):
+            item["default_sources"] = sorted({source for _, _, source in candidates})
         values_by_field[field].append(item)
     result = []
     for field, definition in FIELDS.items():
@@ -94,18 +104,7 @@ def effective_values(entry, facts, at):
     active = [fact for fact in facts if contains_tick(fact, at)]
     own = _direct_values(active)
     defaults = _definition_values(entry, at, active) if entry.kind in (*ACTORS, *DEFINITIONS) else []
-    values = _describe_values(entry, _inherit(own, defaults), own)
-    measured = {"resource_amount", *MEASURED_TRAITS}
-    unit_ids = {item["qualifier_id"] for item in values if item["field"] in measured}
-    units = defaultdict(set)
-    for entry_id, unit in at_tick(WikiAssertion.objects.filter(
-        entry__wiki_id=entry.wiki_id, entry_id__in=unit_ids, field="unit",
-    ), at).values_list("entry_id", "value"):
-        units[str(entry_id)].add(unit)
-    for value in values:
-        if value["field"] in measured and len(units[value["qualifier_id"]]) == 1:
-            value["unit"] = next(iter(units[value["qualifier_id"]]))
-    return values
+    return _describe_values(entry, _inherit(own, defaults), own)
 
 
 def derived_age(entry, values, at):
@@ -135,7 +134,7 @@ def incoming_links(entry, at):
             entry_id__in={fact.entry_id for fact in exclusives}, field__in={fact.field for fact in exclusives},
         ).exclude(value=str(entry.id)).values_list("entry_id", "field", "qualifier_id")
     }
-    return [
+    links = [
         {
             "id": str(fact.id), "entry_id": str(fact.entry_id), "field": fact.field, "label": inverse[fact.field],
             "qualifier_id": str(fact.qualifier_id) if fact.qualifier_id else None,
@@ -144,6 +143,20 @@ def incoming_links(entry, at):
         for fact in matches
         if FIELDS[fact.field].many or (fact.entry_id, fact.field, fact.qualifier_id) not in conflicts
     ]
+    plan_entries = {link["entry_id"] for link in links if link["field"] in PLAN_ORDERS}
+    positions = defaultdict(set)
+    if plan_entries:
+        for entry_id, field, value in at_tick(WikiAssertion.objects.filter(
+            entry_id__in=plan_entries, field__in=PLAN_ORDERS.values(),
+        ), at).values_list("entry_id", "field", "value"):
+            positions[(str(entry_id), field)].add(value)
+    for link in links:
+        if order_field := PLAN_ORDERS.get(link["field"]):
+            values = positions[(link["entry_id"], order_field)]
+            link["order"] = next(iter(values)) if len(values) == 1 else None
+            link["order_conflict"] = len(values) > 1
+    links.sort(key=lambda link: (link["field"], link.get("order") is None, link.get("order") or 0))
+    return links
 
 
 def family_links(entry, facts, at):
@@ -183,7 +196,7 @@ def observation_visible(observation, visible_ids):
 def propositions_for(entry, at, observer=None, visible_ids=None):
     records = at_tick(WikiProposition.objects.filter(
         Q(holder=entry) | Q(subject=entry), holder__wiki_id=entry.wiki_id,
-    ), at).select_related("holder", "evidence__assertion", "evidence__claim")
+    ), at).select_related("holder", "evidence__assertion", "evidence__claim", "unit_source")
     if observer is not None:
         records = records.filter(holder=observer, author_only=False)
 
@@ -199,8 +212,9 @@ def propositions_for(entry, at, observer=None, visible_ids=None):
             continue
         data.append({
             "id": str(record.id), "holder_id": str(record.holder_id), "subject_id": subject_id,
-            "kind": "desired_state" if record.holder.kind == "goal" else "belief", "field": record.field,
+            "kind": "desired_state" if record.holder.kind in ("goal", "milestone") else "belief", "field": record.field,
             "value": record.value, "qualifier_id": qualifier_id,
+            "unit": record.recorded_unit if observer is None else visible_unit(record),
             "from_tick": record.from_tick, "until_tick": record.until_tick, "about_tick": record.about_tick,
             "evidence_id": str(record.evidence_id) if record.evidence_id else None,
             "source": record.source, "author_only": record.author_only,

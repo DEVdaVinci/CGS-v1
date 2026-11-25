@@ -194,6 +194,9 @@ class WikiEntry(CreatedRecord):
         PROCESS = "process", "Mental process"
         SKILL = "skill", "Skill"
         MILESTONE = "milestone", "Goal milestone"
+        REQUIREMENT = "requirement", "Requirement"
+        METHOD = "method", "Method"
+        STATUS_DEF = "status_def", "Status definition"
 
     class CatalogType(models.TextChoices):
         VEHICLE = "vehicle", "Vehicle"
@@ -413,6 +416,8 @@ class WikiAssertion(CreatedRecord):
     field = models.CharField(max_length=32)
     qualifier = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, null=True, related_name="+")
     value = models.JSONField()
+    recorded_unit = models.CharField(max_length=500, null=True, blank=True)
+    unit_source = models.ForeignKey("self", on_delete=models.RESTRICT, null=True, related_name="+")
     from_tick = models.PositiveBigIntegerField()
     until_tick = models.PositiveBigIntegerField(null=True)
     source = models.CharField(max_length=500, blank=True)
@@ -445,7 +450,12 @@ class WikiClaim(CreatedRecord):
     field = models.CharField(max_length=32)
     qualifier = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, null=True, related_name="+")
     value = models.JSONField()
-    tick = models.PositiveBigIntegerField()
+    recorded_unit = models.CharField(max_length=500, null=True, blank=True)
+    unit_source = models.ForeignKey(WikiAssertion, on_delete=models.RESTRICT, null=True, related_name="+")
+    tick = models.PositiveBigIntegerField(null=True)
+    date_precision = models.CharField(max_length=7, choices=WikiEvent.Precision, default="exact", db_default="exact")
+    start_tick = models.PositiveBigIntegerField(null=True)
+    end_tick = models.PositiveBigIntegerField(null=True)
     source = models.CharField(max_length=500, blank=True)
     citation = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, null=True, related_name="+")
     author_only = models.BooleanField(default=False)
@@ -456,6 +466,15 @@ class WikiClaim(CreatedRecord):
             models.CheckConstraint(
                 condition=Q(speaker__isnull=False) | Q(citation__isnull=False), name="wiki_claim_has_attribution",
             ),
+            models.CheckConstraint(
+                condition=(
+                    Q(date_precision="exact", tick__isnull=False, start_tick__isnull=True, end_tick__isnull=True)
+                    | Q(date_precision="bounded", tick__isnull=True, start_tick__isnull=False, end_tick__gt=F("start_tick"),
+                        end_tick__isnull=False)
+                    | Q(date_precision="unknown", tick__isnull=True, start_tick__isnull=True, end_tick__isnull=True)
+                ),
+                name="wiki_claim_date_precision",
+            ),
         ]
 
 
@@ -465,7 +484,9 @@ class WikiObservation(CreatedRecord):
     assertion = models.ForeignKey(WikiAssertion, null=True, on_delete=models.RESTRICT)
     claim = models.ForeignKey(WikiClaim, null=True, on_delete=models.RESTRICT)
     value = models.JSONField()
-    about_tick = models.PositiveBigIntegerField()
+    recorded_unit = models.CharField(max_length=500, null=True, blank=True)
+    unit_source = models.ForeignKey(WikiAssertion, on_delete=models.RESTRICT, null=True, related_name="+")
+    about_tick = models.PositiveBigIntegerField(null=True)
     learned_at = models.PositiveBigIntegerField()
 
     class Meta:
@@ -493,6 +514,8 @@ class WikiProposition(CreatedRecord):
     qualifier = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, null=True, related_name="+")
     field = models.CharField(max_length=32)
     value = models.JSONField()
+    recorded_unit = models.CharField(max_length=500, null=True, blank=True)
+    unit_source = models.ForeignKey(WikiAssertion, on_delete=models.RESTRICT, null=True, related_name="+")
     about_tick = models.PositiveBigIntegerField(null=True)
     from_tick = models.PositiveBigIntegerField()
     until_tick = models.PositiveBigIntegerField(null=True)

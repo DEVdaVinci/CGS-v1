@@ -124,11 +124,12 @@ export function WikiTimeline({
     ) : <span>{entry?.name ?? 'Unavailable entry'}</span>
   }
 
-  function displayValue(field: string, value: WikiValue | null, at: number | null) {
+  function displayValue(field: string, value: WikiValue | null, at: number | null, unit?: string | null) {
     if (value === null) return 'No recorded value'
     const definition = definitions.get(field)
-    if (definition?.value_kind === 'distribution') return formatDistribution(value)
-    return definition?.target_kinds.length && typeof value === 'string' ? linked(value, at) : value
+    if (definition?.target_kinds.length && typeof value === 'string') return linked(value, at)
+    const amount = definition?.value_kind === 'distribution' ? formatDistribution(value) : value
+    return unit ? amount + ' ' + unit : definition?.uses_unit ? amount + ' · Unit unspecified' : amount
   }
 
   function focus(id: string) {
@@ -202,7 +203,7 @@ export function WikiTimeline({
               {event.cause_state.map((fact) => <li key={fact.id}>
                 {linked(fact.entry_id, fact.from_tick)} · {definitions.get(fact.field)?.label ?? fact.field}
                 {fact.qualifier_id && <> · {linked(fact.qualifier_id, fact.from_tick)}</>}
-                {' · '}{displayValue(fact.field, fact.value, fact.from_tick)} · From time {fact.from_tick}
+                {' · '}{displayValue(fact.field, fact.value, fact.from_tick, fact.unit)} · From time {fact.from_tick}
                 {fact.until_tick !== null && ' until time ' + fact.until_tick}
               </li>)}
             </ul>
@@ -229,8 +230,8 @@ export function WikiTimeline({
             <li key={change.id}>
               {linked(change.entry_id, time)} · {definitions.get(change.field)?.label ?? change.field}
               {change.qualifier_id && <> · {linked(change.qualifier_id, time)}</>}
-              {' · '}{displayValue(change.field, change.previous_value, time)}
-              {' → '}{displayValue(change.field, change.value, time)}
+              {' · '}{displayValue(change.field, change.previous_value, time, change.previous_unit)}
+              {' → '}{displayValue(change.field, change.value, time, change.unit)}
             </li>
           ))}</ul>
         </section>}

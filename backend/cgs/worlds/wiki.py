@@ -9,7 +9,7 @@ from cgs.api import CgsError, parse_id, resource_unavailable
 
 from .models import WikiAssertion, WikiEntry, WorldAccess
 from .services import get_membership
-from .wiki_schema import FIELDS, MAX_CLOCK
+from .wiki_schema import FIELDS, MAX_CLOCK, MEASURED_FIELDS
 
 
 EXACT_DECIMAL = re.compile(r"-?\d{1,15}(?:\.\d{1,9})?", re.ASCII)
@@ -111,7 +111,21 @@ def typed_value(entry, field, value):
     return value
 
 
-def typed_assertion(entry, field, value, qualifier_id=None):
+def unit_at(field, qualifier_id, tick):
+    if field not in MEASURED_FIELDS or qualifier_id is None or tick is None:
+        return None, None
+    units = at_tick(WikiAssertion.objects.filter(entry_id=qualifier_id, field="unit"), tick)
+    matches = list(units.order_by("author_only", "id").values_list("value", "id"))
+    if len({value for value, _ in matches}) == 1:
+        return matches[0]
+    return None, None
+
+
+def visible_unit(record):
+    return record.recorded_unit if record.unit_source_id and not record.unit_source.author_only else None
+
+
+def typed_assertion(entry, field, value, qualifier_id=None, *, tick):
     definition = FIELDS[field]
     qualifier = None
     if qualifier_id is not None:
@@ -120,9 +134,10 @@ def typed_assertion(entry, field, value, qualifier_id=None):
         qualifier = entry_for(entry.wiki, qualifier_id, definition.qualifier_kind)
     elif definition.qualifier_required:
         reject("INVALID_QUALIFIER", f"Choose a {definition.qualifier_kind.replace('_', ' ')} for {definition.label}.")
+    unit, unit_source_id = unit_at(field, qualifier.pk if qualifier else None, tick)
     return {
         "entry": entry, "field": field, "value": typed_value(entry, field, value),
-        "qualifier": qualifier,
+        "qualifier": qualifier, "recorded_unit": unit, "unit_source_id": unit_source_id,
     }
 
 
