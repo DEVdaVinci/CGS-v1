@@ -10,6 +10,7 @@ from .models import WikiEntry
 
 MAX_CLOCK = 9_007_199_254_740_991
 ACTORS = ("person", "organism")
+EVENT_PERFORMERS = (*ACTORS, "group", "item")
 DEFINITIONS = ("class", "species")
 ENTITY_KINDS = tuple(WikiEntry.Kind.values)
 VISUAL_ASSETS = ("image", "model_3d", "texture", "animation", "map")
@@ -97,6 +98,7 @@ FIELDS = {
         WikiField("extra_class", "Additional class", ACTORS, "reference", "class", section=IDENTITY, many=True),
         WikiField("inherits_from", "Parent definition", DEFINITIONS, "reference",
                   section=IDENTITY, targets=DEFINITIONS, many=True, acyclic=True, inverse="Derived definitions"),
+        WikiField("birthplace", "Birthplace", ACTORS, "reference", "place", section=IDENTITY),
         WikiField("origin", "Place of origin", ACTORS, "reference", "place", section=IDENTITY),
         WikiField("nationality", "Nationality or citizenship", ACTORS, "reference",
                   section=IDENTITY, targets=("group", "place"), many=True),
@@ -113,6 +115,7 @@ FIELDS = {
                   qualifier_kind="body_part", qualifier_required=True),
         WikiField("parent", "Parent", ACTORS, "reference", section=RELATIONSHIPS,
                   targets=ACTORS, many=True, inverse="Children", acyclic=True),
+        WikiField("sibling", "Sibling", ACTORS, "reference", section=RELATIONSHIPS, targets=ACTORS, many=True),
         WikiField("family", "Other family relationship", ACTORS, "reference", section=RELATIONSHIPS,
                   targets=ACTORS, qualifier_kind="role", many=True, inverse="Family links"),
         WikiField("personal_link", "Personal relationship", ACTORS, "reference", section=RELATIONSHIPS,
@@ -280,6 +283,7 @@ class EventDetails(StrictSerializer):
     summary = TextField(max_length=500, allow_blank=True, required=False)
     method = TextField(max_length=1500, allow_blank=True, required=False)
     participant_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
+    performer_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     place_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     item_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     purpose_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)

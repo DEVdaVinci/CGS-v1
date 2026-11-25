@@ -19,7 +19,7 @@ from .wiki_events import (
     attach_event, check_event_tree, event_bounds, organize_event, update_event_causes, update_event_references,
 )
 from .wiki_layouts import save_connection, save_layout, save_waypoint
-from .wiki_schema import ACTORS, ENTITY_KINDS, FIELDS
+from .wiki_schema import ACTORS, ENTITY_KINDS, EVENT_PERFORMERS, FIELDS
 
 
 def _in_world(query, record_id):
@@ -101,6 +101,8 @@ def _apply_transition(fact, event, mode):
     current = list(at_tick(timeline, tick).order_by("from_tick", "id")[:2])
     if len(current) > 1 or (current and current[0].from_tick == tick):
         reject("AMBIGUOUS_TRANSITION", f"Resolve the existing {FIELDS[fact.field].label.lower()} records at this time.")
+    if not current and timeline.filter(until_tick=tick, closed_by__isnull=False).exists():
+        reject("AMBIGUOUS_TRANSITION", f"Another event already ended this {FIELDS[fact.field].label.lower()} at this time.")
     if mode == "add" and current:
         reject("ALREADY_EFFECTIVE", "This value already applies at the event time.")
     if mode == "end" and (not current or current[0].value != fact.value):
@@ -123,6 +125,7 @@ def _apply_transition(fact, event, mode):
 
 EVENT_LINKS = (
     ("participant_ids", WikiEventLink.Role.PARTICIPANT, (*ACTORS, WikiEntry.Kind.GROUP)),
+    ("performer_ids", WikiEventLink.Role.PERFORMER, EVENT_PERFORMERS),
     ("place_ids", WikiEventLink.Role.PLACE, (WikiEntry.Kind.PLACE,)),
     ("item_ids", WikiEventLink.Role.ITEM, (WikiEntry.Kind.ITEM,)),
     ("purpose_ids", WikiEventLink.Role.PURPOSE, (WikiEntry.Kind.GOAL,)),
@@ -140,6 +143,8 @@ def _save_event_details(wiki, event, command):
     event.start_tick = command.get("start_tick", event.start_tick)
     event.end_tick = command.get("end_tick", event.end_tick)
     event_bounds(event)
+    if event.node_kind == WikiEvent.Kind.GROUP and command.get("performer_ids"):
+        reject("GROUP_EFFECT", "Record performers on an action or occurrence within the group.")
     if "ability_use" in command:
         use = command["ability_use"]
         if use and event.node_kind == WikiEvent.Kind.GROUP:

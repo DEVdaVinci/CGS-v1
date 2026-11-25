@@ -45,7 +45,7 @@ export type WikiEvent = {
   cross_reference_ids: string[]
   cause_event_ids: string[]
   cause_state: (WikiAssertion & { entry_id: string })[]
-  links: { entry_id: string; role: 'participant' | 'place' | 'item' | 'purpose' | 'backstory' | 'era' }[]
+  links: { entry_id: string; role: 'participant' | 'performer' | 'place' | 'item' | 'purpose' | 'backstory' | 'era' }[]
   ability_use: AbilityUse | null
   changes: {
     id: string; entry_id: string; field: string; value: WikiValue | null; previous_value: WikiValue | null
@@ -89,6 +89,11 @@ export type WikiArticle = {
   assertions?: WikiAssertion[]
   claims?: WikiClaim[]
   events?: WikiEvent[]
+  event_ancestors?: WikiEvent[]
+  family?: {
+    parents: string[]; children: string[]
+    siblings: { entry_id: string; declared: boolean; shared_parent_ids: string[] }[]
+  }
   learned_abilities?: WikiLearnedAbility[]
   contents?: WikiEntry[]
   parts?: WikiEntry[]
@@ -112,12 +117,17 @@ export function isWikiActor(entry: WikiEntry) {
   return entry.kind === 'person' || entry.kind === 'organism'
 }
 
+export function canPerformEvent(entry: WikiEntry) {
+  return isWikiActor(entry) || entry.kind === 'group' || entry.kind === 'item'
+}
+
 type TypedValue = { field: string; value: WikiValue; author_only: boolean; qualifier_id?: string }
 type FieldChange = { entry_id: string } & TypedValue
 type EventChange = FieldChange & { mode?: 'set' | 'add' | 'end'; source?: string }
 type EventDetails = {
   name: string; source: string; description: string; ability_use: AbilityUse | null
   participant_ids: string[]; place_ids: string[]; item_ids: string[]
+  performer_ids?: string[]
   summary?: string; method?: string
   cause_event_ids?: string[]; cause_assertion_ids?: string[]
   purpose_ids?: string[]; backstory_ids?: string[]; era_ids?: string[]

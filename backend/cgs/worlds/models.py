@@ -295,6 +295,7 @@ class WikiEvent(CreatedRecord):
 class WikiEventLink(models.Model):
     class Role(models.TextChoices):
         PARTICIPANT = "participant", "Participant"
+        PERFORMER = "performer", "Performer"
         PLACE = "place", "Place"
         ITEM = "item", "Item"
         PURPOSE = "purpose", "Purpose"

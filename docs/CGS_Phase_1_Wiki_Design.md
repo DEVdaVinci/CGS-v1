@@ -10,7 +10,9 @@ The Phase 1 pages in the [editable architecture](CGS_Codex_Local_Handoff/CGS_Fir
 
 | Decision | Behavioral consequence |
 | --- | --- |
-| Complete the general-purpose Wiki before building out play | Cover the world model, its authoring workflows, and its read contract across the agreed requirements. Use several fixtures to exercise the same interfaces. |
+| Establish the shared world model through the Wiki | Derive record ownership and authoring requirements from the sources. Use examples to verify the same interfaces across different domains. Simulations and media read the shared world and own their execution and editorial records. |
+| Organize authoring by meaning | Entity profiles hold identity, biography and defining relationships. The timeline holds history, participation and transitions. Run initialization belongs with simulation. A fact can have effective dates without changing what kind of record it is. |
+| Represent historical evidence faithfully | Distinguish a source, a claim, the time it describes and when it became known. Express unknown or approximate dates separately from duration. Exact state transitions and a work's reveal order have independent time requirements. |
 | Author current canon and dated world history | A correction changes what the current canon says about an existing time interval. A fictional change has an effective time and preserves what was true before it. |
 | Schedule author version control later | Keep stable logical identities and internal concurrency checks now. Author comparison, restoration, branching, and the source policy for long-lived runs are separate design work. |
 | Track facts, reports, and knowledge separately | A false statement and the belief it creates remain representable. An actor view receives evidence that actor has obtained by the requested time. |

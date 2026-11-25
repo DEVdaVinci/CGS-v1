@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import {
-  getWiki, isWikiActor,
+  canPerformEvent, getWiki, isWikiActor,
   type WikiAssertion, type WikiClaim, type WikiCommand, type WikiEntry, type WikiEvent,
   type WikiField, type WikiKind, type WikiLearnedAbility, type WikiObservation, type WikiProposition, type WikiValue,
 } from './wiki-api'
@@ -41,9 +41,10 @@ export function Actions({ busy, onCancel, submit }: Pick<FormActions, 'busy' | '
 }
 
 const dimensions = ['height_cm', 'width_cm', 'length_cm', 'mass_kg']
+const biography = ['alias', 'birth_tick', 'death_tick', 'birthplace', 'origin', 'species', 'nationality', 'parent', 'sibling']
 const initialKeys: Partial<Record<WikiKind, string[]>> = {
-  person: ['birth_tick', 'death_tick', 'species', 'character_class', 'located_in', 'appearance', 'background', ...dimensions],
-  organism: ['birth_tick', 'death_tick', 'species', 'located_in', 'appearance', ...dimensions],
+  person: [...biography, 'character_class', 'appearance', 'background', ...dimensions],
+  organism: [...biography, 'appearance', ...dimensions],
   place: ['place_type', 'located_in'],
   item: ['item_type', 'creation_tick', 'destruction_tick', ...dimensions],
   group: ['group_type'],
@@ -65,13 +66,15 @@ export function WikiEntryForm({ fixedKind, entries, fields, at, ownerId, ...acti
 }) {
   const [kind, setKind] = useState<WikiKind>(fixedKind ?? 'person')
   const title = fixedKind ? 'New ' + kindLabel[fixedKind].toLowerCase() : 'New entry'
-  const actor = kind === 'person' || kind === 'organism'
   const keys = ['description', ...(initialKeys[kind] ?? [])]
   const initialFields = keys.map((key) => fields.find((field) => field.key === key)).filter((field) => field !== undefined)
+  const linkedFields = initialFields.filter((field) => field.many && field.target_kinds.length)
 
   function initialLabel(field: WikiField) {
     if (field.key === 'description') return 'Overview'
-    if (field.key === 'located_in') return kind === 'place' ? 'Parent place' : 'Starting location'
+    if (field.key === 'located_in' && kind === 'place') return 'Parent place'
+    if (field.key === 'parent') return 'Parents'
+    if (field.key === 'sibling') return 'Siblings'
     return field.label
   }
 
@@ -81,9 +84,10 @@ export function WikiEntryForm({ fixedKind, entries, fields, at, ownerId, ...acti
     actions.onSave({
       op: 'create_entry', name: String(values.get('name')), kind,
       author_only: values.has('author_only'), initial_at: Number(values.get('initial_at')),
-      initial_values: initialFields.filter((field) => String(values.get(field.key) ?? '').trim()).map((field) => ({
-        field: field.key, value: readValue(values, field.key, field), author_only: values.has('author_only'),
-      })),
+      initial_values: initialFields.flatMap((field) => values.getAll(field.key).filter((value) => String(value).trim())
+        .map((value) => ({
+          field: field.key, value: readValue(value, field), author_only: values.has('author_only'),
+        }))),
     })
   }
   return (
@@ -98,7 +102,7 @@ export function WikiEntryForm({ fixedKind, entries, fields, at, ownerId, ...acti
       <fieldset className="wiki-change-fields">
         <legend>Initial facts</legend>
         <TimeInput name="initial_at" label="Initial facts start at time" day={at} />
-        {initialFields.map((field) => (
+        {initialFields.filter((field) => !linkedFields.includes(field)).map((field) => (
           <ValueInput
             key={field.key} field={field} entries={entries} entryId="" name={field.key}
             label={initialLabel(field)}
@@ -106,7 +110,13 @@ export function WikiEntryForm({ fixedKind, entries, fields, at, ownerId, ...acti
             required={false}
           />
         ))}
-        {actor && <p className="muted">Use Record dated change on the saved character article to record later moves.</p>}
+        {linkedFields.length > 0 && <details className="wiki-event-options">
+          <summary>Family and nationality</summary>
+          <div className="wiki-event-links">{linkedFields.map((field) => (
+            <EntryChoices key={field.key} label={initialLabel(field)} name={field.key} initial={[]}
+              entries={entries.filter((entry) => field.target_kinds.includes(entry.kind))} />
+          ))}</div>
+        </details>}
       </fieldset>
       <label className="wiki-checkbox"><input type="checkbox" name="author_only" /> Author only</label>
       <Actions {...actions} submit="Save entry" />
@@ -193,8 +203,8 @@ export function ValueInput({
   )
 }
 
-function readValue(values: FormData, name: string, field: WikiField): WikiValue {
-  const text = String(values.get(name) ?? '')
+function readValue(value: FormDataEntryValue | null, field: WikiField): WikiValue {
+  const text = String(value ?? '')
   return field.value_kind === 'integer' ? Number(text) : text
 }
 
@@ -227,7 +237,7 @@ function CanonicalForm({ mode, fact, initialField, entry, fields, entries, at, .
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const values = new FormData(event.currentTarget)
-    const value = readValue(values, 'value', field)
+    const value = readValue(values.get('value'), field)
     const source = String(values.get('source') ?? '')
     const author_only = values.has('author_only')
     if (fact) {
@@ -283,7 +293,7 @@ function CanonicalForm({ mode, fact, initialField, entry, fields, entries, at, .
   )
 }
 
-export function EventLinks({ label, name, entries, initial }: {
+export function EntryChoices({ label, name, entries, initial }: {
   label: string; name: string; entries: Pick<WikiEntry, 'id' | 'name'>[]; initial: string[]
 }) {
   const [filter, setFilter] = useState('')
@@ -380,7 +390,7 @@ export function EventContextFields({ worldId, entries, fields, at, event, events
       <details className="wiki-event-options" open={hasContext} onToggle={(toggle) => setOpen(toggle.currentTarget.open)}>
         <summary>Cause, purpose, and context</summary>
         {timelineError && <p className="muted">Cause events could not load. Close and reopen these details to retry.</p>}
-        <EventLinks label="Cause events" name="cause_events" initial={storedCauseEvents}
+        <EntryChoices label="Cause events" name="cause_events" initial={storedCauseEvents}
           entries={[...eventOptions, ...missingEventOptions.map((id) => ({ id, name: 'Saved cause event' }))]} />
         <fieldset className="wiki-change-fields">
           <legend>Cause state</legend>
@@ -413,9 +423,9 @@ export function EventContextFields({ worldId, entries, fields, at, event, events
           ))}</ul>}
         </fieldset>
         <div className="wiki-event-links">
-          <EventLinks label="Purpose goals" name="purposes" entries={entries.filter((entry) => entry.kind === 'goal')} initial={linked('purpose')} />
-          <EventLinks label="Backstory of" name="backstories" entries={entries} initial={linked('backstory')} />
-          <EventLinks label="Eras" name="eras" entries={entries.filter((entry) => entry.kind === 'era')} initial={linked('era')} />
+          <EntryChoices label="Purpose goals" name="purposes" entries={entries.filter((entry) => entry.kind === 'goal')} initial={linked('purpose')} />
+          <EntryChoices label="Backstory of" name="backstories" entries={entries} initial={linked('backstory')} />
+          <EntryChoices label="Eras" name="eras" entries={entries.filter((entry) => entry.kind === 'era')} initial={linked('era')} />
         </div>
       </details>
     </>
@@ -442,6 +452,7 @@ export function WikiEventForm({ worldId, entry, fields, entries, at, event, even
       ...readEventContext(values), name: String(values.get('name')), source: String(values.get('source') ?? ''),
       description: String(values.get('description') ?? ''),
       participant_ids: values.getAll('participants').map(String),
+      performer_ids: values.getAll('performers').map(String),
       place_ids: values.getAll('places').map(String), item_ids: values.getAll('items').map(String),
       ability_use: ability ? { ability_id: ability, actor_id: String(values.get('actor_id')) } : null,
       start_tick: optionalTime(values, 'start_tick'), end_tick: optionalTime(values, 'end_tick'),
@@ -454,7 +465,7 @@ export function WikiEventForm({ worldId, entry, fields, entries, at, event, even
         const mode = String(values.get('mode-' + row.id)) as 'set' | 'add' | 'end'
         return {
           entry_id: row.entryId, field: row.field,
-          value: readValue(values, 'value-' + row.id, fields.find((field) => field.key === row.field)!),
+          value: readValue(values.get('value-' + row.id), fields.find((field) => field.key === row.field)!),
           author_only: values.has('author-only-' + row.id), mode,
           ...(qualifier ? { qualifier_id: qualifier } : {}),
         }
@@ -485,13 +496,15 @@ export function WikiEventForm({ worldId, entry, fields, entries, at, event, even
       <label className="field">What happened<textarea name="description" rows={3} maxLength={1500} defaultValue={event?.description} /></label>
       <EventContextFields worldId={worldId} entries={entries} fields={fields} at={at} event={event} events={events} />
       <details className="wiki-event-options" open={!entry || Boolean(event)}>
-        <summary>Participants, places, and items</summary>
+        <summary>Performers, participants, places, and items</summary>
+        <EntryChoices label="Performed by" name="performers" entries={entries.filter(canPerformEvent)}
+          initial={event?.links.filter((link) => link.role === 'performer').map((link) => link.entry_id) ?? []} />
         <div className="wiki-event-links">
-          <EventLinks label="Participants" name="participants" entries={entries.filter((e) => isWikiActor(e) || e.kind === 'group')}
+          <EntryChoices label="Participants" name="participants" entries={entries.filter((e) => isWikiActor(e) || e.kind === 'group')}
             initial={event?.links.filter((link) => link.role === 'participant').map((link) => link.entry_id) ?? []} />
-          <EventLinks label="Places" name="places" entries={entries.filter((e) => e.kind === 'place')}
+          <EntryChoices label="Places" name="places" entries={entries.filter((e) => e.kind === 'place')}
             initial={event?.links.filter((link) => link.role === 'place').map((link) => link.entry_id) ?? []} />
-          <EventLinks label="Items" name="items" entries={entries.filter((e) => e.kind === 'item')}
+          <EntryChoices label="Items" name="items" entries={entries.filter((e) => e.kind === 'item')}
             initial={event?.links.filter((link) => link.role === 'item').map((link) => link.entry_id) ?? []} />
         </div>
       </details>
@@ -621,7 +634,7 @@ function PropositionForm({ entry, entries, fields, observations = [], record, at
       const data = new FormData(event.currentTarget)
       const qualifier = String(data.get('qualifier') ?? '')
       const details = {
-        holder_id: holder.id, entry_id: subjectId, field: field.key, value: readValue(data, 'value', field),
+        holder_id: holder.id, entry_id: subjectId, field: field.key, value: readValue(data.get('value'), field),
         from_tick: Number(data.get('from_tick')), until_tick: optionalTime(data, 'until_tick'),
         about_tick: optionalTime(data, 'about_tick'), source: String(data.get('source') ?? ''),
         evidence_id: String(data.get('evidence') ?? '') || null, author_only: data.has('author_only'),

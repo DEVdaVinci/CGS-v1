@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { isWikiActor, type WikiEvent } from './wiki-api'
 import {
-  Actions, EntryPicker, EventContextFields, EventLinks, optionalTime, readEventContext, TimeInput,
+  Actions, EntryChoices, EntryPicker, EventContextFields, optionalTime, readEventContext, TimeInput,
   type EventContextProps, type FormActions,
 } from './wiki-forms'
 
@@ -41,16 +41,16 @@ export function WikiGroupForm({ events, entries, event, parentId, worldId, field
       <details className="wiki-event-options">
         <summary>Participants, places, and items</summary>
         <div className="wiki-event-links">
-          <EventLinks label="Participants" name="participants" entries={entries.filter((entry) => isWikiActor(entry) || entry.kind === 'group')}
+          <EntryChoices label="Participants" name="participants" entries={entries.filter((entry) => isWikiActor(entry) || entry.kind === 'group')}
             initial={event?.links.filter((link) => link.role === 'participant').map((link) => link.entry_id) ?? []} />
-          <EventLinks label="Places" name="places" entries={entries.filter((entry) => entry.kind === 'place')}
+          <EntryChoices label="Places" name="places" entries={entries.filter((entry) => entry.kind === 'place')}
             initial={event?.links.filter((link) => link.role === 'place').map((link) => link.entry_id) ?? []} />
-          <EventLinks label="Items" name="items" entries={entries.filter((entry) => entry.kind === 'item')}
+          <EntryChoices label="Items" name="items" entries={entries.filter((entry) => entry.kind === 'item')}
             initial={event?.links.filter((link) => link.role === 'item').map((link) => link.entry_id) ?? []} />
         </div>
       </details>
       {leaves.length > 0 && (
-        <EventLinks label="Related actions and occurrences" name="references" entries={leaves} initial={event?.cross_reference_ids ?? []} />
+        <EntryChoices label="Related actions and occurrences" name="references" entries={leaves} initial={event?.cross_reference_ids ?? []} />
       )}
       <label className="field">Source (optional)<input name="source" maxLength={500} defaultValue={event?.source} /></label>
       <Actions {...actions} submit="Save event group" />

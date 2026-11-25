@@ -31,9 +31,16 @@ def _inherit(own, parents):
 
 def _definition_values(entry, at, own_facts):
     if entry.kind in DEFINITIONS:
-        start = [str(entry.id)]
+        start = {str(entry.id)}
     else:
-        start = [a.value for a in own_facts if a.field in ("character_class", "extra_class", "species")]
+        definitions = defaultdict(set)
+        for fact in own_facts:
+            if fact.field in ("character_class", "species", "extra_class"):
+                definitions[fact.field].add(fact.value)
+        start = definitions["extra_class"].copy()
+        for key in ("character_class", "species"):
+            if len(definitions[key]) == 1:
+                start.update(definitions[key])
     if not start:
         return []
     # Read only the definitions reachable from this entry. Each level is a
@@ -137,6 +144,29 @@ def incoming_links(entry, at):
         for fact in matches
         if FIELDS[fact.field].many or (fact.entry_id, fact.field, fact.qualifier_id) not in conflicts
     ]
+
+
+def family_links(entry, facts, at):
+    active = [fact for fact in facts if fact.field in ("parent", "sibling") and contains_tick(fact, at)]
+    subject = str(entry.id)
+    parents = {fact.value for fact in active if fact.field == "parent"}
+    declared = {fact.value for fact in active if fact.field == "sibling"}
+    relations = at_tick(WikiAssertion.objects.filter(
+        entry__wiki_id=entry.wiki_id, field__in=("parent", "sibling"),
+    ), at)
+    children = set()
+    for entry_id, field in relations.filter(value=subject).values_list("entry_id", "field"):
+        (children if field == "parent" else declared).add(str(entry_id))
+    shared = defaultdict(set)
+    for entry_id, parent in relations.filter(field="parent", value__in=parents).exclude(entry=entry).values_list("entry_id", "value"):
+        shared[str(entry_id)].add(parent)
+    return {
+        "parents": sorted(parents), "children": sorted(children),
+        "siblings": [
+            {"entry_id": sibling, "declared": sibling in declared, "shared_parent_ids": sorted(shared[sibling])}
+            for sibling in sorted(declared | shared.keys())
+        ],
+    }
 
 
 def observation_visible(observation, visible_ids):

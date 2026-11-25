@@ -63,6 +63,106 @@ class WikiTests(TransactionTestCase):
     def values(self, entry, at):
         return {item["field"]: item.get("value", item["state"]) for item in self.article(entry, at)["values"]}
 
+    def test_biography_and_family_keep_their_own_meaning_as_of_time(self):
+        clinic = self.entry("Clinic")
+        home = self.entry("Coast")
+        nation = self.entry("Coastal federation", "group")
+        parent = self.entry("Eleni", "person")
+        shared = self.entry("Ivo", "person")
+        declared = self.entry("Kite", "person")
+        self.fact(shared, "parent", parent)
+        mira = self.entry("Mira", "person", initial_at=2, initial_values=[
+            {"field": "birthplace", "value": clinic},
+            {"field": "origin", "value": home},
+            {"field": "nationality", "value": nation},
+            {"field": "parent", "value": parent},
+            {"field": "sibling", "value": declared},
+        ])
+        self.assertEqual(self.article(mira, 1)["family"], {"parents": [], "children": [], "siblings": []})
+        values = self.values(mira, 2)
+        self.assertEqual((values["birthplace"], values["origin"], values["nationality"]), (clinic, home, nation))
+        self.assertEqual(values["located_in"], "unknown")
+        family = self.article(mira, 2)["family"]
+        self.assertEqual(family["parents"], [parent])
+        siblings = {link["entry_id"]: link for link in family["siblings"]}
+        self.assertEqual(siblings[shared]["shared_parent_ids"], [parent])
+        self.assertFalse(siblings[shared]["declared"])
+        self.assertTrue(siblings[declared]["declared"])
+        self.assertEqual(set(self.article(parent, 2)["family"]["children"]), {mira, shared})
+        self.assertEqual(self.article(declared, 2)["family"]["siblings"][0]["entry_id"], mira)
+
+        self.fact(mira, "located_in", home, 4)
+        self.assertEqual(self.values(mira, 4)["birthplace"], clinic)
+        self.assertEqual(self.values(mira, 4)["located_in"], home)
+        invalid = self.post({"op": "create_entry", "kind": "person", "name": "Invalid identity", "initial_values": [
+            {"field": "birthplace", "value": parent},
+        ]})
+        self.assertEqual(invalid.status_code, 422)
+        self.assertFalse(WikiEntry.objects.filter(wiki_id=self.world, name="Invalid identity").exists())
+
+    def test_subject_history_keeps_world_group_dates_and_distinguishes_involvement(self):
+        mira = self.entry("Mira", "person")
+        machine = self.entry("Level sensor", "item")
+        location = self.entry("Reservoir")
+        project = self.apply({"op": "record_event_group", "name": "Reservoir inspection"})
+        segment = self.apply({"op": "record_event_group", "name": "Readings", "parent_id": project})
+        reading = self.apply({
+            "op": "record_event", "name": "Log reading", "tick": 2, "node_kind": "action",
+            "parent_id": segment, "performer_ids": [machine], "participant_ids": [mira], "place_ids": [location],
+        })
+        self.apply({"op": "record_event", "name": "Independent log", "tick": 20, "parent_id": segment})
+        # Omitted role fields preserve existing links on correction.
+        self.apply({"op": "edit_event", "event_id": reading, "name": "Log reading"})
+        article = self.article(machine, 2)
+        self.assertEqual([item["id"] for item in article["events"]], [reading])
+        self.assertIn({"entry_id": machine, "role": "performer"}, article["events"][0]["links"])
+        self.assertIn({"entry_id": mira, "role": "participant"}, article["events"][0]["links"])
+        self.assertEqual(self.values(mira, 2)["located_in"], "unknown")
+        timeline = {item["id"]: item for item in self.browser.get(self.path + "/timeline").json()["timeline"]}
+        self.assertEqual({item["id"] for item in article["event_ancestors"]}, {project, segment})
+        for ancestor in article["event_ancestors"]:
+            self.assertEqual((ancestor["display_start"], ancestor["display_end"]), (2, 20))
+            self.assertEqual(ancestor, timeline[ancestor["id"]])
+        invalid = self.post({"op": "edit_event", "event_id": segment, "name": "Rejected", "performer_ids": [machine]})
+        self.assertEqual(invalid.status_code, 422)
+        self.assertEqual(invalid.json()["field_errors"][0]["code"], "GROUP_EFFECT")
+        self.assertEqual(WikiEvent.objects.get(pk=segment).name, "Readings")
+
+    def test_an_ended_slot_cannot_be_set_again_by_another_event_at_the_same_time(self):
+        place = self.entry("Station")
+        mira = self.entry("Mira", "person")
+        self.fact(mira, "located_in", place)
+        self.apply({
+            "op": "record_event", "name": "Leave", "tick": 2, "changes": [
+                {"entry_id": mira, "field": "located_in", "value": place, "mode": "end"},
+            ],
+        })
+        rejected = self.post({
+            "op": "record_event", "name": "Unordered arrival", "tick": 2, "changes": [
+                {"entry_id": mira, "field": "located_in", "value": place, "mode": "set"},
+            ],
+        })
+        self.assertEqual(rejected.status_code, 422)
+        self.assertEqual(rejected.json()["field_errors"][0]["code"], "AMBIGUOUS_TRANSITION")
+        self.assertFalse(WikiEvent.objects.filter(wiki_id=self.world, name="Unordered arrival").exists())
+        self.assertEqual(self.values(mira, 1)["located_in"], place)
+        self.assertEqual(self.values(mira, 2)["located_in"], "unknown")
+        self.event("Later arrival", 3, (mira, "located_in", place))
+        self.assertEqual(self.values(mira, 3)["located_in"], place)
+
+    def test_ambiguous_primary_class_cannot_supply_a_certain_default(self):
+        first = self.entry("Definition one", "class")
+        second = self.entry("Definition two", "class")
+        mira = self.entry("Mira", "person")
+        self.fact(first, "height_cm", 170)
+        self.fact(mira, "character_class", first)
+        self.fact(mira, "character_class", second, 2)
+        self.assertEqual(self.values(mira, 1)["height_cm"], 170)
+        self.assertEqual(self.values(mira, 2)["character_class"], "conflict")
+        self.assertEqual(self.values(mira, 2)["height_cm"], "unknown")
+        self.fact(mira, "height_cm", 160, 2)
+        self.assertEqual(self.values(mira, 2)["height_cm"], 160)
+
     def test_lucidchart_dimensions_visual_references_lifetimes_and_population_profiles(self):
         mira = self.entry("Mira", "person")
         lantern = self.entry("Lantern", "item")

@@ -2,7 +2,7 @@ import { type FormEvent, useCallback, useEffect, useState } from 'react'
 import { ApiError, type SignedInSession } from './api'
 import {
   getWiki, isWikiActor, readWikiAttempt, saveWikiChange, storeWikiAttempt,
-  type WikiArticle, type WikiAttempt, type WikiCommand, type WikiEvent, type WikiKind, type WikiLinkedFact,
+  type WikiArticle, type WikiAttempt, type WikiCommand, type WikiKind, type WikiLinkedFact,
   type WikiLocation, type WikiSection, type WikiValue, type WikiView,
 } from './wiki-api'
 import { kindLabel, type ArticleEdit, WikiCalendarForm, WikiEditForm, WikiEntryForm, WikiEventForm, WikiEvidenceForm } from './wiki-forms'
@@ -44,7 +44,7 @@ function initialLocation(): WikiLocation {
 
 type Display = {
   view: WikiView
-  openEntry: (id: string) => void
+  openEntry: (id: string, at?: number) => void
   navigationLocked: boolean
 }
 
@@ -142,9 +142,42 @@ function Propositions({ article, display, edit }: { article: WikiArticle; displa
   )
 }
 
+function Family({ family, display, onEdit }: {
+  family: NonNullable<WikiArticle['family']>; display: Display; onEdit?: (edit: ArticleEdit) => void
+}) {
+  return (
+    <section className="wiki-block" aria-label="Family">
+      <div className="wiki-card-heading">
+        <h2>Family at time {display.view.at}</h2>
+        {onEdit && <div className="form-actions">
+          <button className="button secondary" type="button" onClick={() => onEdit({ kind: 'fact', field: 'parent' })}>Add parent</button>
+          <button className="button secondary" type="button" onClick={() => onEdit({ kind: 'fact', field: 'sibling' })}>Add sibling</button>
+        </div>}
+      </div>
+      <dl className="wiki-facts">
+        <div><dt>Parents</dt><dd>{family.parents.length ? <ul className="wiki-records">
+          {family.parents.map((id) => <li key={id}><EntryReference {...display} id={id} /></li>)}
+        </ul> : <span className="muted">None recorded</span>}</dd></div>
+        <div><dt>Children</dt><dd>{family.children.length ? <ul className="wiki-records">
+          {family.children.map((id) => <li key={id}><EntryReference {...display} id={id} /></li>)}
+        </ul> : <span className="muted">None recorded</span>}</dd></div>
+        <div><dt>Siblings</dt><dd>{family.siblings.length ? <ul className="wiki-records">
+          {family.siblings.map((relative) => <li key={relative.entry_id}>
+            <EntryReference {...display} id={relative.entry_id} />
+            {relative.declared && <small className="wiki-default-source">Recorded sibling</small>}
+            {relative.shared_parent_ids.length > 0 && <small className="wiki-default-source">
+              Shared parent {relative.shared_parent_ids.map((id) => <EntryReference {...display} id={id} key={id} />)}
+            </small>}
+          </li>)}
+        </ul> : <span className="muted">None recorded</span>}</dd></div>
+      </dl>
+    </section>
+  )
+}
+
 function Article({ article, display, onEdit, onTimeline, onGoal, onLayoutEdit }: {
   article: WikiArticle; display: Display; onEdit?: (edit: ArticleEdit) => void
-  onTimeline: (event: WikiEvent) => void
+  onTimeline: (eventId: string) => void
   onGoal: (ownerId: string) => void
   onLayoutEdit?: (edit: LayoutEdit) => void
 }) {
@@ -156,13 +189,14 @@ function Article({ article, display, onEdit, onTimeline, onGoal, onLayoutEdit }:
   const articleKind = specificType?.state === 'value' ? specificType.value : kindLabel[article.entry.kind]
   const firstLocation = isWikiActor(article.entry) ? article.assertions?.find((fact) => fact.field === 'located_in') : undefined
   const facts = values.filter((item) => item.state === 'conflict' || (
-    item.field !== 'description' && item.field !== 'place_type'
+    item.field !== 'description' && item.field !== 'place_type' && item.field !== 'parent' && item.field !== 'sibling'
   ))
   const factSections = new Map(
     view.fields.filter((field) => field.kinds.includes(article.entry.kind)).map((field) => [field.section || 'Overview', field.key]),
   )
   const related = new Map<string, WikiLinkedFact[]>()
   for (const item of article.incoming_links ?? []) {
+    if (article.family && item.field === 'parent') continue
     const list = related.get(item.label) ?? []
     list.push(item)
     related.set(item.label, list)
@@ -223,6 +257,7 @@ function Article({ article, display, onEdit, onTimeline, onGoal, onLayoutEdit }:
               </section>
             })}
           </section>
+          {article.family && <Family family={article.family} display={display} onEdit={edit} />}
           {Array.from(related, ([label, links]) => (
             <section className="wiki-block" key={label} aria-label={label}>
               <h2>{label}</h2>
@@ -309,7 +344,8 @@ function Article({ article, display, onEdit, onTimeline, onGoal, onLayoutEdit }:
                       <div><ValueText {...display} field={fact.field} value={fact.value} /></div>
                       <p className="muted">{times(fact.from_tick, fact.until_tick)}{fact.author_only ? ' · Author only' : ''}</p>
                       {fact.source && <p className="muted">Source: {fact.source}</p>}
-                      {fact.event_id && <a href={'#wiki-record-' + fact.event_id}>View event</a>}
+                      {fact.event_id && <button type="button" className="wiki-reference" disabled={display.navigationLocked}
+                        onClick={() => { if (fact.event_id) onTimeline(fact.event_id) }}>View event</button>}
                     </div>
                     {edit && (
                       <div className="form-actions">
@@ -324,30 +360,10 @@ function Article({ article, display, onEdit, onTimeline, onGoal, onLayoutEdit }:
               </ul>
             )}
           </section>
-          <section className="wiki-block" aria-label="Dated events">
-            <h2>Dated events</h2>
-            {(article.events ?? []).length === 0 ? <p className="muted">No events recorded.</p> : (
-              <ul className="wiki-records">
-                {article.events?.map((event) => (
-                  <li className="wiki-record" key={event.id} id={'wiki-record-' + event.id}>
-                    <div>
-                      <strong>{event.name}</strong>
-                      <p className="muted">{event.tick === null ? 'Event group' : 'Time ' + event.tick}{event.source ? ' · ' + event.source : ''}</p>
-                      {event.links.some((link) => link.role === 'backstory' && link.entry_id === article.entry.id)
-                        && <p className="muted">Backstory</p>}
-                      {(event.summary || event.description) && <p className="wiki-prose">{event.summary || event.description}</p>}
-                    </div>
-                    <div className="form-actions">
-                      <button className="button secondary" type="button" disabled={display.navigationLocked}
-                        onClick={() => onTimeline(event)}>View in timeline</button>
-                      {edit && event.tick !== null && <button className="button secondary" type="button"
-                        onClick={() => edit({ kind: 'correct-date', event })}>Correct event date</button>}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+          <WikiTimeline key={article.entry.id} events={article.events ?? []} enclosing={article.event_ancestors ?? []}
+            entries={view.entries} fields={view.fields} onFocus={onTimeline}
+            onOpen={display.navigationLocked ? undefined : display.openEntry}
+            onCorrectDate={edit && ((event) => edit({ kind: 'correct-date', event }))} />
           <section className="wiki-block" aria-label="Attributed claims">
             <h2>Attributed claims</h2>
             {(article.claims ?? []).length === 0 ? <p className="muted">No claims recorded.</p> : (
@@ -660,7 +676,7 @@ export function Wiki({ account, worldId, onAuthError }: {
                 <Article
                   article={view.article} onEdit={view.can_edit ? beginEdit : undefined}
                   display={{ view, navigationLocked, openEntry }}
-                  onTimeline={(event) => navigate({ ...location, section: 'timeline', entryId: '', eventId: event.id })}
+                  onTimeline={(eventId) => navigate({ ...location, section: 'timeline', entryId: '', eventId })}
                   onGoal={(ownerId) => beginEdit({ kind: 'create', fixedKind: 'goal', ownerId })}
                   onLayoutEdit={view.can_edit ? beginEdit : undefined}
                 />

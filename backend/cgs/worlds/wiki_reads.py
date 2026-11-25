@@ -13,7 +13,7 @@ from .models import (
 from .wiki import at_tick, can_edit, value_slot, wiki_access
 from .wiki_events import event_bounds
 from .wiki_layouts import place_layout
-from .wiki_records import derived_age, effective_values, incoming_links, observation_visible, propositions_for
+from .wiki_records import derived_age, effective_values, family_links, incoming_links, observation_visible, propositions_for
 from .wiki_schema import ACTORS, FIELDS, NONLIVING
 
 
@@ -68,7 +68,17 @@ def _serialize_observation(observation, *, author=False):
     return evidence
 
 
-def _serialize_events(query):
+def _event_outline(event):
+    bounds = event_bounds(event)
+    return {
+        "id": str(event.pk), "tick": event.tick, "node_kind": event.node_kind,
+        "parent_id": _id(event.parent_id), "sort_order": event.sort_order,
+        "start_tick": event.start_tick, "end_tick": event.end_tick,
+        "display_start": bounds[0] if bounds else None, "display_end": bounds[1] if bounds else None,
+    }
+
+
+def _serialize_events(query, outline=None):
     events = query.prefetch_related(
         Prefetch("links", queryset=WikiEventLink.objects.order_by("role", "entry__name", "entry_id")),
         Prefetch("opened_assertions", queryset=WikiAssertion.objects.order_by("entry__name", "field", "id")),
@@ -78,13 +88,10 @@ def _serialize_events(query):
     ).order_by("tick", "id")
     records = []
     for event in events:
-        bounds = event_bounds(event)
         records.append({
-            "id": str(event.pk), "name": event.name, "tick": event.tick,
+            **(_event_outline(event) if outline is None else outline[str(event.pk)]),
+            "name": event.name,
             "source": event.source, "description": event.description, "summary": event.summary, "method": event.method,
-            "node_kind": event.node_kind, "parent_id": _id(event.parent_id), "sort_order": event.sort_order,
-            "start_tick": event.start_tick, "end_tick": event.end_tick,
-            "display_start": bounds[0] if bounds else None, "display_end": bounds[1] if bounds else None,
             "cross_reference_ids": [str(target.pk) for target in event.cross_references.all()],
             "cause_event_ids": [str(target.pk) for target in event.cause_events.all()],
             "cause_state": [
@@ -97,7 +104,8 @@ def _serialize_events(query):
             ),
             "changes": _event_effects(event),
         })
-    _derive_group_dates(records)
+    if outline is None:
+        _derive_group_dates(records)
     return records
 
 
@@ -159,13 +167,37 @@ def _learned_abilities(character, at):
     ]
 
 
-def _author_article(entry, at):
-    facts = list(WikiAssertion.objects.filter(entry=entry).order_by("field", "from_tick", "id"))
-    claims = WikiClaim.objects.filter(entry=entry).order_by("tick", "id")
-    events = WikiEvent.objects.filter(wiki_id=entry.wiki_id).filter(
+def _article_events(entry):
+    world_events = WikiEvent.objects.filter(wiki_id=entry.wiki_id)
+    linked = world_events.filter(
         Q(opened_assertions__entry=entry) | Q(closed_assertions__entry=entry)
         | Q(links__entry=entry) | Q(ability=entry) | Q(performed_by=entry) | Q(cause_assertions__entry=entry)
     ).distinct()
+    direct = {str(event_id) for event_id in linked.values_list("id", flat=True)}
+    if not direct:
+        return [], []
+    nodes = [_event_outline(event) for event in world_events.only(
+        "tick", "node_kind", "parent_id", "sort_order", "start_tick", "end_tick",
+    )]
+    _derive_group_dates(nodes)
+    outline = {node["id"]: node for node in nodes}
+    include = direct.copy()
+    for event_id in direct:
+        parent = outline[event_id]["parent_id"]
+        while parent is not None and parent not in include:
+            include.add(parent)
+            parent = outline[parent]["parent_id"]
+    records = _serialize_events(world_events.filter(pk__in=include), outline)
+    return (
+        [event for event in records if event["id"] in direct],
+        [event for event in records if event["id"] not in direct],
+    )
+
+
+def _author_article(entry, at):
+    facts = list(WikiAssertion.objects.filter(entry=entry).order_by("field", "from_tick", "id"))
+    claims = WikiClaim.objects.filter(entry=entry).order_by("tick", "id")
+    events, event_ancestors = _article_events(entry)
     findings = WikiFinding.objects.filter(entry=entry, resolved_at_edit__isnull=True).order_by("from_tick", "id")
     values = effective_values(entry, facts, at)
     article = {
@@ -173,7 +205,8 @@ def _author_article(entry, at):
         "values": values,
         "assertions": [_serialize_assertion(fact) for fact in facts],
         "claims": [_serialize_claim(claim) for claim in claims],
-        "events": _serialize_events(events),
+        "events": events,
+        "event_ancestors": event_ancestors,
         "observations": [_serialize_observation(o, author=True) for o in _observations_about(entry)],
         "propositions": propositions_for(entry, at),
         "incoming_links": incoming_links(entry, at),
@@ -187,6 +220,7 @@ def _author_article(entry, at):
     }
     if entry.kind in ACTORS:
         article["learned_abilities"] = _learned_abilities(entry, at)
+        article["family"] = family_links(entry, facts, at)
     if entry.kind in (*ACTORS, *NONLIVING, "species"):
         article["age_years"] = derived_age(entry, values, at)
     if entry.kind == WikiEntry.Kind.PLACE:
