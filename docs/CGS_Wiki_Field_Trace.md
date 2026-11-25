@@ -4,6 +4,8 @@ Source **Wiki.pdf**, pages 1–4, from the Lucidchart export supplied by the pro
 
 The **Prior build** column describes the W1 implementation at `fc9e0e3`. **Omitted** means its browser could not record the source concept in its own right. The proposed representation and target are design assignments. Verify current behavior against the build under review. Each grouped row still requires evidence for every named field, type, and connection. Typed source concepts need a typed authoring and read path. Use the [acceptance checklist](CGS_Wiki_Acceptance_Checklist.md) for check IDs and the [decision requirements](CGS_Wiki_Reference_Design.md#source-trace-and-design-decisions) when changing any source element.
 
+The [current coverage audit](CGS_Wiki_Current_Coverage.md) compares `c092c5c` with the original diagrams and public reference workflows, including the authored fields still missing before W2.
+
 ## Entity, organism, and item fields
 
 | Lucidchart field | Prior build | CGS representation and reason | Target pass and check |
@@ -145,6 +147,7 @@ These are design assignments from **CGS 2.0 Brainstorm.pdf**, **CGS.pdf**, the w
 | Narrative state for each scene or shot and event selection, Brainstorm pp1–2 and workflow overview | A work stores selected references, viewpoint, reveal order and state context. Scene and shot selections preserve the underlying event dates and source. This lets a documentary and fiction reuse the same history. | W3 PLAN-04 and PLAN-05, S1 first generated scene |
 | Camera position, orientation, zoom, lighting and visual effects, Brainstorm p2 | Shot settings and linked elements belong to editorial and production data. The Wiki stores the authored values and units. Media tools later evaluate the settings against a supported rig, coordinate space and renderer. | W3 PLAN-05, later media production |
 | Dialogue, delivery, voice quality, audio environment, sound effects and music, Brainstorm pp1–2 and workflow overview | Author the content or asset, speaker, delivery notes and scene or element relationship. Separate production intent from the actual sound and an audience's interpretation. | W3 PLAN-05 and MEDIA-01, later media production |
+| Editorial transition, Brainstorm p2 | Author the transition between editorial units with source and destination links and its authored description or media reference. The work owns the transition and can reuse the same world events in another order. | W3 PLAN-05 for authored transitions, later media production for rendered transitions |
 | Theme, plot, pacing, symbolism, questions, obstacles and intended audience effect, Brainstorm pp1–2 | Store editorial planning notes and explicit links when they refer to a work, scene, element or selected event. Track source narrative goals for later generation and evaluation. | W3 PLAN-01, PLAN-04 and PLAN-05, S1 first story workflow |
 | Asset reuse or generation and media pipeline outputs, CGS.pdf and workflow overview | Preserve asset identity, provenance, intended use and links to works. W3 supports planned outputs and reusable assets. S1 covers its agreed outline and scene. Generating new assets, storyboard or media production, and final assembly use the later media pipeline. | W3 MEDIA-01 and PLAN-05, S1 scoped generation, later media production |
 
