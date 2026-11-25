@@ -8,6 +8,8 @@ W1 establishes the core authoring and reading workflows for the shared world mod
 
 W1 represents what may later drive decisions, including goals, knowledge, beliefs, physical state, possessions, group assignments, and navigable spatial relationships. W2 specifies and checks reusable rules, powers, and action definitions. P2 executes effects and actor decisions. W3 extends the catalog, discovery, and map presentation. W4 handles explicit import from the prototype Draft, data exchange, and model-assisted authoring. Author editing history and dated fictional history retain their separate schedules.
 
+The [full-stack delivery table](CGS_Wiki_Reference_Design.md#delivery-order-and-proof) governs the next W1 passes. Begin with the workspace redesign and its scoped reads and writes, then add the first persisted image map and finish the remaining source-backed core checks. The character and spatial contracts below apply to the W1 work. The [field trace](CGS_Wiki_Field_Trace.md#additional-cgs-source-concepts) assigns the recovered physical and cognitive inputs to core authoring and schedules their runtime use separately.
+
 ### Record ownership and authoring
 
 | Record or view | Meaning, browser workflow, and acceptance |
@@ -22,7 +24,7 @@ W1 represents what may later drive decisions, including goals, knowledge, belief
 
 1. **Identity, family, and linked history.** Keep existing IDs and facts. Separate character definition from temporary position, give family relations recognizable controls, and present the same nested event records from articles and the world timeline. Make performer links useful for people, organizations, and authored devices. Existing API payloads and prior location facts retain their meaning. Verify biography, inverse and derived family links, non-acting participants, related actions, and context groups through the ordinary browser.
 2. **Time, spatial state, and evidence.** Implement the source and date capabilities above and complete the outstanding correctness checks. Keep the exact clock for existing intervals. Distinguish the meaning of containment, physical whereabouts, residence, and event venue at the read and write boundaries. Preserve legacy records and mark genuinely ambiguous ones for author review. Check competing transitions, measurement units, historical waypoints, and fictional-viewpoint selection separately.
-3. **W1 acceptance and upgrade.** Trace each required source concept to its owner, field or link, browser workflow, consumer, and passing evidence. Reopen an existing world as well as a fresh world. Keep findings, missing workflows, and deferred features visible by check ID. A catalog key or a prototype walkthrough alone is insufficient.
+3. **W1 acceptance and upgrade.** Trace each required type, field and connection to its browser workflow, API validation, data owner, consumer, and passing evidence. Reopen an existing world as well as a fresh world. Keep findings, missing workflows, design decisions and deferred features visible by check ID. W1 acceptance also includes the workspace and map starter workflows.
 
 ### Evidence reviewed
 
@@ -94,7 +96,7 @@ World Anvil's timeline and era navigation is a reference for browsing by date. F
 | Repeatable fact or relationship | Aliases, family members, group memberships, and goal links allow multiple distinct values or edges. Their identity includes the endpoint or value and applicable context. Duplicate writes are checked within that identity. Closing one dated link leaves its neighbors intact. Inverse views read the same link. |
 | Evidence and derived state | Author corrections to canon can trigger a source-changed finding. Captured observations retain their received value. The scoped response applies visibility before deriving contents or exposing default sources, then withholds any unavailable detail. |
 
-## Implementation order
+## Character and spatial implementation details
 
 ### Pass A — Character records and viewpoints
 
