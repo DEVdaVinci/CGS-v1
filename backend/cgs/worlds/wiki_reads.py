@@ -233,6 +233,7 @@ def _author_article(entry, at, identity):
     article = {
         "entry": identity,
         "overview": entry.overview,
+        "sections": entry.article_sections,
         "assertions": [_serialize_assertion(fact) for fact in facts],
         "claims": [_serialize_claim(claim) for claim in claims],
         "events": events,
@@ -312,6 +313,7 @@ def read_wiki(world_id, account_id, at, observer_id=None, entry_id=None, *, time
                 can_edit=can_edit(membership), edit_counter=wiki.edit_counter if wiki else 0,
                 checked_scope="temporal_and_references",
                 days_per_year=wiki.days_per_year if wiki else None,
+                world_introduction=wiki.introduction if wiki else "",
             )
         if selected is not None:
             response["article"] = (

@@ -162,6 +162,7 @@ class WikiWorld(models.Model):
     world = models.OneToOneField(World, primary_key=True, on_delete=models.RESTRICT)
     edit_counter = models.PositiveBigIntegerField(default=0)
     days_per_year = models.PositiveIntegerField(null=True, blank=True)
+    introduction = models.CharField(max_length=3000, blank=True, default="")
 
 
 class WikiEntry(CreatedRecord):
@@ -196,6 +197,7 @@ class WikiEntry(CreatedRecord):
     kind = models.CharField(max_length=12, choices=Kind)
     name = models.CharField(max_length=100)
     overview = models.CharField(max_length=1500, blank=True, default="")
+    article_sections = models.JSONField(default=list, blank=True)
     catalog_type = models.CharField(max_length=12, choices=CatalogType, blank=True, default="")
     author_only = models.BooleanField(default=False)
 

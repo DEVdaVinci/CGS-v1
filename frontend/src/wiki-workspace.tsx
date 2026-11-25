@@ -1,25 +1,53 @@
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, type ReactNode, useEffect, useState } from 'react'
 import { isWikiActor, searchWiki, type WikiEntry, type WikiEntryTemplate, type WikiLocation, type WikiSection } from './wiki-api'
-import { kindLabel, TimeInput } from './wiki-forms'
+import { Actions, type FormActions, kindLabel, TimeInput } from './wiki-forms'
 
-export const sections: { key: WikiSection; label: string; create?: WikiEntryTemplate; action?: string }[] = [
-  { key: 'overview', label: 'Overview' },
-  { key: 'all', label: 'All articles' },
-  { key: 'characters', label: 'Characters', create: 'person', action: 'New character' },
-  { key: 'places', label: 'Places', create: 'place', action: 'New place' },
-  { key: 'items', label: 'Items', create: 'item', action: 'New item' },
-  { key: 'vehicles', label: 'Vehicles', create: 'vehicle', action: 'New vehicle' },
-  { key: 'maps', label: 'Maps', create: 'map', action: 'Add map reference' },
-  { key: 'timeline', label: 'Timeline' },
-  { key: 'library', label: 'Library' },
+type Destination = {
+  key: WikiSection; label: string; create?: { type: WikiEntryTemplate; label: string }[]
+  chooser?: { label: string; types: WikiEntryTemplate[] }
+}
+
+const navigation: { title: string; destinations: Destination[] }[] = [
+  { title: 'World Wiki', destinations: [
+    { key: 'overview', label: 'World overview' },
+    { key: 'all', label: 'All articles' },
+  ] },
+  { title: 'Worldbuilding', destinations: [
+    { key: 'characters', label: 'Characters', create: [{ type: 'person', label: 'New character' }] },
+    { key: 'organisms', label: 'Organisms & species', create: [
+      { type: 'organism', label: 'New organism' }, { type: 'species', label: 'New species' },
+    ] },
+    { key: 'places', label: 'Places', create: [
+      { type: 'place', label: 'New place' }, { type: 'territory', label: 'New territory' },
+    ] },
+    { key: 'groups', label: 'Groups & cultures', create: [
+      { type: 'group', label: 'New group' }, { type: 'culture', label: 'New culture' },
+    ] },
+    { key: 'items', label: 'Items', create: [{ type: 'item', label: 'New item' }] },
+    { key: 'vehicles', label: 'Vehicles', create: [{ type: 'vehicle', label: 'New vehicle' }] },
+  ] },
+  { title: 'World tools', destinations: [
+    { key: 'maps', label: 'Maps', create: [{ type: 'map', label: 'Add map reference' }] },
+    { key: 'timeline', label: 'Timeline' },
+    { key: 'definitions', label: 'Definitions', chooser: {
+      label: 'New definition', types: ['class', 'role', 'ability', 'resource', 'body_part', 'trait', 'goal', 'era'],
+    } },
+    { key: 'media', label: 'Media', chooser: {
+      label: 'New media reference', types: ['image', 'model_3d', 'texture', 'animation'],
+    } },
+  ] },
 ]
+export const sections = navigation.flatMap(({ destinations }) => destinations)
 
 export function sectionFor(entry: WikiEntry): WikiSection {
-  if (isWikiActor(entry)) return 'characters'
-  if (entry.kind === 'place') return 'places'
+  if (entry.kind === 'person') return 'characters'
+  if (entry.kind === 'organism' || entry.kind === 'species') return 'organisms'
+  if (entry.kind === 'place' || entry.kind === 'territory') return 'places'
+  if (entry.kind === 'group' || entry.kind === 'culture') return 'groups'
   if (entry.kind === 'map') return 'maps'
   if (entry.kind === 'item') return entry.catalog_type === 'vehicle' ? 'vehicles' : 'items'
-  return 'library'
+  if (entry.kind === 'image' || entry.kind === 'model_3d' || entry.kind === 'texture' || entry.kind === 'animation') return 'media'
+  return 'definitions'
 }
 
 export function entryLabel(entry: WikiEntry) {
@@ -34,37 +62,68 @@ export function WikiNavigation({ section, disabled, onSelect }: {
     <aside className="wiki-sidebar">
       <button className="button secondary wiki-menu-toggle" type="button" aria-expanded={expanded}
         aria-controls="wiki-sections" onClick={() => setExpanded((open) => !open)}>Menu</button>
-      <nav id="wiki-sections" className="wiki-sections" data-expanded={expanded} aria-label="Wiki sections">
-        {sections.map(({ key, label }) => (
-          <button type="button" key={key} disabled={disabled} aria-current={section === key ? 'page' : undefined}
-            onClick={() => { setExpanded(false); onSelect(key) }}>{label}</button>
+      <nav id="wiki-sections" className="wiki-workspace-nav" data-expanded={expanded} aria-label="Wiki sections">
+        {navigation.map(({ title, destinations }) => (
+          <div className="wiki-nav-group" key={title}>
+            <h2>{title}</h2>
+            {destinations.map(({ key, label }) => (
+              <button type="button" key={key} disabled={disabled} aria-current={section === key ? 'page' : undefined}
+                onClick={() => { setExpanded(false); onSelect(key) }}>{label}</button>
+            ))}
+          </div>
         ))}
       </nav>
     </aside>
   )
 }
 
-export function WikiHome({ entries, onSelect }: { entries: WikiEntry[]; onSelect: (section: WikiSection) => void }) {
-  const cards = sections.filter(({ key }) => key !== 'overview')
+export function WikiHome({ worldName, introduction, entries, onSelect, onEdit }: {
+  worldName: string; introduction?: string; entries: WikiEntry[]; onSelect: (section: WikiSection) => void; onEdit?: () => void
+}) {
   return (
     <section className="wiki-home" aria-label="World Wiki overview">
-      <h2>Explore the world</h2>
-      <div className="wiki-home-grid">
-        {cards.map(({ key, label }) => {
-          const count = key === 'all' ? entries.length : entries.filter((entry) => inDirectory(entry, key)).length
-          return <button key={key} className="wiki-home-card" type="button" onClick={() => onSelect(key)}>
-            <strong>{label}</strong>
-            <span>{key === 'timeline' ? 'Events and calendars'
-              : key === 'maps' ? 'Image maps and linked places' : count + (count === 1 ? ' article' : ' articles')}</span>
-          </button>
-        })}
-      </div>
+      <header className="wiki-home-intro">
+        <h1>{worldName}</h1>
+        {introduction && <p className="wiki-prose">{introduction}</p>}
+        {onEdit && <button className="button secondary" type="button" onClick={onEdit}>Edit world introduction</button>}
+      </header>
+      {navigation.slice(1).map(({ title, destinations }) => <section className="wiki-home-destinations" key={title}>
+        <h2>{title}</h2>
+        <div className="wiki-home-grid">
+          {destinations.map(({ key, label }) => {
+            const count = entries.filter((entry) => inDirectory(entry, key)).length
+            return <button key={key} className="wiki-home-card" type="button" onClick={() => onSelect(key)}>
+              <strong>{label}</strong>
+              <span>{key === 'timeline' ? 'Events and calendars'
+                : count + (count === 1 ? ' article' : ' articles')}</span>
+            </button>
+          })}
+        </div>
+      </section>)}
     </section>
   )
 }
 
+export function WikiIntroductionForm({ introduction, ...actions }: FormActions & { introduction?: string }) {
+  return (
+    <form className="wiki-form" aria-label="Edit world introduction" onSubmit={(event) => {
+      event.preventDefault()
+      actions.onSave({
+        op: 'update_world_introduction',
+        introduction: String(new FormData(event.currentTarget).get('introduction') ?? ''),
+      })
+    }}>
+      <h2>Edit world introduction</h2>
+      <label className="field">Introduction
+        <textarea name="introduction" rows={7} maxLength={3000} defaultValue={introduction} disabled={actions.busy} />
+      </label>
+      <Actions {...actions} submit="Save introduction" />
+    </form>
+  )
+}
+
 function inDirectory(entry: WikiEntry, section: WikiSection) {
-  return section === 'all' || (section === 'items' ? entry.kind === 'item' : sectionFor(entry) === section)
+  return section === 'all' || (section === 'items' && entry.kind === 'item') || sectionFor(entry) === section
 }
 
 function EntryList({ entries, currentId, disabled, onOpen }: {
@@ -80,17 +139,20 @@ function EntryList({ entries, currentId, disabled, onOpen }: {
   ))}</ul>
 }
 
-export function WikiDirectory({ section, entries, currentId, disabled, onOpen, onPlaces }: {
+export function WikiDirectory({ section, entries, currentId, disabled, onOpen, onPlaces, actions }: {
   section: WikiSection; entries: WikiEntry[]; currentId: string; disabled: boolean
-  onOpen: (entry: WikiEntry) => void; onPlaces: () => void
+  onOpen: (entry: WikiEntry) => void; onPlaces: () => void; actions?: ReactNode
 }) {
   const [filter, setFilter] = useState('')
   const available = entries.filter((entry) => inDirectory(entry, section))
   const query = filter.trim().toLowerCase()
   const results = available.filter((entry) => entry.name.toLowerCase().includes(query))
   return (
-    <nav className="wiki-directory" aria-label="Wiki entries">
-      <h2>{sections.find(({ key }) => key === section)?.label}</h2>
+    <nav className={currentId ? 'wiki-directory wiki-related-directory' : 'wiki-directory wiki-catalog'} aria-label="Wiki entries">
+      <div className="wiki-card-heading">
+        <h2>{currentId ? 'In this catalog' : sections.find(({ key }) => key === section)?.label}</h2>
+        {actions}
+      </div>
       {section === 'maps' && <p className="muted">
         Open an image map or a saved reference. Open a place to view its measured layout in History.{' '}
         <button className="wiki-reference" type="button" disabled={disabled} onClick={onPlaces}>Open Places</button>

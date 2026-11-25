@@ -22,7 +22,8 @@ export type WikiField = {
   many: boolean
 }
 export type WikiValue = string | number
-export type WikiSection = 'overview' | 'all' | 'characters' | 'places' | 'items' | 'vehicles' | 'maps' | 'library' | 'timeline'
+export type WikiSection = 'overview' | 'all' | 'characters' | 'organisms' | 'places' | 'groups'
+  | 'items' | 'vehicles' | 'maps' | 'library' | 'definitions' | 'media' | 'timeline'
 export type WikiLocation = {
   at: number | null; viewAs: string; entryId: string; section?: WikiSection; eventId?: string; history?: boolean
 }
@@ -95,9 +96,11 @@ export type WikiMapPin = {
 export type WikiImageMap = {
   width: number; height: number; pins: WikiMapPin[]
 }
+export type WikiArticleSection = { id: string; heading: string; body: string }
 export type WikiArticle = {
   entry: WikiEntry
   overview?: string
+  sections?: WikiArticleSection[]
   values?: WikiEffectiveValue[]
   assertions?: WikiAssertion[]
   claims?: WikiClaim[]
@@ -122,6 +125,7 @@ export type WikiArticle = {
 }
 export type WikiView = {
   world_name: string; at: number | null; viewpoint: WikiEntry | null; entries: WikiEntry[]; fields: WikiField[]
+  world_introduction?: string
   article: WikiArticle | null; can_edit?: boolean; edit_counter?: number
   timeline?: WikiEvent[]
   days_per_year?: number | null
@@ -155,6 +159,8 @@ export type WikiCommand =
   }
   | { op: 'rename_entry'; entry_id: string; name: string }
   | { op: 'update_overview'; entry_id: string; overview: string }
+  | { op: 'update_world_introduction'; introduction: string }
+  | { op: 'update_article_sections'; entry_id: string; sections: WikiArticleSection[] }
   | ({ op: 'record_fact'; from_tick: number; until_tick: number | null; source: string } & FieldChange)
   | { op: 'correct_fact'; assertion_id: string; value: WikiValue; source?: string; author_only?: boolean }
   | ({ op: 'record_event'; tick: number; changes: EventChange[]; parent_id?: string; node_kind?: 'action' | 'occurrence' } & EventDetails)

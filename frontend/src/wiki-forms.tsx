@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import {
   canPerformEvent, getWiki, isWikiActor,
-  type WikiAssertion, type WikiClaim, type WikiCommand, type WikiEntry, type WikiEvent,
+  type WikiArticleSection, type WikiAssertion, type WikiClaim, type WikiCommand, type WikiEntry, type WikiEvent,
   type WikiEntryTemplate, type WikiField, type WikiKind, type WikiLearnedAbility, type WikiObservation, type WikiProposition, type WikiValue,
 } from './wiki-api'
 import { DistributionInput, formatDistribution } from './wiki-distribution'
@@ -17,7 +17,7 @@ export const kindLabel: Record<WikiKind, string> = {
 export type ArticleEdit =
   | { kind: 'fact'; field?: string }
   | { kind: 'claim' | 'event' }
-  | { kind: 'rename' | 'overview' }
+  | { kind: 'rename' | 'overview' | 'sections' }
   | { kind: 'learn'; learned?: WikiLearnedAbility }
   | { kind: 'edit-event'; event: WikiEvent }
   | { kind: 'correct'; fact: WikiAssertion }
@@ -42,6 +42,7 @@ export function Actions({ busy, onCancel, submit }: Pick<FormActions, 'busy' | '
 
 const dimensions = ['height_cm', 'width_cm', 'length_cm', 'mass_kg']
 const biography = ['alias', 'birth_tick', 'death_tick', 'birthplace', 'origin', 'species', 'nationality', 'parent', 'sibling']
+const entryTemplates: WikiEntryTemplate[] = [...Object.keys(kindLabel) as WikiKind[], 'vehicle']
 const initialKeys: Partial<Record<WikiKind, string[]>> = {
   person: [...biography, 'character_class', 'appearance', 'background', ...dimensions],
   organism: [...biography, 'appearance', ...dimensions],
@@ -61,14 +62,16 @@ const initialKeys: Partial<Record<WikiKind, string[]>> = {
   goal: ['goal_owner', 'parent_goal', 'goal_subject', 'priority', 'status'],
 }
 
-export function WikiEntryForm({ fixedTemplate, entries, fields, at, ownerId, ...actions }: FormActions & {
-  fixedTemplate?: WikiEntryTemplate; entries: WikiEntry[]; fields: WikiField[]; at: number | null; ownerId?: string
+export function WikiEntryForm({ fixedTemplate, chooser, entries, fields, ownerId, ...actions }: FormActions & {
+  fixedTemplate?: WikiEntryTemplate; entries: WikiEntry[]; fields: WikiField[]; ownerId?: string
+  chooser?: { label: string; types: WikiEntryTemplate[] }
 }) {
-  const [template, setTemplate] = useState<WikiEntryTemplate>(fixedTemplate ?? 'person')
+  const [template, setTemplate] = useState<WikiEntryTemplate>(fixedTemplate ?? chooser?.types[0] ?? 'person')
   const [dateError, setDateError] = useState(false)
   const kind = template === 'vehicle' ? 'item' : template
   const title = fixedTemplate === 'map' ? 'Add map reference'
-    : fixedTemplate === 'vehicle' ? 'New vehicle' : fixedTemplate ? 'New ' + kindLabel[fixedTemplate].toLowerCase() : 'New entry'
+    : fixedTemplate === 'vehicle' ? 'New vehicle'
+      : fixedTemplate ? 'New ' + kindLabel[fixedTemplate].toLowerCase() : chooser?.label ?? 'New entry'
   const keys = (initialKeys[kind] ?? []).filter((key) => template !== 'vehicle' || key !== 'item_type')
   const initialFields = keys.map((key) => fields.find((field) => field.key === key)).filter((field) => field !== undefined)
   const linkedFields = initialFields.filter((field) => field.many && field.target_kinds.length)
@@ -109,15 +112,16 @@ export function WikiEntryForm({ fixedTemplate, entries, fields, at, ownerId, ...
           setTemplate(event.target.value as WikiEntryTemplate)
           setDateError(false)
         }}>
-          {Object.entries(kindLabel).map(([kind, label]) => <option key={kind} value={kind}>{kind === 'map' ? 'Map reference' : label}</option>)}
-          <option value="vehicle">Vehicle</option>
+          {(chooser?.types ?? entryTemplates).map((item) => (
+            <option key={item} value={item}>{item === 'map' ? 'Map reference' : item === 'vehicle' ? 'Vehicle' : kindLabel[item]}</option>
+          ))}
         </select>
       </label>}
       <label className="field">Overview<textarea name="overview" rows={4} maxLength={1500} /></label>
       {template === 'map' && <p className="muted">Link an existing map through its asset location. Measured room layouts are edited from Places.</p>}
       {initialFields.length > 0 && <fieldset className="wiki-change-fields" key={template}>
         <legend>Initial facts</legend>
-        <TimeInput name="initial_at" label="Initial facts start at time" day={at} optional />
+        <TimeInput name="initial_at" label="Initial facts start at time" optional />
         {dateError && <p className="error-message" role="alert">Choose when the initial facts apply.</p>}
         {initialFields.filter((field) => !linkedFields.includes(field)).map((field) => (
           <ValueInput
@@ -620,12 +624,15 @@ export function WikiEvidenceForm({ edit, entries, at, ...actions }: FormActions 
   )
 }
 
-export function WikiEditForm({ edit, overview, ...props }: EntryFormProps & { edit: ArticleEdit; worldId: string; overview?: string }) {
+export function WikiEditForm({ edit, overview, sections, ...props }: EntryFormProps & {
+  edit: ArticleEdit; worldId: string; overview?: string; sections?: WikiArticleSection[]
+}) {
   if (edit.kind === 'event') return <WikiEventForm {...props} />
   if (edit.kind === 'edit-event') return <WikiEventForm {...props} entry={undefined} event={edit.event} />
   if (edit.kind === 'correct-date' || edit.kind === 'observe') return <WikiEvidenceForm {...props} edit={edit} />
   if (edit.kind === 'rename') return <RenameForm {...props} />
   if (edit.kind === 'overview') return <OverviewForm {...props} overview={overview} />
+  if (edit.kind === 'sections') return <ArticleSectionsForm {...props} initial={sections ?? []} />
   if (edit.kind === 'learn') return <LearnAbilityForm {...props} learned={edit.learned} />
   if (edit.kind === 'correct') return <CanonicalForm {...props} mode="correct" fact={edit.fact} />
   if (edit.kind === 'proposition') return <PropositionForm {...props} record={edit.record} />
@@ -736,6 +743,55 @@ function OverviewForm({ entry, overview, ...actions }: FormActions & { entry: Wi
       <h2>Edit overview</h2>
       <label className="field">Overview<textarea name="overview" rows={5} maxLength={1500} defaultValue={overview} /></label>
       <Actions {...actions} submit="Save overview" />
+    </form>
+  )
+}
+
+function ArticleSectionsForm({ entry, initial, ...actions }: FormActions & { entry: WikiEntry; initial: WikiArticleSection[] }) {
+  const [sections, setSections] = useState(initial)
+
+  function update(id: string, field: 'heading' | 'body', value: string) {
+    setSections((current) => current.map((section) => section.id === id ? { ...section, [field]: value } : section))
+  }
+
+  function move(from: number, to: number) {
+    setSections((current) => {
+      const next = [...current]
+      const [section] = next.splice(from, 1)
+      next.splice(to, 0, section)
+      return next
+    })
+  }
+
+  return (
+    <form className="wiki-form" aria-label="Edit article sections" onSubmit={(event) => {
+      event.preventDefault()
+      if (!actions.busy) actions.onSave({ op: 'update_article_sections', entry_id: entry.id, sections })
+    }}>
+      <h2>Edit article sections</h2>
+      <p className="muted">Use sections for the article’s prose. Use History to record dated facts and events.</p>
+      {sections.map((section, index) => (
+        <fieldset className="wiki-change-fields" key={section.id} disabled={actions.busy}>
+          <legend>Section {index + 1}</legend>
+          <label className="field">Section heading
+            <input required maxLength={120} value={section.heading} onChange={(event) => update(section.id, 'heading', event.target.value)} />
+          </label>
+          <label className="field">Section text
+            <textarea rows={5} maxLength={8000} value={section.body} onChange={(event) => update(section.id, 'body', event.target.value)} />
+          </label>
+          <div className="form-actions">
+            <button type="button" className="button secondary" disabled={index === 0}
+              aria-label={'Move section ' + (index + 1) + ' up'} onClick={() => move(index, index - 1)}>Move up</button>
+            <button type="button" className="button secondary" disabled={index === sections.length - 1}
+              aria-label={'Move section ' + (index + 1) + ' down'} onClick={() => move(index, index + 1)}>Move down</button>
+            <button type="button" className="button secondary" aria-label={'Remove section ' + (index + 1)}
+              onClick={() => setSections((current) => current.filter((item) => item.id !== section.id))}>Remove</button>
+          </div>
+        </fieldset>
+      ))}
+      <button type="button" className="button secondary" disabled={actions.busy || sections.length >= 20}
+        onClick={() => setSections((current) => [...current, { id: crypto.randomUUID(), heading: '', body: '' }])}>Add section</button>
+      <Actions {...actions} submit="Save sections" />
     </form>
   )
 }

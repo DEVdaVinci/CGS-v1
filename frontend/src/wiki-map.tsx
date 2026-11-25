@@ -77,7 +77,8 @@ export function WikiMapPanel({ entry, map, worldId, entries, busy, onAttach, onS
   const [imageFailed, setImageFailed] = useState(false)
   const [imageAttempt, setImageAttempt] = useState(0)
   const viewport = useRef<HTMLDivElement>(null)
-  const pan = useRef<{ id: number; x: number; y: number; left: number; top: number } | null>(null)
+  const pan = useRef<{ id: number; x: number; y: number; left: number; top: number; moved: boolean } | null>(null)
+  const suppressPlacement = useRef(false)
 
   if (!map) {
     return (
@@ -111,17 +112,30 @@ export function WikiMapPanel({ entry, map, worldId, entries, busy, onAttach, onS
   }
 
   function startPan(event: PointerEvent<HTMLDivElement>) {
-    if (placing || event.pointerType !== 'mouse' || event.button !== 0 || (event.target as HTMLElement).closest('button')) return
+    if (!event.isPrimary) return
+    suppressPlacement.current = false
+    if (event.pointerType !== 'mouse' || event.button !== 0 || (event.target as HTMLElement).closest('button')) return
     const box = event.currentTarget
-    pan.current = { id: event.pointerId, x: event.clientX, y: event.clientY, left: box.scrollLeft, top: box.scrollTop }
-    box.setPointerCapture(event.pointerId)
+    pan.current = { id: event.pointerId, x: event.clientX, y: event.clientY, left: box.scrollLeft, top: box.scrollTop, moved: false }
   }
 
   function movePan(event: PointerEvent<HTMLDivElement>) {
     const start = pan.current
     if (start?.id !== event.pointerId) return
-    event.currentTarget.scrollLeft = start.left + start.x - event.clientX
-    event.currentTarget.scrollTop = start.top + start.y - event.clientY
+    const dx = event.clientX - start.x
+    const dy = event.clientY - start.y
+    if (!start.moved) {
+      if (Math.hypot(dx, dy) < 6) return
+      start.moved = true
+      suppressPlacement.current = true
+      event.currentTarget.setPointerCapture(event.pointerId)
+    }
+    event.currentTarget.scrollLeft = start.left - dx
+    event.currentTarget.scrollTop = start.top - dy
+  }
+
+  function endPan(event: PointerEvent<HTMLDivElement>) {
+    if (pan.current?.id === event.pointerId) pan.current = null
   }
 
   function savePin(event: FormEvent<HTMLFormElement>) {
@@ -137,7 +151,7 @@ export function WikiMapPanel({ entry, map, worldId, entries, busy, onAttach, onS
 
   return (
     <section className="wiki-block wiki-image-map" aria-label="Interactive map">
-      <div className="wiki-card-heading">
+      <div className="wiki-card-heading wiki-map-toolbar">
         <div className="form-actions" aria-label="Map view controls">
           <button type="button" className="button secondary" disabled={zoomIndex === 0} onClick={() => setZoomIndex(zoomIndex - 1)}>Zoom out</button>
           <button type="button" className="button secondary" disabled={zoomIndex === zoomLevels.length - 1}
@@ -146,84 +160,92 @@ export function WikiMapPanel({ entry, map, worldId, entries, busy, onAttach, onS
             setZoomIndex(0)
             viewport.current?.scrollTo(0, 0)
           }}>Reset view</button>
+          <output aria-label="Map zoom">{zoom * 100}%</output>
         </div>
         {onSave && <button type="button" className="button primary" disabled={busy} onClick={() => startPin('new')}>Add pin</button>}
       </div>
-      {placing && <p className="muted">Click the map to place the pin, or enter its position below.</p>}
-      <div className="wiki-map-viewport" ref={viewport} role="region" tabIndex={0} aria-label="Map viewport"
-        data-placing={placing || undefined} onPointerDown={startPan} onPointerMove={movePan}
-        onLostPointerCapture={() => { pan.current = null }}>
-        <div className="wiki-map-image" style={{ width: zoom * 100 + '%', aspectRatio: map.width + ' / ' + map.height }}
-          onClick={(event) => {
-            if (!placing || imageFailed) return
-            const box = event.currentTarget.getBoundingClientRect()
-            const percent = (value: number) => String(Math.round(Math.max(0, Math.min(1, value)) * 10000) / 100)
-            setPosition({ x: percent((event.clientX - box.left) / box.width), y: percent((event.clientY - box.top) / box.height) })
-          }}>
-          <img key={imageAttempt} src={mapImageUrl(worldId, entry.id)} alt={entry.name + ' map image'} draggable={false}
-            onError={() => setImageFailed(true)} />
-          {map.pins.filter((pin) => pin.id !== existingPin?.id || !placing).map((pin) => (
-            <button key={pin.id} className="wiki-map-pin" type="button"
-              aria-label={'Select ' + pin.label + ' on map'} aria-pressed={pin.id === selectedId} disabled={busy}
-              style={{ left: pin.x * 100 + '%', top: pin.y * 100 + '%' }} onClick={(event) => {
-                event.stopPropagation()
-                choosePin(pin)
-              }} />
-          ))}
-          {placing && <span aria-hidden="true" className="wiki-map-pin wiki-map-pin-preview" style={{ left: position.x + '%', top: position.y + '%' }} />}
-        </div>
-      </div>
-      {imageFailed && <div className="form-actions">
-        <p className="error-message" role="alert">The map image couldn’t be opened.</p>
-        <button className="button secondary" type="button" onClick={() => {
-          setImageFailed(false)
-          setImageAttempt((previous) => previous + 1)
-        }}>Retry image</button>
-      </div>}
-      <div className="wiki-map-pin-list">
-        <h3>Pins</h3>
-        {!map.pins.length ? <p className="muted">No pins yet.</p> : (
-          <ul className="wiki-records">
-            {map.pins.map((pin) => (
-              <li key={pin.id}>
-                <button type="button" className="button secondary" aria-pressed={pin.id === selectedId}
-                  disabled={busy} onClick={() => choosePin(pin)}>{pin.label}</button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-      {selected && (!pinEdit || !onSave) && <section className="wiki-map-pin-detail" aria-label="Selected pin">
-        <h3>{selected.label}</h3>
-        <div className="form-actions">
-          {linkedPlace && <button type="button" className="wiki-reference" disabled={busy}
-            onClick={() => onOpenPlace(linkedPlace.id)}>Open {linkedPlace.name}</button>}
-          {onSave && <>
-            <button type="button" className="button secondary" disabled={busy} onClick={() => startPin(selected)}>Edit pin</button>
-            <button type="button" className="button secondary" disabled={busy}
-              onClick={() => onSave({ op: 'remove_map_pin', map_id: entry.id, pin_id: selected.id })}>Remove pin</button>
-          </>}
-        </div>
-      </section>}
-      {pinEdit && onSave && <form key={existingPin?.id ?? 'new'} className="wiki-form wiki-map-pin-detail"
-        aria-label={existingPin ? 'Edit map pin' : 'Add map pin'} onSubmit={savePin}>
-        <fieldset className="wiki-change-fields" disabled={busy}>
-          <legend>{existingPin ? 'Edit pin' : 'New pin'}</legend>
-          <label className="field">Pin label<input autoFocus name="label" defaultValue={existingPin?.label} maxLength={100} required /></label>
-          <EntryPicker name="place_id" label="Linked place" entries={places} required={false} initial={existingPin?.place_id ?? undefined} />
-          <div className="wiki-form-row">
-            <label className="field">Horizontal position (%)
-              <input type="number" min={0} max={100} step="any" required value={position.x}
-                onChange={(event) => setPosition({ ...position, x: event.target.value })} />
-            </label>
-            <label className="field">Vertical position (%)
-              <input type="number" min={0} max={100} step="any" required value={position.y}
-                onChange={(event) => setPosition({ ...position, y: event.target.value })} />
-            </label>
+      {placing && <p className="muted">Click to place the pin, drag to pan, or enter its position.</p>}
+      <div className="wiki-map-workspace">
+        <div className="wiki-map-canvas">
+          <div className="wiki-map-viewport" ref={viewport} role="region" tabIndex={0} aria-label="Map viewport"
+            data-placing={placing || undefined} onPointerDown={startPan} onPointerMove={movePan}
+            onPointerUp={endPan} onPointerCancel={endPan} onLostPointerCapture={endPan}
+            onPointerLeave={(event) => { if (!pan.current?.moved) endPan(event) }}>
+            <div className="wiki-map-image" style={{ width: zoom * 100 + '%', aspectRatio: map.width + ' / ' + map.height }}
+              onClick={(event) => {
+                if (!placing || imageFailed || suppressPlacement.current) return
+                const box = event.currentTarget.getBoundingClientRect()
+                const percent = (value: number) => String(Math.round(Math.max(0, Math.min(1, value)) * 10000) / 100)
+                setPosition({ x: percent((event.clientX - box.left) / box.width), y: percent((event.clientY - box.top) / box.height) })
+              }}>
+              <img key={imageAttempt} src={mapImageUrl(worldId, entry.id)} alt={entry.name + ' map image'} draggable={false}
+                onError={() => setImageFailed(true)} />
+              {map.pins.filter((pin) => pin.id !== existingPin?.id || !placing).map((pin) => (
+                <button key={pin.id} className="wiki-map-pin" type="button"
+                  aria-label={'Select ' + pin.label + ' on map'} aria-pressed={pin.id === selectedId} disabled={busy}
+                  style={{ left: pin.x * 100 + '%', top: pin.y * 100 + '%' }} onClick={(event) => {
+                    event.stopPropagation()
+                    choosePin(pin)
+                  }} />
+              ))}
+              {placing && <span aria-hidden="true" className="wiki-map-pin wiki-map-pin-preview" style={{ left: position.x + '%', top: position.y + '%' }} />}
+            </div>
           </div>
-          <Actions busy={busy} onCancel={() => setPinEdit(null)} submit="Save pin" />
-        </fieldset>
-      </form>}
+          {imageFailed && <div className="form-actions">
+            <p className="error-message" role="alert">The map image couldn’t be opened.</p>
+            <button className="button secondary" type="button" onClick={() => {
+              setImageFailed(false)
+              setImageAttempt((previous) => previous + 1)
+            }}>Retry image</button>
+          </div>}
+        </div>
+        <aside className="wiki-map-sidebar" aria-label="Map pins">
+          <div className="wiki-map-pin-list">
+            <h3>Pins</h3>
+            {!map.pins.length ? <p className="muted">No pins yet.</p> : (
+              <ul className="wiki-records">
+                {map.pins.map((pin) => (
+                  <li key={pin.id}>
+                    <button type="button" className="button secondary" aria-pressed={pin.id === selectedId}
+                      disabled={busy} onClick={() => choosePin(pin)}>{pin.label}</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {selected && (!pinEdit || !onSave) && <section className="wiki-map-pin-detail" aria-label="Selected pin">
+            <h3>{selected.label}</h3>
+            <div className="form-actions">
+              {linkedPlace && <button type="button" className="wiki-reference" disabled={busy}
+                onClick={() => onOpenPlace(linkedPlace.id)}>Open {linkedPlace.name}</button>}
+              {onSave && <>
+                <button type="button" className="button secondary" disabled={busy} onClick={() => startPin(selected)}>Edit pin</button>
+                <button type="button" className="button secondary" disabled={busy}
+                  onClick={() => onSave({ op: 'remove_map_pin', map_id: entry.id, pin_id: selected.id })}>Remove pin</button>
+              </>}
+            </div>
+          </section>}
+          {pinEdit && onSave && <form key={existingPin?.id ?? 'new'} className="wiki-form wiki-map-pin-detail"
+            aria-label={existingPin ? 'Edit map pin' : 'Add map pin'} onSubmit={savePin}>
+            <fieldset className="wiki-change-fields" disabled={busy}>
+              <legend>{existingPin ? 'Edit pin' : 'New pin'}</legend>
+              <label className="field">Pin label<input autoFocus name="label" defaultValue={existingPin?.label} maxLength={100} required /></label>
+              <EntryPicker name="place_id" label="Linked place" entries={places} required={false} initial={existingPin?.place_id ?? undefined} />
+              <div className="wiki-form-row">
+                <label className="field">Horizontal position (%)
+                  <input type="number" min={0} max={100} step="any" required value={position.x}
+                    onChange={(event) => setPosition({ ...position, x: event.target.value })} />
+                </label>
+                <label className="field">Vertical position (%)
+                  <input type="number" min={0} max={100} step="any" required value={position.y}
+                    onChange={(event) => setPosition({ ...position, y: event.target.value })} />
+                </label>
+              </div>
+              <Actions busy={busy} onCancel={() => setPinEdit(null)} submit="Save pin" />
+            </fieldset>
+          </form>}
+        </aside>
+      </div>
     </section>
   )
 }

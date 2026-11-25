@@ -249,6 +249,44 @@ class WikiTests(TransactionTestCase):
         wrong_kind = self.post({"op": "create_entry", "kind": "place", "name": "Invalid vehicle", "catalog_type": "vehicle"})
         self.assertEqual(wrong_kind.status_code, 400, wrong_kind.json())
 
+    def test_editorial_content_persists_in_order_and_stays_out_of_character_views(self):
+        subject = self.entry("Dock ledger", "item", overview="The ledger’s summary.")
+        observer = self.entry("Dock clerk", "person")
+        date_fact = self.fact(subject, "description", "Stored in the archive.", start=7)
+        sections = [
+            {"id": str(uuid4()), "heading": "Provenance", "body": "Entered by the morning clerk."},
+            {"id": str(uuid4()), "heading": "Cargo records", "body": "Three crates of cider."},
+        ]
+        self.assertEqual(
+            self.apply({"op": "update_world_introduction", "introduction": "A world built around river trade."}),
+            str(self.world),
+        )
+        command = {"op": "update_article_sections", "entry_id": subject, "sections": sections}
+        self.assertEqual(self.apply(command), subject)
+        self.assertEqual(WikiEntry.objects.get(pk=subject).article_sections, sections)
+        self.assertEqual(WikiWorld.objects.get(world_id=self.world).introduction, "A world built around river trade.")
+
+        path = self.path + "/entries/" + subject
+        response = self.browser.get(path, {"overview": "true"}).json()
+        self.assertEqual(response["article"]["sections"], sections)
+        self.assertEqual(response["article"]["overview"], "The ledger’s summary.")
+        self.assertEqual(response["article"]["assertions"][0]["id"], date_fact)
+        self.assertEqual(response["world_introduction"], "A world built around river trade.")
+        self.assertEqual(self.post({**command, "sections": [sections[0], sections[0]]}).status_code, 400)
+        self.assertEqual(self.post({**command, "sections": [{**sections[0], "heading": "  "}]}).status_code, 400)
+        self.assertEqual(self.post(command, expected=self.edit - 1).status_code, 409)
+        self.assertEqual(WikiEntry.objects.get(pk=subject).article_sections, sections)
+        self.assertEqual(WikiWorld.objects.get(world_id=self.world).edit_counter, self.edit)
+
+        account = provision("wiki-editorial-reader")
+        WorldAccess.objects.create(world_id=self.world, account=account, role="editor", capabilities=[], enabled=True)
+        reader, token = self.sign_in(account)
+        self.assertEqual(self.post(command, browser=reader, token=token).status_code, 403)
+        self.assertEqual(reader.get(path, {"overview": "true"}).json()["article"]["sections"], sections)
+        projection = self.browser.get(path, {"at": 7, "view_as": observer}).json()
+        self.assertNotIn("sections", projection["article"])
+        self.assertNotIn("world_introduction", projection)
+
     def test_biography_and_family_keep_their_own_meaning_as_of_time(self):
         clinic = self.entry("Clinic")
         home = self.entry("Coast")

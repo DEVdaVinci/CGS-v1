@@ -2,7 +2,7 @@
 
 [Read the quick reference](CGS_Milestones_Quick_Reference.md)
 
-**Current position** — The working foundation and W1 workspace are delivered, including [date navigation and image maps](CGS_W1_Core_Worldbuilding.md#w1-navigation-and-image-maps-delivery-evidence). The remaining W1 batches cover core authored data, time, space and evidence. The complete Wiki, the event engine, and the first playable tabletop release each have their own finish lines.
+**Current position** — The working foundation and [redesigned W1 workspace](CGS_W1_Core_Worldbuilding.md#w1-workspace-revision-evidence) are delivered, including persisted article sections and improvements to date navigation and image maps. The remaining W1 batches cover core authored data, time, space and evidence. The complete Wiki, the event engine, and the first playable tabletop release each have their own finish lines.
 
 Before the next Wiki sprint, apply the [UI-first direction](CGS_Wiki_Reference_Design.md#design-authority) to the visible deliverable and reconcile it with the open W1 checks. The [approval rules](../AGENTS.md#user-instructions-and-approval) govern any proposed change to the owner's requested sequence, scope or design.
 
@@ -60,7 +60,7 @@ The [W1 implementation plan](CGS_W1_Core_Worldbuilding.md) contains the record a
 
 **Design commitments** — Subjects keep stable IDs. Use typed quantities where rules or consumers need values and searchable references where they need identities. Keep explanatory prose alongside those records. Shared relationship definitions specify endpoint types, direction, cardinality, time, and visibility. Physical whereabouts, place containment, connectivity, residence, and a witness's last sighting answer different questions. A correction revises the current authored account. A dated transition preserves the prior in-world state. Effective intervals include their start and exclude their end. Canon, claims, observations, and beliefs have distinct records so that an inaccurate report remains usable evidence without replacing canon.
 
-The original implementation passes established character records, places and timeline integration. The workspace pass delivered the initial redesign and source audit. The date and map pass fixed unrelated catalog navigation and delivered the first persisted image map. The [post-sprint audit](CGS_W1_Core_Worldbuilding.md#post-sprint-acceptance-audit) records new-record date defaults and pin interaction still requiring work. Use the [revision batches](CGS_W1_Core_Worldbuilding.md#revision-batches-after-the-coverage-audit), W1 checks below and [workflow acceptance checklist](CGS_Wiki_Acceptance_Checklist.md) to verify the remaining core authoring and correctness across all three layers.
+The original implementation passes established character records, places and timeline integration. The date and map pass delivered the first persisted image map. The [workspace revision](CGS_W1_Core_Worldbuilding.md#w1-workspace-revision-evidence) redesigned the world home, catalog and article pages and corrected the new-record date defaults and pin interaction identified in the earlier audit. Use the [revision batches](CGS_W1_Core_Worldbuilding.md#revision-batches-after-the-coverage-audit), W1 checks below and [workflow acceptance checklist](CGS_Wiki_Acceptance_Checklist.md) to verify the remaining core authoring and correctness across all three layers.
 
 **Completion checks**
 

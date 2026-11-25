@@ -280,6 +280,34 @@ class UpdateOverview(StrictSerializer):
     overview = TextField(max_length=1500, allow_blank=True)
 
 
+class UpdateWorldIntroduction(StrictSerializer):
+    op = serializers.ChoiceField(choices=("update_world_introduction",))
+    introduction = TextField(max_length=3000, allow_blank=True)
+
+
+class ArticleSection(StrictSerializer):
+    id = WikiRef()
+    heading = TextField(max_length=120)
+    body = TextField(max_length=8000, allow_blank=True)
+
+    def validate_heading(self, value):
+        heading = value.strip()
+        if not heading:
+            raise serializers.ValidationError("Give each article section a heading.")
+        return heading
+
+
+class UpdateArticleSections(StrictSerializer):
+    op = serializers.ChoiceField(choices=("update_article_sections",))
+    entry_id = WikiRef()
+    sections = ArticleSection(many=True, max_length=20)
+
+    def validate_sections(self, sections):
+        if len({section["id"] for section in sections}) != len(sections):
+            raise serializers.ValidationError("Article section IDs must be unique within the article.")
+        return sections
+
+
 class StateValue(DefinedValue):
     entry_id = WikiRef()
 
@@ -492,6 +520,8 @@ COMMANDS = {
     "create_entry": CreateEntry,
     "rename_entry": RenameEntry,
     "update_overview": UpdateOverview,
+    "update_world_introduction": UpdateWorldIntroduction,
+    "update_article_sections": UpdateArticleSections,
     "record_fact": RecordFact,
     "correct_fact": CorrectFact,
     "record_event": RecordEvent,

@@ -95,6 +95,19 @@ def _update_overview(wiki, command):
     return entry.pk, set()
 
 
+def _update_world_introduction(wiki, command):
+    wiki.introduction = command["introduction"]
+    wiki.save(update_fields=["introduction"])
+    return wiki.pk, set()
+
+
+def _update_article_sections(wiki, command):
+    entry = entry_for(wiki, command["entry_id"])
+    entry.article_sections = command["sections"]
+    entry.save(update_fields=["article_sections"])
+    return entry.pk, set()
+
+
 def _record_fact(wiki, command):
     entry = entry_for(wiki, command["entry_id"])
     start, end = command["from_tick"], command["until_tick"]
@@ -367,6 +380,8 @@ OPERATIONS = {
     "create_entry": _create_entry,
     "rename_entry": _rename_entry,
     "update_overview": _update_overview,
+    "update_world_introduction": _update_world_introduction,
+    "update_article_sections": _update_article_sections,
     "record_fact": _record_fact,
     "correct_fact": _correct_fact,
     "record_event": _record_event,

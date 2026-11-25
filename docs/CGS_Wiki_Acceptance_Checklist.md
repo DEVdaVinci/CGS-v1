@@ -1,6 +1,6 @@
 # CGS Wiki acceptance checklist
 
-This checklist expands the [workspace and reference design](CGS_Wiki_Reference_Design.md) into release checks. The baseline column describes the app at `a223384`. See the [W1 navigation and maps evidence](CGS_W1_Core_Worldbuilding.md#w1-navigation-and-image-maps-delivery-evidence) and the [post-sprint acceptance audit](CGS_W1_Core_Worldbuilding.md#post-sprint-acceptance-audit) for current pass results. The [coverage audit](CGS_Wiki_Current_Coverage.md) records source and reference gaps at `c092c5c`.
+This checklist expands the [workspace and reference design](CGS_Wiki_Reference_Design.md) into release checks. The baseline column describes the app at `a223384`. See the [workspace revision evidence](CGS_W1_Core_Worldbuilding.md#w1-workspace-revision-evidence) and the [earlier navigation and maps evidence](CGS_W1_Core_Worldbuilding.md#w1-navigation-and-image-maps-delivery-evidence) for implemented and verified cases. The [coverage audit](CGS_Wiki_Current_Coverage.md) records source and reference gaps at `c092c5c`.
 
 ## How to use the checklist
 
