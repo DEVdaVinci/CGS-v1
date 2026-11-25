@@ -15,9 +15,11 @@ On a fresh database, create a Django account once.
 docker compose exec api python manage.py createsuperuser
 ```
 
-Open [CGS](http://127.0.0.1:8000/), sign in, and select **Create world**. Open a world and select **Edit draft**.
+Open [CGS](http://127.0.0.1:8000/), sign in, and select **Create world**. Open the world and select **Open Wiki**. Start from the overview or use the sidebar to reach **Characters**, **Places**, **Items**, **Vehicles**, **Maps**, or **Timeline**. On a narrow screen, open **Menu**.
 
-Select **Open Wiki** on the world page. Use **Characters** to create profiles, relationships, goals, condition, possessions, and beliefs. Use **Library** for reusable records such as species, classes, roles, and resources. In **Places**, link parts and occupants, then open **Layout** to set measured bounds, waypoints, and connections. In **Timeline**, start with **New group** to organize segments and recorded actions, or choose **New event** for a standalone occurrence. Switch between **Outline** and **Chronology** to inspect the same dated records and their changes. Use **View as** to preview a character's recorded knowledge. The Wiki uses its own records alongside the dungeon draft.
+In **Build**, use **Search this world** to find an article by name. Use the section's creation button or **New entry**. An article's **Overview** holds its editable summary. Open **History** to inspect dated facts and events, choose a time or preview a character's knowledge. Add an effective date when recording a new fact. Open **Timeline** for events and calendar settings. **Maps** lists map references. For a measured room plan, open its place, choose a date in **History**, and use **Place layout**.
+
+The world page also offers **Edit draft** for the dungeon draft.
 
 1. In **Entries**, create places, roles, characters, and items and link the related records.
 2. In **Layout & facts**, stage room bounds, points, paths, and facts. Select **Save layout and facts** to save the group. A secret path and its revealing fact can go in the same group.

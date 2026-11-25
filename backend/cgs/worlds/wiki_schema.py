@@ -226,8 +226,19 @@ class WikiRef(serializers.UUIDField):
 
 
 class WikiLocationQuery(StrictSerializer):
-    at = serializers.IntegerField(min_value=0, max_value=MAX_CLOCK, default=0)
+    at = serializers.IntegerField(min_value=0, max_value=MAX_CLOCK, required=False)
     view_as = WikiRef(required=False)
+    overview = serializers.BooleanField(default=False)
+
+    def validate(self, attrs):
+        if attrs["overview"] and ("at" in attrs or "view_as" in attrs):
+            raise serializers.ValidationError("Use a dated read to select a time or character viewpoint.")
+        attrs["at"] = None if attrs["overview"] else attrs.get("at", 0)
+        return attrs
+
+
+class WikiSearchQuery(StrictSerializer):
+    q = serializers.CharField(max_length=100)
 
 
 class DefinedValue(StrictSerializer):
@@ -242,14 +253,31 @@ class CreateEntry(StrictSerializer):
     kind = serializers.ChoiceField(choices=WikiEntry.Kind.values)
     name = TextField(max_length=100)
     author_only = serializers.BooleanField(default=False)
+    overview = TextField(max_length=1500, allow_blank=True, required=False)
+    catalog_type = serializers.ChoiceField(choices=WikiEntry.CatalogType.values, required=False)
     initial_at = ExactClock(required=False)
     initial_values = DefinedValue(many=True, required=False, max_length=len(FIELDS))
+
+    def validate(self, attrs):
+        if "catalog_type" in attrs and attrs["kind"] != WikiEntry.Kind.ITEM:
+            raise serializers.ValidationError({"catalog_type": "This catalog type is supported on items."})
+        # Legacy API clients can still replay the original create command.
+        workspace_entry = "overview" in attrs or "catalog_type" in attrs
+        if workspace_entry and attrs.get("initial_values") and "initial_at" not in attrs:
+            raise serializers.ValidationError({"initial_at": "Choose when the initial facts apply."})
+        return attrs
 
 
 class RenameEntry(StrictSerializer):
     op = serializers.ChoiceField(choices=("rename_entry",))
     entry_id = WikiRef()
     name = TextField(max_length=100)
+
+
+class UpdateOverview(StrictSerializer):
+    op = serializers.ChoiceField(choices=("update_overview",))
+    entry_id = WikiRef()
+    overview = TextField(max_length=1500, allow_blank=True)
 
 
 class StateValue(DefinedValue):
@@ -425,6 +453,7 @@ class SaveConnection(StrictSerializer):
 COMMANDS = {
     "create_entry": CreateEntry,
     "rename_entry": RenameEntry,
+    "update_overview": UpdateOverview,
     "record_fact": RecordFact,
     "correct_fact": CorrectFact,
     "record_event": RecordEvent,

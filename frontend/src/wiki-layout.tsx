@@ -95,7 +95,7 @@ function CmInput({ label, name, value, min = -Number.MAX_SAFE_INTEGER, optional 
     step={1} required={!optional} defaultValue={value} /></label>
 }
 
-type LayoutFormProps = FormActions & { entry: WikiEntry; layout: WikiPlaceLayout; entries: WikiEntry[]; at: number }
+type LayoutFormProps = FormActions & { entry: WikiEntry; layout: WikiPlaceLayout; entries: WikiEntry[]; at: number | null }
 
 export function WikiLayoutForm({ edit, ...props }: LayoutFormProps & { edit: LayoutEdit }) {
   if (edit.kind === 'connection') return <ConnectionForm {...props} connection={edit.connection} />

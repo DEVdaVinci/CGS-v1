@@ -1,6 +1,6 @@
 # CGS Wiki acceptance checklist
 
-This checklist expands the [workspace and reference design](CGS_Wiki_Reference_Design.md) into release checks. The current baseline is the app at `a223384`. The clickable workspace preview demonstrates interaction design. It supplies no product completion evidence.
+This checklist expands the [workspace and reference design](CGS_Wiki_Reference_Design.md) into release checks. The baseline column describes the app at `a223384`. See the [W1 workspace delivery evidence](CGS_W1_Core_Worldbuilding.md#w1-workspace-delivery-evidence) for the implemented pass. The clickable workspace preview demonstrates interaction design.
 
 ## How to use the checklist
 

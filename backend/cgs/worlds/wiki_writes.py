@@ -52,6 +52,7 @@ def _named(value):
 def _create_entry(wiki, command):
     entry = WikiEntry.objects.create(
         wiki=wiki, kind=command["kind"], name=_named(command["name"]), author_only=command["author_only"],
+        overview=command.get("overview", ""), catalog_type=command.get("catalog_type", ""),
     )
     tick = command.get("initial_at", 0)
     values = {}
@@ -72,6 +73,13 @@ def _rename_entry(wiki, command):
     entry = entry_for(wiki, command["entry_id"])
     entry.name = _named(command["name"])
     entry.save(update_fields=["name"])
+    return entry.pk, set()
+
+
+def _update_overview(wiki, command):
+    entry = entry_for(wiki, command["entry_id"])
+    entry.overview = command["overview"]
+    entry.save(update_fields=["overview"])
     return entry.pk, set()
 
 
@@ -346,6 +354,7 @@ def _correct_learned_ability(wiki, command):
 OPERATIONS = {
     "create_entry": _create_entry,
     "rename_entry": _rename_entry,
+    "update_overview": _update_overview,
     "record_fact": _record_fact,
     "correct_fact": _correct_fact,
     "record_event": _record_event,

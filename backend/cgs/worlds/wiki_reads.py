@@ -1,4 +1,4 @@
-from collections import Counter, deque
+from collections import Counter, defaultdict, deque
 
 from django.db import transaction
 from django.db.models import Prefetch, Q
@@ -22,6 +22,36 @@ def _describe_entry(entry, *, author=False):
     if author:
         data["author_only"] = entry.author_only
     return data
+
+
+def _describe_catalog(directory, entries):
+    # Catalog membership is independent of a selected time. Keep legacy facts
+    # authoritative for their dates, and surface ambiguous classifications for review.
+    legacy_items = directory.filter(kind=WikiEntry.Kind.ITEM, catalog_type="")
+    classifications = defaultdict(set)
+    for entry_id, value in WikiAssertion.objects.filter(
+        entry_id__in=legacy_items.values("pk"), field="item_type",
+    ).order_by().values_list("entry_id", "value").distinct():
+        classifications[entry_id].add(value if isinstance(value, str) else None)
+
+    result = {}
+    for entry in entries:
+        data = _describe_entry(entry, author=True)
+        item_types = classifications.get(entry.pk, ())
+        if entry.catalog_type or item_types == {"Vehicle"}:
+            data["catalog_type"] = entry.catalog_type or WikiEntry.CatalogType.VEHICLE
+        elif "Vehicle" in item_types:
+            data["classification_needs_review"] = True
+        result[data["id"]] = data
+    return result
+
+
+def search_wiki(world_id, account_id, query):
+    with transaction.atomic():
+        _scoped_read()
+        wiki_access(world_id, account_id, writing=True)
+        directory = WikiEntry.objects.filter(wiki_id=world_id, name__icontains=query).order_by("name", "id")
+        return {"entries": list(_describe_catalog(directory, list(directory)).values())}
 
 
 def _id(value):
@@ -194,22 +224,19 @@ def _article_events(entry):
     )
 
 
-def _author_article(entry, at):
+def _author_article(entry, at, identity):
     facts = list(WikiAssertion.objects.filter(entry=entry).order_by("field", "from_tick", "id"))
     claims = WikiClaim.objects.filter(entry=entry).order_by("tick", "id")
     events, event_ancestors = _article_events(entry)
     findings = WikiFinding.objects.filter(entry=entry, resolved_at_edit__isnull=True).order_by("from_tick", "id")
-    values = effective_values(entry, facts, at)
     article = {
-        "entry": _describe_entry(entry, author=True),
-        "values": values,
+        "entry": identity,
+        "overview": entry.overview,
         "assertions": [_serialize_assertion(fact) for fact in facts],
         "claims": [_serialize_claim(claim) for claim in claims],
         "events": events,
         "event_ancestors": event_ancestors,
         "observations": [_serialize_observation(o, author=True) for o in _observations_about(entry)],
-        "propositions": propositions_for(entry, at),
-        "incoming_links": incoming_links(entry, at),
         "findings": [
             {
                 "id": str(finding.pk), "code": finding.code, "field": finding.field,
@@ -218,6 +245,12 @@ def _author_article(entry, at):
             for finding in findings
         ],
     }
+    if entry.kind == WikiEntry.Kind.GROUP:
+        article["legacy_location_review"] = any(fact.field == "located_in" for fact in facts)
+    if at is None:
+        return article
+    values = effective_values(entry, facts, at)
+    article.update(values=values, propositions=propositions_for(entry, at), incoming_links=incoming_links(entry, at))
     if entry.kind in ACTORS:
         article["learned_abilities"] = _learned_abilities(entry, at)
         article["family"] = family_links(entry, facts, at)
@@ -229,8 +262,6 @@ def _author_article(entry, at):
         article["parts"] = [item for item in contents if item["kind"] == "place"]
         article["occupants"] = [item for item in contents if item["kind"] != "place"]
         article["layout"] = place_layout(entry, at)
-    if entry.kind == WikiEntry.Kind.GROUP:
-        article["legacy_location_review"] = any(fact.field == "located_in" for fact in facts)
     return article
 
 
@@ -257,13 +288,17 @@ def read_wiki(world_id, account_id, at, observer_id=None, entry_id=None, *, time
             directory = directory.filter(author_only=False)
         entries = list(directory)
         indexed = {str(entry.pk): entry for entry in entries}
+        descriptions = (
+            {entry_id: _describe_entry(entry) for entry_id, entry in indexed.items()}
+            if observer else _describe_catalog(directory, entries)
+        )
         selected = indexed.get(str(entry_id)) if entry_id is not None else None
         if entry_id is not None and selected is None:
             raise resource_unavailable()
         response = {
             "world_name": membership.world.title, "at": at,
             "viewpoint": _describe_entry(observer) if observer else None,
-            "entries": [_describe_entry(entry, author=observer is None) for entry in entries],
+            "entries": list(descriptions.values()),
             "fields": [definition.describe() for definition in FIELDS.values()],
             "article": None,
         }
@@ -275,7 +310,8 @@ def read_wiki(world_id, account_id, at, observer_id=None, entry_id=None, *, time
             )
         if selected is not None:
             response["article"] = (
-                _character_article(selected, observer, at, indexed) if observer else _author_article(selected, at)
+                _character_article(selected, observer, at, indexed)
+                if observer else _author_article(selected, at, descriptions[str(selected.pk)])
             )
         if timeline:
             response["timeline"] = _serialize_events(WikiEvent.objects.filter(wiki_id=world_id)) if observer is None else []

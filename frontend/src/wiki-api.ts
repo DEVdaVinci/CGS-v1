@@ -3,7 +3,11 @@ import { request } from './api'
 export type WikiKind = 'person' | 'place' | 'group' | 'class' | 'ability' | 'item'
   | 'species' | 'organism' | 'culture' | 'role' | 'resource' | 'body_part' | 'trait' | 'goal'
   | 'image' | 'model_3d' | 'texture' | 'animation' | 'map' | 'territory' | 'era'
-export type WikiEntry = { id: string; name: string; kind: WikiKind; author_only?: boolean }
+export type WikiEntry = {
+  id: string; name: string; kind: WikiKind; author_only?: boolean
+  catalog_type?: 'vehicle'; classification_needs_review?: boolean
+}
+export type WikiEntryTemplate = WikiKind | 'vehicle'
 export type WikiField = {
   key: string
   label: string
@@ -18,8 +22,10 @@ export type WikiField = {
   many: boolean
 }
 export type WikiValue = string | number
-export type WikiSection = 'all' | 'characters' | 'places' | 'library' | 'timeline'
-export type WikiLocation = { at: number; viewAs: string; entryId: string; section?: WikiSection; eventId?: string }
+export type WikiSection = 'overview' | 'all' | 'characters' | 'places' | 'items' | 'vehicles' | 'maps' | 'library' | 'timeline'
+export type WikiLocation = {
+  at: number | null; viewAs: string; entryId: string; section?: WikiSection; eventId?: string; history?: boolean
+}
 export type WikiAssertion = {
   id: string; field: string; value: WikiValue; from_tick: number; until_tick: number | null
   author_only: boolean; source: string; event_id: string | null
@@ -85,6 +91,7 @@ export type WikiPlaceLayout = {
 }
 export type WikiArticle = {
   entry: WikiEntry
+  overview?: string
   values?: WikiEffectiveValue[]
   assertions?: WikiAssertion[]
   claims?: WikiClaim[]
@@ -107,7 +114,7 @@ export type WikiArticle = {
   age_years?: number | null
 }
 export type WikiView = {
-  world_name: string; at: number; viewpoint: WikiEntry | null; entries: WikiEntry[]; fields: WikiField[]
+  world_name: string; at: number | null; viewpoint: WikiEntry | null; entries: WikiEntry[]; fields: WikiField[]
   article: WikiArticle | null; can_edit?: boolean; edit_counter?: number
   timeline?: WikiEvent[]
   days_per_year?: number | null
@@ -135,8 +142,12 @@ type EventDetails = {
   cross_reference_ids?: string[]
 }
 export type WikiCommand =
-  | { op: 'create_entry'; name: string; kind: WikiKind; author_only: boolean; initial_at?: number; initial_values?: TypedValue[] }
+  | {
+    op: 'create_entry'; name: string; kind: WikiKind; author_only: boolean; overview?: string
+    catalog_type?: 'vehicle'; initial_at?: number; initial_values?: TypedValue[]
+  }
   | { op: 'rename_entry'; entry_id: string; name: string }
+  | { op: 'update_overview'; entry_id: string; overview: string }
   | ({ op: 'record_fact'; from_tick: number; until_tick: number | null; source: string } & FieldChange)
   | { op: 'correct_fact'; assertion_id: string; value: WikiValue; source?: string; author_only?: boolean }
   | ({ op: 'record_event'; tick: number; changes: EventChange[]; parent_id?: string; node_kind?: 'action' | 'occurrence' } & EventDetails)
@@ -162,10 +173,14 @@ export type WikiAttempt = { key: string; edit: number; command: WikiCommand; loc
 const wikiPath = (worldId: string) => '/worlds/' + encodeURIComponent(worldId) + '/wiki'
 
 export function getWiki(worldId: string, location: WikiLocation, signal: AbortSignal) {
-  const params = new URLSearchParams({ at: String(location.at) })
+  const params = location.at === null ? new URLSearchParams({ overview: 'true' }) : new URLSearchParams({ at: String(location.at) })
   if (location.viewAs) params.set('view_as', location.viewAs)
   const path = location.section === 'timeline' ? '/timeline' : location.entryId ? '/entries/' + encodeURIComponent(location.entryId) : ''
   return request<WikiView>(wikiPath(worldId) + path + '?' + params.toString(), { signal })
+}
+
+export function searchWiki(worldId: string, query: string, signal: AbortSignal) {
+  return request<{ entries: WikiEntry[] }>(wikiPath(worldId) + '/search?' + new URLSearchParams({ q: query }), { signal })
 }
 
 export function saveWikiChange(worldId: string, attempt: WikiAttempt, token: string) {
@@ -186,7 +201,7 @@ export function readWikiAttempt(accountId: string, worldId: string): WikiAttempt
   try {
     const stored = JSON.parse(sessionStorage.getItem(prefix(accountId) + worldId) ?? 'null') as WikiAttempt | null
     return stored && typeof stored.key === 'string' && Number.isSafeInteger(stored.edit) &&
-      stored.location && Number.isSafeInteger(stored.location.at) &&
+      stored.location && (stored.location.at === null || Number.isSafeInteger(stored.location.at)) &&
       typeof stored.location.viewAs === 'string' && typeof stored.location.entryId === 'string' &&
       typeof stored.command?.op === 'string' ? stored : null
   } catch {

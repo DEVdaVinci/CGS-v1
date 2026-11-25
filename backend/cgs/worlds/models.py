@@ -188,14 +188,25 @@ class WikiEntry(CreatedRecord):
         TERRITORY = "territory", "Territory"
         ERA = "era", "Era"
 
+    class CatalogType(models.TextChoices):
+        VEHICLE = "vehicle", "Vehicle"
+
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     wiki = models.ForeignKey(WikiWorld, on_delete=models.RESTRICT)
     kind = models.CharField(max_length=12, choices=Kind)
     name = models.CharField(max_length=100)
+    overview = models.CharField(max_length=1500, blank=True, default="")
+    catalog_type = models.CharField(max_length=12, choices=CatalogType, blank=True, default="")
     author_only = models.BooleanField(default=False)
 
     class Meta:
         indexes = [models.Index(fields=["wiki", "name", "id"], name="wiki_entry_directory")]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(catalog_type="") | models.Q(kind="item", catalog_type="vehicle"),
+                name="wiki_entry_catalog_type_matches_kind",
+            ),
+        ]
 
 
 class WikiLayout(CreatedRecord):

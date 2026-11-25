@@ -63,6 +63,68 @@ class WikiTests(TransactionTestCase):
     def values(self, entry, at):
         return {item["field"]: item.get("value", item["state"]) for item in self.article(entry, at)["values"]}
 
+    def test_workspace_overviews_and_dates_preserve_legacy_facts(self):
+        person = self.entry("Surveyor", "person", overview="A surveyor working on the coast.")
+        fact_id = self.fact(person, "description", "Description recorded in the original account.", start=0)
+        self.fact(person, "height_cm", 180, start=7)
+        self.apply({"op": "update_overview", "entry_id": person, "overview": "Revised biography."})
+
+        url = self.path + "/entries/" + person
+        summary = self.browser.get(url, {"overview": "true"}).json()
+        self.assertIsNone(summary["at"])
+        self.assertEqual(summary["article"]["overview"], "Revised biography.")
+        self.assertNotIn("values", summary["article"])
+        self.assertNotIn("age_years", summary["article"])
+        fact = next(row for row in summary["article"]["assertions"] if row["id"] == fact_id)
+        self.assertEqual(fact["value"], "Description recorded in the original account.")
+        self.assertEqual(self.values(person, 0)["description"], fact["value"])
+        self.assertEqual(self.values(person, 7)["height_cm"], 180)
+        self.assertEqual(self.browser.get(url).json()["at"], 0)
+        self.assertEqual(self.browser.get(url, {"overview": "true", "at": 0}).status_code, 400)
+
+        incomplete = self.post({
+            "op": "create_entry", "name": "Undated facts", "kind": "person", "overview": "",
+            "initial_values": [{"field": "height_cm", "value": 180}],
+        })
+        self.assertEqual(incomplete.status_code, 400, incomplete.json())
+        self.assertFalse(WikiEntry.objects.filter(wiki_id=self.world, name="Undated facts").exists())
+
+    def test_workspace_vehicle_catalog_and_name_search_have_author_scope(self):
+        origin = self.entry("Survey depot")
+        transport = self.entry("Survey ferry", "item", catalog_type="vehicle", overview="A working survey ferry.")
+        legacy = self.entry("Legacy survey cart", "item")
+        self.fact(legacy, "item_type", "Vehicle", start=4)
+        disputed = self.entry("Disputed survey cart", "item")
+        self.fact(disputed, "item_type", "Vehicle", start=2, until_tick=6)
+        self.fact(disputed, "item_type", "Tool", start=6)
+        actor = self.entry("Surveyor", "person")
+        _, elsewhere = create_world(self.owner.pk, uuid4(), "Far outside this workspace")
+        foreign, _ = WikiWorld.objects.get_or_create(world_id=elsewhere["world"]["id"])
+        WikiEntry.objects.create(wiki=foreign, kind="place", name="Foreign survey station")
+
+        path = self.path + "/search"
+        matches = self.browser.get(path, {"q": "sURvEy"})
+        self.assertEqual(matches.status_code, 200, matches.json())
+        index = {entry["id"]: entry for entry in matches.json()["entries"]}
+        self.assertEqual(set(index), {origin, transport, legacy, disputed, actor})
+        self.assertEqual(index[transport]["catalog_type"], "vehicle")
+        self.assertEqual(index[legacy]["catalog_type"], "vehicle")
+        self.assertNotIn("catalog_type", index[disputed])
+        self.assertTrue(index[disputed]["classification_needs_review"])
+        self.assertEqual(self.article(legacy, 4)["entry"]["id"], legacy)
+        self.assertEqual(self.values(legacy, 4)["item_type"], "Vehicle")
+        self.assertEqual(self.values(disputed, 6)["item_type"], "Tool")
+        self.assertNotIn("catalog_type", self.article(transport, 0, observer=actor)["entry"])
+
+        unauthorized, _ = self.sign_in(provision("workspace-outsider"))
+        self.assertEqual(unauthorized.get(path, {"q": "survey"}).status_code, 404)
+        outsider = provision("workspace-reader")
+        reader, _ = self.sign_in(outsider)
+        WorldAccess.objects.create(world_id=self.world, account=outsider, role="editor", capabilities=[], enabled=True)
+        self.assertEqual(reader.get(path, {"q": "survey"}).status_code, 403)
+        wrong_kind = self.post({"op": "create_entry", "kind": "place", "name": "Invalid vehicle", "catalog_type": "vehicle"})
+        self.assertEqual(wrong_kind.status_code, 400, wrong_kind.json())
+
     def test_biography_and_family_keep_their_own_meaning_as_of_time(self):
         clinic = self.entry("Clinic")
         home = self.entry("Coast")

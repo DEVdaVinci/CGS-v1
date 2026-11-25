@@ -2,7 +2,7 @@ import { type FormEvent, useEffect, useState } from 'react'
 import {
   canPerformEvent, getWiki, isWikiActor,
   type WikiAssertion, type WikiClaim, type WikiCommand, type WikiEntry, type WikiEvent,
-  type WikiField, type WikiKind, type WikiLearnedAbility, type WikiObservation, type WikiProposition, type WikiValue,
+  type WikiEntryTemplate, type WikiField, type WikiKind, type WikiLearnedAbility, type WikiObservation, type WikiProposition, type WikiValue,
 } from './wiki-api'
 import { DistributionInput, formatDistribution } from './wiki-distribution'
 
@@ -11,13 +11,13 @@ export const kindLabel: Record<WikiKind, string> = {
   species: 'Species', organism: 'Organism', culture: 'Culture', role: 'Role or title',
   resource: 'Resource', body_part: 'Body part', trait: 'Trait', goal: 'Goal',
   image: 'Image', model_3d: '3D model', texture: 'Texture', animation: 'Animation',
-  map: 'Map', territory: 'Territory', era: 'Era',
+  map: 'Map reference', territory: 'Territory', era: 'Era',
 }
 
 export type ArticleEdit =
   | { kind: 'fact'; field?: string }
   | { kind: 'claim' | 'event' }
-  | { kind: 'rename' }
+  | { kind: 'rename' | 'overview' }
   | { kind: 'learn'; learned?: WikiLearnedAbility }
   | { kind: 'edit-event'; event: WikiEvent }
   | { kind: 'correct'; fact: WikiAssertion }
@@ -27,7 +27,7 @@ export type ArticleEdit =
 
 export type FormActions = { onSave: (command: WikiCommand) => void; onCancel: () => void; busy: boolean }
 type EntryFormProps = FormActions & {
-  entry: WikiEntry; fields: WikiField[]; entries: WikiEntry[]; at: number
+  entry: WikiEntry; fields: WikiField[]; entries: WikiEntry[]; at: number | null
   observations?: WikiObservation[]
 }
 
@@ -61,17 +61,19 @@ const initialKeys: Partial<Record<WikiKind, string[]>> = {
   goal: ['goal_owner', 'parent_goal', 'goal_subject', 'priority', 'status'],
 }
 
-export function WikiEntryForm({ fixedKind, entries, fields, at, ownerId, ...actions }: FormActions & {
-  fixedKind?: WikiKind; entries: WikiEntry[]; fields: WikiField[]; at: number; ownerId?: string
+export function WikiEntryForm({ fixedTemplate, entries, fields, at, ownerId, ...actions }: FormActions & {
+  fixedTemplate?: WikiEntryTemplate; entries: WikiEntry[]; fields: WikiField[]; at: number | null; ownerId?: string
 }) {
-  const [kind, setKind] = useState<WikiKind>(fixedKind ?? 'person')
-  const title = fixedKind ? 'New ' + kindLabel[fixedKind].toLowerCase() : 'New entry'
-  const keys = ['description', ...(initialKeys[kind] ?? [])]
+  const [template, setTemplate] = useState<WikiEntryTemplate>(fixedTemplate ?? 'person')
+  const [dateError, setDateError] = useState(false)
+  const kind = template === 'vehicle' ? 'item' : template
+  const title = fixedTemplate === 'map' ? 'Add map reference'
+    : fixedTemplate === 'vehicle' ? 'New vehicle' : fixedTemplate ? 'New ' + kindLabel[fixedTemplate].toLowerCase() : 'New entry'
+  const keys = (initialKeys[kind] ?? []).filter((key) => template !== 'vehicle' || key !== 'item_type')
   const initialFields = keys.map((key) => fields.find((field) => field.key === key)).filter((field) => field !== undefined)
   const linkedFields = initialFields.filter((field) => field.many && field.target_kinds.length)
 
   function initialLabel(field: WikiField) {
-    if (field.key === 'description') return 'Overview'
     if (field.key === 'located_in' && kind === 'place') return 'Parent place'
     if (field.key === 'parent') return 'Parents'
     if (field.key === 'sibling') return 'Siblings'
@@ -81,27 +83,42 @@ export function WikiEntryForm({ fixedKind, entries, fields, at, ownerId, ...acti
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const values = new FormData(event.currentTarget)
+    const authorOnly = values.has('author_only')
+    const initialValues = initialFields.flatMap((field) => values.getAll(field.key).filter((value) => String(value).trim())
+      .map((value) => ({ field: field.key, value: readValue(value, field), author_only: authorOnly })))
+    const date = optionalTime(values, 'initial_at')
+    if (initialValues.length && date === null) {
+      setDateError(true)
+      event.currentTarget.querySelector<HTMLInputElement>('[name="initial_at"]')?.focus()
+      return
+    }
+    setDateError(false)
     actions.onSave({
       op: 'create_entry', name: String(values.get('name')), kind,
-      author_only: values.has('author_only'), initial_at: Number(values.get('initial_at')),
-      initial_values: initialFields.flatMap((field) => values.getAll(field.key).filter((value) => String(value).trim())
-        .map((value) => ({
-          field: field.key, value: readValue(value, field), author_only: values.has('author_only'),
-        }))),
+      author_only: authorOnly, overview: String(values.get('overview') ?? ''),
+      ...(template === 'vehicle' ? { catalog_type: 'vehicle' } : {}),
+      ...(initialValues.length && date !== null ? { initial_at: date, initial_values: initialValues } : {}),
     })
   }
   return (
     <form className="wiki-form" aria-label={title} onSubmit={submit}>
       <h2>{title}</h2>
       <label className="field">Entry name<input name="name" maxLength={100} required /></label>
-      {!fixedKind && <label className="field">Entry type
-        <select name="kind" value={kind} onChange={(event) => setKind(event.target.value as WikiKind)}>
+      {!fixedTemplate && <label className="field">Entry type
+        <select name="kind" value={template} onChange={(event) => {
+          setTemplate(event.target.value as WikiEntryTemplate)
+          setDateError(false)
+        }}>
           {Object.entries(kindLabel).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}
+          <option value="vehicle">Vehicle</option>
         </select>
       </label>}
-      <fieldset className="wiki-change-fields">
+      <label className="field">Overview<textarea name="overview" rows={4} maxLength={1500} /></label>
+      {template === 'map' && <p className="muted">Link an existing map through its asset location. Measured room layouts are edited from Places.</p>}
+      {initialFields.length > 0 && <fieldset className="wiki-change-fields" key={template}>
         <legend>Initial facts</legend>
-        <TimeInput name="initial_at" label="Initial facts start at time" day={at} />
+        <TimeInput name="initial_at" label="Initial facts start at time" day={at} optional />
+        {dateError && <p className="error-message" role="alert">Choose when the initial facts apply.</p>}
         {initialFields.filter((field) => !linkedFields.includes(field)).map((field) => (
           <ValueInput
             key={field.key} field={field} entries={entries} entryId="" name={field.key}
@@ -117,17 +134,17 @@ export function WikiEntryForm({ fixedKind, entries, fields, at, ownerId, ...acti
               entries={entries.filter((entry) => field.target_kinds.includes(entry.kind))} />
           ))}</div>
         </details>}
-      </fieldset>
+      </fieldset>}
       <label className="wiki-checkbox"><input type="checkbox" name="author_only" /> Author only</label>
       <Actions {...actions} submit="Save entry" />
     </form>
   )
 }
 
-export function TimeInput({ label, name, day, optional = false }: { label: string; name: string; day?: number; optional?: boolean }) {
+export function TimeInput({ label, name, day, optional = false }: { label: string; name: string; day?: number | null; optional?: boolean }) {
   return (
     <label className="field">{label}
-      <input name={name} type="number" min={0} max={Number.MAX_SAFE_INTEGER} step={1} defaultValue={day} required={!optional} />
+      <input name={name} type="number" min={0} max={Number.MAX_SAFE_INTEGER} step={1} defaultValue={day ?? undefined} required={!optional} />
     </label>
   )
 }
@@ -331,7 +348,7 @@ export function readEventContext(values: FormData) {
 }
 
 export type EventContextProps = {
-  worldId: string; entries: WikiEntry[]; fields: WikiField[]; at: number; event?: WikiEvent; events?: WikiEvent[]
+  worldId: string; entries: WikiEntry[]; fields: WikiField[]; at: number | null; event?: WikiEvent; events?: WikiEvent[]
 }
 
 export function EventContextFields({ worldId, entries, fields, at, event, events }: EventContextProps) {
@@ -570,7 +587,7 @@ export function WikiEventForm({ worldId, entry, fields, entries, at, event, even
 }
 
 export function WikiEvidenceForm({ edit, entries, at, ...actions }: FormActions & {
-  edit: Extract<ArticleEdit, { kind: 'correct-date' | 'observe' }>; entries: WikiEntry[]; at: number
+  edit: Extract<ArticleEdit, { kind: 'correct-date' | 'observe' }>; entries: WikiEntry[]; at: number | null
 }) {
   const date = edit.kind === 'correct-date'
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -594,7 +611,8 @@ export function WikiEvidenceForm({ edit, entries, at, ...actions }: FormActions 
       )}
       <TimeInput
         name="tick" label={date ? 'Corrected event time' : 'Learned at'}
-        day={edit.kind === 'correct-date' ? edit.event.tick ?? undefined : Math.max(at, 'from_tick' in edit.source ? edit.source.from_tick : edit.source.tick)}
+        day={edit.kind === 'correct-date' ? edit.event.tick : at === null ? null
+          : Math.max(at, 'from_tick' in edit.source ? edit.source.from_tick : edit.source.tick)}
       />
       {edit.kind === 'observe' && <TimeInput name="about_tick" label="About time (optional)" optional />}
       <Actions {...actions} submit={date ? 'Save corrected date' : 'Save observation'} />
@@ -602,11 +620,12 @@ export function WikiEvidenceForm({ edit, entries, at, ...actions }: FormActions 
   )
 }
 
-export function WikiEditForm({ edit, ...props }: EntryFormProps & { edit: ArticleEdit; worldId: string }) {
+export function WikiEditForm({ edit, overview, ...props }: EntryFormProps & { edit: ArticleEdit; worldId: string; overview?: string }) {
   if (edit.kind === 'event') return <WikiEventForm {...props} />
   if (edit.kind === 'edit-event') return <WikiEventForm {...props} entry={undefined} event={edit.event} />
   if (edit.kind === 'correct-date' || edit.kind === 'observe') return <WikiEvidenceForm {...props} edit={edit} />
   if (edit.kind === 'rename') return <RenameForm {...props} />
+  if (edit.kind === 'overview') return <OverviewForm {...props} overview={overview} />
   if (edit.kind === 'learn') return <LearnAbilityForm {...props} learned={edit.learned} />
   if (edit.kind === 'correct') return <CanonicalForm {...props} mode="correct" fact={edit.fact} />
   if (edit.kind === 'proposition') return <PropositionForm {...props} record={edit.record} />
@@ -702,6 +721,21 @@ function RenameForm({ entry, ...actions }: FormActions & { entry: WikiEntry }) {
       <h2>Rename entry</h2>
       <label className="field">Entry name<input name="name" defaultValue={entry.name} maxLength={100} required /></label>
       <Actions {...actions} submit="Save name" />
+    </form>
+  )
+}
+
+function OverviewForm({ entry, overview, ...actions }: FormActions & { entry: WikiEntry; overview?: string }) {
+  return (
+    <form className="wiki-form" aria-label="Edit overview" onSubmit={(event) => {
+      event.preventDefault()
+      actions.onSave({
+        op: 'update_overview', entry_id: entry.id, overview: String(new FormData(event.currentTarget).get('overview') ?? ''),
+      })
+    }}>
+      <h2>Edit overview</h2>
+      <label className="field">Overview<textarea name="overview" rows={5} maxLength={1500} defaultValue={overview} /></label>
+      <Actions {...actions} submit="Save overview" />
     </form>
   )
 }
