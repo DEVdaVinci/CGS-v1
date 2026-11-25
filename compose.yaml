@@ -36,9 +36,12 @@ services:
     command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
     ports:
       - "127.0.0.1:8000:8000"
+    volumes:
+      - wiki-media:/workspace/backend/media
     depends_on:
       migrate:
         condition: service_completed_successfully
 
 volumes:
   postgres-data:
+  wiki-media:

@@ -89,6 +89,12 @@ export type WikiConnection = {
 export type WikiPlaceLayout = {
   frame: WikiLayoutFrame | null; available: WikiLayoutFrame[]; connections: WikiConnection[]
 }
+export type WikiMapPin = {
+  id: string; label: string; x: number; y: number; place_id: string | null
+}
+export type WikiImageMap = {
+  width: number; height: number; pins: WikiMapPin[]
+}
 export type WikiArticle = {
   entry: WikiEntry
   overview?: string
@@ -106,6 +112,7 @@ export type WikiArticle = {
   parts?: WikiEntry[]
   occupants?: WikiEntry[]
   layout?: WikiPlaceLayout
+  image_map?: WikiImageMap
   legacy_location_review?: boolean
   observations: WikiObservation[]
   findings?: WikiFinding[]
@@ -165,6 +172,10 @@ export type WikiCommand =
   | ({ op: 'save_layout'; place_id: string; name: string; from_tick: number } & WikiBounds)
   | { op: 'save_waypoint'; place_id: string; point_id?: string; from_tick: number; name: string; x_cm: number; y_cm: number }
   | ({ op: 'save_connection'; connection_id?: string } & Omit<WikiConnection, 'id'>)
+  | { op: 'create_image_map'; name: string; author_only: boolean; upload_id: string }
+  | { op: 'attach_map_image'; map_id: string; upload_id: string }
+  | ({ op: 'save_map_pin'; map_id: string; pin_id?: string } & Omit<WikiMapPin, 'id'>)
+  | { op: 'remove_map_pin'; map_id: string; pin_id: string }
   | { op: 'record_learned_ability'; character_id: string; ability_id: string; learned_at: number; source: string }
   | { op: 'correct_learned_ability'; learned_ability_id: string; learned_at: number; source: string }
 
@@ -181,6 +192,20 @@ export function getWiki(worldId: string, location: WikiLocation, signal: AbortSi
 
 export function searchWiki(worldId: string, query: string, signal: AbortSignal) {
   return request<{ entries: WikiEntry[] }>(wikiPath(worldId) + '/search?' + new URLSearchParams({ q: query }), { signal })
+}
+
+export function uploadMapImage(worldId: string, image: File, key: string, token: string) {
+  const body = new FormData()
+  body.set('image', image)
+  return request<{ upload_id: string }>(wikiPath(worldId) + '/maps/uploads', {
+    method: 'POST',
+    headers: { 'X-CSRFToken': token, 'Idempotency-Key': key },
+    body,
+  })
+}
+
+export function mapImageUrl(worldId: string, mapId: string) {
+  return '/api/v1' + wikiPath(worldId) + '/maps/' + encodeURIComponent(mapId) + '/image'
 }
 
 export function saveWikiChange(worldId: string, attempt: WikiAttempt, token: string) {

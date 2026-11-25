@@ -9,12 +9,14 @@ import { kindLabel, type ArticleEdit, WikiCalendarForm, WikiEditForm, WikiEntryF
 import { formatDistribution } from './wiki-distribution'
 import { WikiGroupForm, WikiOrganizeForm } from './wiki-event-outline'
 import { isLayoutEdit, WikiLayoutForm, WikiLayoutPanel, type LayoutEdit } from './wiki-layout'
+import { WikiMapImageForm, WikiMapPanel } from './wiki-map'
 import { WikiTimeline, type TimelineEdit } from './wiki-timeline'
 import { entryLabel, sectionFor, sections, WikiDirectory, WikiHistoryControls, WikiHome, WikiNavigation, WikiSearch } from './wiki-workspace'
 
 const validId = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/
 type WikiEdit = ArticleEdit | TimelineEdit | LayoutEdit
   | { kind: 'create'; fixedTemplate?: WikiEntryTemplate; ownerId?: string } | { kind: 'calendar' }
+  | { kind: 'map-image'; map?: WikiEntry }
 
 function initialLocation(): WikiLocation {
   const params = new URLSearchParams(window.location.search)
@@ -39,7 +41,7 @@ function initialLocation(): WikiLocation {
 
 type Display = {
   view: WikiView
-  openEntry: (id: string, at?: number) => void
+  openEntry: (id: string, at?: number | null) => void
   navigationLocked: boolean
 }
 
@@ -170,12 +172,13 @@ function Family({ family, display, onEdit }: {
   )
 }
 
-function Article({ article, display, history, historyControls, onShowHistory, onShowOverview, onEdit, onTimeline, onGoal, onLayoutEdit }: {
+function Article({ article, display, history, historyControls, onShowHistory, onShowOverview, onEdit, onTimeline, onGoal, onLayoutEdit, mapPanel }: {
   article: WikiArticle; display: Display; onEdit?: (edit: ArticleEdit) => void
   history: boolean; historyControls: ReactNode; onShowHistory: () => void; onShowOverview: () => void
   onTimeline: (eventId: string) => void
   onGoal: (ownerId: string) => void
   onLayoutEdit?: (edit: LayoutEdit) => void
+  mapPanel?: ReactNode
 }) {
   const { view } = display
   const edit = display.navigationLocked ? undefined : onEdit
@@ -224,11 +227,12 @@ function Article({ article, display, history, historyControls, onShowHistory, on
       </p>}
       {!history && !view.viewpoint && (
         article.overview ? <p className="wiki-article-summary wiki-prose">{article.overview}</p>
-          : <p className="muted wiki-article-summary">
+          : article.entry.kind !== 'map' && <p className="muted wiki-article-summary">
             {article.assertions?.some((fact) => fact.field === 'description')
               ? 'The recorded descriptions are available in History.' : 'No overview written yet.'}
           </p>
       )}
+      {!view.viewpoint && (!history || !article.image_map) && mapPanel}
       {(history || view.viewpoint) && historyControls}
       {!view.viewpoint && history && (
         <>
@@ -448,6 +452,7 @@ export function Wiki({ account, worldId, onAuthError }: {
   const [stale, setStale] = useState(false)
   const [notice, setNotice] = useState('')
   const [buildMode, setBuildMode] = useState(true)
+  const [eventTime, setEventTime] = useState('')
   const content = useRef<HTMLDivElement>(null)
   const focusContent = useRef(false)
 
@@ -516,15 +521,16 @@ export function Wiki({ account, worldId, onAuthError }: {
 
   function selectSection(next: WikiSection) {
     if (navigationLocked || (section === next && !entryId && !location.eventId)) return
+    if (next === 'timeline') setEventTime('')
     navigate({ section: next, entryId: '', viewAs, at: viewAs ? at : null })
   }
 
-  function openArticle(entry: WikiEntry, destination: WikiSection, time = at) {
+  function openArticle(entry: WikiEntry, destination: WikiSection, time: number | null = null) {
     if (navigationLocked) return
-    navigate({ at: time, viewAs, entryId: entry.id, section: destination })
+    navigate({ at: viewAs ? at : time, viewAs, entryId: entry.id, section: destination })
   }
 
-  function openEntry(id: string, time = at) {
+  function openEntry(id: string, time: number | null = at) {
     const selected = view?.entries.find((entry) => entry.id === id)
     if (selected) openArticle(selected, section === 'all' ? 'all' : sectionFor(selected), time)
   }
@@ -550,7 +556,9 @@ export function Wiki({ account, worldId, onAuthError }: {
       setNotice('Wiki change saved.')
       focusContent.current = true
       const command = pending.command
-      if (command.op === 'create_entry') {
+      if (command.op === 'create_image_map' || command.op === 'attach_map_image') {
+        setLocation({ at: null, entryId: saved.record_id, section: 'maps', viewAs: '' })
+      } else if (command.op === 'create_entry') {
         const created: WikiEntry = {
           id: saved.record_id, name: command.name, kind: command.kind, catalog_type: command.catalog_type,
         }
@@ -628,7 +636,7 @@ export function Wiki({ account, worldId, onAuthError }: {
               <h1>{view.world_name}</h1>
             </div>
             {canBuild && <WikiSearch worldId={worldId} revision={refresh} disabled={navigationLocked} onAuthError={onAuthError}
-              onOpen={(entry) => openArticle(entry, sectionFor(entry), null)} />}
+              onOpen={(entry) => openArticle(entry, sectionFor(entry))} />}
             <div className="form-actions wiki-workspace-actions">
               {view.can_edit && <div className="wiki-mode" role="group" aria-label="Wiki mode">
                 <button className="button secondary" type="button" aria-pressed={!buildMode} disabled={navigationLocked}
@@ -659,7 +667,12 @@ export function Wiki({ account, worldId, onAuthError }: {
           <div className="wiki-workspace-body">
             <WikiNavigation section={section} disabled={navigationLocked} onSelect={selectSection} />
             <div className="wiki-workspace-content" tabIndex={-1} ref={content} aria-label="Wiki content">
-              {editing?.kind === 'create' ? (
+              {editing?.kind === 'map-image' ? (
+                <div className="wiki-article">
+                  <WikiMapImageForm {...actions} map={editing.map} worldId={worldId} token={account.csrf_token}
+                    onAuthError={onAuthError} />
+                </div>
+              ) : editing?.kind === 'create' ? (
                 <div className="wiki-article">
                   <WikiEntryForm {...actions} fixedTemplate={editing.fixedTemplate} ownerId={editing.ownerId}
                     entries={view.entries} fields={view.fields} at={view.at} />
@@ -677,8 +690,8 @@ export function Wiki({ account, worldId, onAuthError }: {
                       onClick={() => beginEdit({ kind: 'calendar' })}>Calendar settings</button>
                   </div>}
                   {!editing && <details className="wiki-timeline-view" open={at !== null ? true : undefined}>
-                    <summary>Historical view</summary>
-                    <WikiHistoryControls location={location} entries={view.entries} viewpoint={view.viewpoint}
+                    <summary>State and viewpoint</summary>
+                    <WikiHistoryControls timeline location={location} entries={view.entries} viewpoint={view.viewpoint}
                       disabled={navigationLocked} onChange={(time, observer) => navigate({ ...location, at: time, viewAs: observer })} />
                   </details>}
                   {editing?.kind === 'calendar' && <WikiCalendarForm {...actions} daysPerYear={view.days_per_year ?? null} />}
@@ -697,6 +710,7 @@ export function Wiki({ account, worldId, onAuthError }: {
                   {editing?.kind === 'organize' && <WikiOrganizeForm {...actions} event={editing.event} events={view.timeline ?? []} />}
                   {editing?.kind === 'correct-date' && <WikiEvidenceForm {...actions} edit={editing} entries={view.entries} at={view.at} />}
                   {!editing && <WikiTimeline events={view.timeline ?? []} entries={view.entries} fields={view.fields}
+                    eventTime={eventTime} onEventTimeChange={setEventTime}
                     currentEvent={location.eventId} onEdit={canBuild && !navigationLocked ? beginEdit : undefined}
                     onFocus={(eventId) => navigate({ ...location, eventId })}
                     onOpen={navigationLocked ? undefined : openEntry} />}
@@ -704,7 +718,9 @@ export function Wiki({ account, worldId, onAuthError }: {
               ) : (
                 <>
                   {canBuild && directory?.create && <div className="form-actions wiki-section-actions">
-                    <button className="button primary" type="button" disabled={navigationLocked}
+                    {section === 'maps' && <button className="button primary" type="button" disabled={navigationLocked}
+                      onClick={() => beginEdit({ kind: 'map-image' })}>New map</button>}
+                    <button className={section === 'maps' ? 'button secondary' : 'button primary'} type="button" disabled={navigationLocked}
                       onClick={() => beginEdit({ kind: 'create', fixedTemplate: directory.create })}>{directory.action}</button>
                   </div>}
                   <div className="wiki-layout">
@@ -729,13 +745,22 @@ export function Wiki({ account, worldId, onAuthError }: {
                           onShowHistory={() => navigate({ ...location, section, history: true })}
                           onShowOverview={showOverview}
                           display={{ view, navigationLocked, openEntry }}
-                          onTimeline={(eventId) => navigate({ ...location, section: 'timeline', entryId: '', eventId })}
+                          onTimeline={(eventId) => {
+                            setEventTime('')
+                            navigate({ ...location, section: 'timeline', entryId: '', eventId })
+                          }}
                           onGoal={(ownerId) => beginEdit({ kind: 'create', fixedTemplate: 'goal', ownerId })}
                           onLayoutEdit={canBuild ? beginEdit : undefined}
+                          mapPanel={activeArticle.entry.kind === 'map' && <WikiMapPanel key={activeArticle.entry.id}
+                            entry={activeArticle.entry} map={activeArticle.image_map} worldId={worldId} entries={view.entries}
+                            busy={navigationLocked || stale} onSave={canBuild ? save : undefined}
+                            onAttach={canBuild ? () => beginEdit({ kind: 'map-image', map: activeArticle.entry }) : undefined}
+                            onOpenPlace={(id) => openEntry(id, null)} />}
                         />
                       )}
                       {!editing && !activeArticle && <p className="muted">
-                        {directory?.action && canBuild ? 'Open an article or use ' + directory.action + ' to add one.'
+                        {section === 'maps' && canBuild ? 'Open a map or create one from an image.'
+                          : directory?.action && canBuild ? 'Open an article or use ' + directory.action + ' to add one.'
                           : 'Choose an article to open it.'}
                       </p>}
                     </div>

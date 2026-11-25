@@ -450,6 +450,44 @@ class SaveConnection(StrictSerializer):
     source = TextField(max_length=500, allow_blank=True, default="")
 
 
+class CreateImageMap(StrictSerializer):
+    op = serializers.ChoiceField(choices=("create_image_map",))
+    name = TextField(max_length=100)
+    author_only = serializers.BooleanField(default=False)
+    upload_id = WikiRef()
+
+
+class AttachMapImage(StrictSerializer):
+    op = serializers.ChoiceField(choices=("attach_map_image",))
+    map_id = WikiRef()
+    upload_id = WikiRef()
+
+
+class MapCoordinate(serializers.FloatField):
+    default_error_messages = {"invalid": "Provide a number from 0 to 1."}
+
+    def to_internal_value(self, data):
+        if type(data) not in (int, float) or not 0 <= data <= 1:
+            self.fail("invalid")
+        return float(data)
+
+
+class SaveMapPin(StrictSerializer):
+    op = serializers.ChoiceField(choices=("save_map_pin",))
+    map_id = WikiRef()
+    pin_id = WikiRef(required=False)
+    label = TextField(max_length=100)
+    place_id = WikiRef(allow_null=True, default=None)
+    x = MapCoordinate()
+    y = MapCoordinate()
+
+
+class RemoveMapPin(StrictSerializer):
+    op = serializers.ChoiceField(choices=("remove_map_pin",))
+    map_id = WikiRef()
+    pin_id = WikiRef()
+
+
 COMMANDS = {
     "create_entry": CreateEntry,
     "rename_entry": RenameEntry,
@@ -469,6 +507,10 @@ COMMANDS = {
     "save_layout": SaveLayout,
     "save_waypoint": SaveWaypoint,
     "save_connection": SaveConnection,
+    "create_image_map": CreateImageMap,
+    "attach_map_image": AttachMapImage,
+    "save_map_pin": SaveMapPin,
+    "remove_map_pin": RemoveMapPin,
     "record_learned_ability": RecordLearnedAbility,
     "correct_learned_ability": CorrectLearnedAbility,
 }

@@ -1,9 +1,16 @@
+from datetime import timedelta
+from io import BytesIO
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 
+from django.core.files.storage import default_storage
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TransactionTestCase, override_settings
+from django.utils import timezone
+from PIL import Image
 
 from .drafts import apply_draft_edits
-from .models import MutationReceipt, WikiEntry, WikiEvent, WikiFinding, WikiWorld, WorldAccess
+from .models import MutationReceipt, WikiEntry, WikiEvent, WikiFinding, WikiMapImage, WikiMapPin, WikiWorld, WorldAccess
 from .services import create_world, digest_json
 from .tests import SESSION, provision
 
@@ -62,6 +69,123 @@ class WikiTests(TransactionTestCase):
 
     def values(self, entry, at):
         return {item["field"]: item.get("value", item["state"]) for item in self.article(entry, at)["values"]}
+
+    def upload_map(self, content, *, key=None, browser=None, token=None):
+        return (browser or self.browser).post(
+            self.path + "/maps/uploads",
+            {"image": SimpleUploadedFile("chart.png", content, content_type="image/png")},
+            headers={"X-CSRFToken": token or self.token, "Idempotency-Key": str(key or uuid4())},
+        )
+
+    @staticmethod
+    def map_image_bytes(color="navy", image_format="PNG"):
+        with BytesIO() as stream:
+            Image.new("RGB", (24, 16), color).save(stream, format=image_format)
+            return stream.getvalue()
+
+    def test_image_maps_attach_to_stable_entries_and_protect_media(self):
+        with TemporaryDirectory() as directory, override_settings(MEDIA_ROOT=directory):
+            map_id = self.entry("Historic chart", "map")
+            self.fact(map_id, "asset_location", "archive/old-chart.png", start=0)
+            observer = self.entry("Harbor pilot", "person")
+            media_url = self.path + "/maps/" + map_id + "/image"
+            content = self.map_image_bytes(image_format="JPEG")
+            upload_key = uuid4()
+            staged = self.upload_map(content, key=upload_key)
+            self.assertEqual(staged.status_code, 200, staged.json())
+            upload_id = staged.json()["upload_id"]
+            self.assertEqual(self.upload_map(content, key=upload_key).json(), staged.json())
+            self.assertEqual(self.upload_map(self.map_image_bytes(), key=upload_key).status_code, 409)
+            self.assertEqual(self.browser.get(media_url).status_code, 404)
+            self.assertNotIn("image_map", self.article(map_id))
+
+            command = {"op": "attach_map_image", "map_id": map_id, "upload_id": upload_id}
+            before = self.edit
+            change_key = uuid4()
+            saved = self.post(command, key=change_key)
+            self.assertEqual(saved.status_code, 200, saved.json())
+            self.assertEqual(saved.json()["record_id"], map_id)
+            self.edit = saved.json()["edit_counter"]
+            self.assertEqual(self.post(command, expected=before, key=change_key).json(), saved.json())
+            self.assertEqual(self.values(map_id, 0)["asset_location"], "archive/old-chart.png")
+            article = self.browser.get(self.path + "/entries/" + map_id, {"overview": "true"}).json()["article"]
+            self.assertEqual(article["image_map"], {"width": 24, "height": 16, "pins": []})
+
+            response = self.browser.get(media_url)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response["Content-Type"], "image/jpeg")
+            self.assertIn("no-store", response["Cache-Control"])
+            self.assertEqual(b"".join(response.streaming_content), content)
+            self.assertEqual(Client().get(media_url).status_code, 401)
+            stranger, _ = self.sign_in(provision("map-stranger"))
+            self.assertEqual(stranger.get(media_url).status_code, 404)
+            self.assertEqual(self.browser.get(media_url, {"at": 0, "view_as": observer}).status_code, 404)
+            self.assertNotIn("image_map", self.article(map_id, observer=observer))
+
+            editor = provision("map-reader")
+            WorldAccess.objects.create(world_id=self.world, account=editor, role="editor", capabilities=[], enabled=True)
+            read_only, token = self.sign_in(editor)
+            response = read_only.get(media_url)
+            self.assertEqual(response.status_code, 200)
+            response.close()
+            self.assertEqual(self.upload_map(content, browser=read_only, token=token).status_code, 403)
+
+    def test_map_pins_keep_coordinates_and_reject_foreign_targets(self):
+        with TemporaryDirectory() as directory, override_settings(MEDIA_ROOT=directory):
+            upload = self.upload_map(self.map_image_bytes()).json()["upload_id"]
+            map_id = self.apply({"op": "create_image_map", "name": "Coast map", "upload_id": upload})
+            place_id = self.entry("Ferry terminal")
+            item_id = self.entry("Survey weight", "item")
+            _, other = create_world(self.owner.pk, uuid4(), "Other coast")
+            foreign = WikiEntry.objects.create(
+                wiki=WikiWorld.objects.create(world_id=other["world"]["id"]), name="Foreign site", kind="place",
+            )
+            pin = {
+                "op": "save_map_pin", "map_id": map_id, "label": "Departure", "place_id": place_id,
+                "x": 0.125, "y": 1,
+            }
+            pin_id = self.apply(pin)
+            extra_id = self.apply({**pin, "label": "Unlinked point", "place_id": None})
+            self.assertEqual(self.post({**pin, "place_id": str(foreign.pk)}).status_code, 422)
+            self.assertEqual(self.post({**pin, "place_id": item_id}).status_code, 422)
+            for x in (-0.01, 1.01, True, "0.25"):
+                self.assertEqual(self.post({**pin, "x": x}).status_code, 400)
+            self.assertEqual(self.post({**pin, "map_id": place_id}).status_code, 422)
+            self.assertEqual(WikiMapPin.objects.filter(map_entry_id=map_id).count(), 2)
+            self.assertEqual(self.apply({**pin, "pin_id": pin_id, "label": "Board here", "x": 0.375}), pin_id)
+            self.apply({"op": "remove_map_pin", "map_id": map_id, "pin_id": extra_id})
+            self.assertEqual(self.article(map_id)["image_map"]["pins"], [{
+                "id": pin_id, "label": "Board here", "place_id": place_id, "x": 0.375, "y": 1,
+            }])
+
+    def test_map_staging_validates_images_and_reclaims_expired_uploads(self):
+        with TemporaryDirectory() as directory, override_settings(MEDIA_ROOT=directory):
+            self.assertEqual(self.upload_map(b"Not a chart").status_code, 422)
+            with BytesIO() as stream:
+                Image.new("RGB", (24, 16), "navy").save(
+                    stream, format="MPO", save_all=True, append_images=[Image.new("RGB", (24, 16), "green")],
+                )
+                response = self.upload_map(stream.getvalue())
+                self.assertEqual(response.status_code, 422, response.content)
+                self.assertIn("still PNG or JPEG", response.json()["field_errors"][0]["message"])
+            self.assertFalse(WikiMapImage.objects.exists())
+            content = self.map_image_bytes()
+            staging = self.upload_map(content)
+            self.assertEqual(staging.status_code, 200, staging.json())
+            expired = WikiMapImage.objects.get(pk=staging.json()["upload_id"])
+            expired.created_at = timezone.now() - timedelta(days=8)
+            expired.save(update_fields=["created_at"])
+            command = {"op": "create_image_map", "name": "Expired map", "upload_id": str(expired.pk)}
+            self.assertEqual(self.post(command).status_code, 422)
+            self.assertFalse(WikiEntry.objects.filter(name="Expired map").exists())
+            staging = self.upload_map(content)
+            self.assertEqual(staging.status_code, 200, staging.json())
+            self.assertFalse(WikiMapImage.objects.filter(pk=expired.pk).exists())
+            self.assertFalse(default_storage.exists(expired.storage_key))
+            command["upload_id"] = staging.json()["upload_id"]
+            self.assertEqual(self.post(command, expected=self.edit + 1).status_code, 409)
+            self.assertFalse(WikiEntry.objects.filter(name="Expired map").exists())
+            self.assertTrue(self.apply({**command, "name": "Recovered chart"}))
 
     def test_workspace_overviews_and_dates_preserve_legacy_facts(self):
         person = self.entry("Surveyor", "person", overview="A surveyor working on the coast.")

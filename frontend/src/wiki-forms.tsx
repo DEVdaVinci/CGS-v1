@@ -11,7 +11,7 @@ export const kindLabel: Record<WikiKind, string> = {
   species: 'Species', organism: 'Organism', culture: 'Culture', role: 'Role or title',
   resource: 'Resource', body_part: 'Body part', trait: 'Trait', goal: 'Goal',
   image: 'Image', model_3d: '3D model', texture: 'Texture', animation: 'Animation',
-  map: 'Map reference', territory: 'Territory', era: 'Era',
+  map: 'Map', territory: 'Territory', era: 'Era',
 }
 
 export type ArticleEdit =
@@ -109,7 +109,7 @@ export function WikiEntryForm({ fixedTemplate, entries, fields, at, ownerId, ...
           setTemplate(event.target.value as WikiEntryTemplate)
           setDateError(false)
         }}>
-          {Object.entries(kindLabel).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}
+          {Object.entries(kindLabel).map(([kind, label]) => <option key={kind} value={kind}>{kind === 'map' ? 'Map reference' : label}</option>)}
           <option value="vehicle">Vehicle</option>
         </select>
       </label>}

@@ -19,6 +19,7 @@ from .wiki_events import (
     attach_event, check_event_tree, event_bounds, organize_event, update_event_causes, update_event_references,
 )
 from .wiki_layouts import save_connection, save_layout, save_waypoint
+from .wiki_maps import attach_map_image, remove_map_pin, save_map_pin
 from .wiki_schema import ACTORS, ENTITY_KINDS, EVENT_PERFORMERS, FIELDS
 
 
@@ -73,6 +74,17 @@ def _rename_entry(wiki, command):
     entry = entry_for(wiki, command["entry_id"])
     entry.name = _named(command["name"])
     entry.save(update_fields=["name"])
+    return entry.pk, set()
+
+
+def _save_map_image(wiki, command, account_id):
+    if command["op"] == "create_image_map":
+        entry = WikiEntry.objects.create(
+            wiki=wiki, kind=WikiEntry.Kind.MAP, name=_named(command["name"]), author_only=command["author_only"],
+        )
+    else:
+        entry = entry_for(wiki, command["map_id"], WikiEntry.Kind.MAP)
+    attach_map_image(entry, account_id, command["upload_id"])
     return entry.pk, set()
 
 
@@ -370,6 +382,8 @@ OPERATIONS = {
     "save_layout": save_layout,
     "save_waypoint": save_waypoint,
     "save_connection": save_connection,
+    "save_map_pin": save_map_pin,
+    "remove_map_pin": remove_map_pin,
     "record_learned_ability": _record_learned_ability,
     "correct_learned_ability": _correct_learned_ability,
 }
@@ -432,7 +446,10 @@ def save_wiki_change(world_id, account_id, request_key, payload):
             if wiki.edit_counter != payload["expected_edit"]:
                 raise CgsError(409, "STALE_WIKI", "This Wiki changed before you saved.", conflict_revision=wiki.edit_counter)
             command = payload["command"]
-            record_id, affected = OPERATIONS[command["op"]](wiki, command)
+            if command["op"] in ("create_image_map", "attach_map_image"):
+                record_id, affected = _save_map_image(wiki, command, account_id)
+            else:
+                record_id, affected = OPERATIONS[command["op"]](wiki, command)
             check_hierarchies(wiki, affected)
             wiki.edit_counter += 1
             _refresh_findings(affected, wiki.edit_counter)

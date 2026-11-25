@@ -205,9 +205,15 @@ async function showTime(page: Page, time: number) {
 
 async function showAs(page: Page, actor: string, time: number) {
   await expect(page.getByLabel('View as')).toBeAttached()
-  const timeline = page.getByRole('region', { name: 'World timeline' })
-  if (await timeline.isVisible() && !(await page.getByLabel('View as').isVisible())) {
-    await page.getByText('Historical view', { exact: true }).click()
+  const timelineView = page.locator('.wiki-timeline-view')
+  if (await timelineView.count()) {
+    if (!(await page.getByLabel('View as').isVisible())) {
+      await timelineView.getByText('State and viewpoint', { exact: true }).click()
+    }
+    await timelineView.getByLabel('View as').selectOption({ label: actor })
+    await timelineView.getByLabel('State and viewpoint time').fill(String(time))
+    await timelineView.getByRole('button', { name: 'Apply state view' }).click()
+    return
   }
   await page.getByLabel('View as').selectOption({ label: actor })
   await showTime(page, time)
@@ -258,6 +264,7 @@ test('authors measured layouts, connected places, and distinct spatial relations
   await fact(page, 'Residence', 'Harbor Hall', { reference: true })
   await fact(page, 'Destination', 'Corridor', { reference: true })
   await openEntry(page, 'Landing', 'Place')
+  await showTime(page, 0)
   await page.reload()
   await expect(page.getByRole('region', { name: 'Occupants' })).toContainText('Mira')
   await expect(layout).toContainText('2.5 m')
@@ -265,6 +272,214 @@ test('authors measured layouts, connected places, and distinct spatial relations
   await expect(page.getByRole('region', { name: 'Occupants' })).not.toContainText('Mira')
   await expect(layout).toContainText('Upper walkway')
   if (process.env.CGS_E2E_CAPTURE === '1') await layout.screenshot({ path: info.outputPath('measured-layout.png') })
+})
+
+test('keeps article dates deliberate and filters timeline events independently', async ({ page }) => {
+  await openWiki(page)
+  await createEntry(page, 'East dock', 'Place')
+  await createEntry(page, 'West dock', 'Place')
+  await createEntry(page, 'Rowan', 'Character')
+  const menu = page.getByRole('navigation', { name: 'Wiki sections' })
+  await menu.getByRole('button', { name: 'Places', exact: true }).click()
+  await openEntry(page, 'East dock', 'Place')
+  await showTime(page, 4)
+  await expect(page.getByRole('heading', { name: 'Facts at time 4' })).toBeVisible()
+
+  await openEntry(page, 'West dock', 'Place')
+  await expect(page.getByRole('navigation', { name: 'Article views' }).getByRole('button', { name: 'Overview' }))
+    .toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByLabel('View state at time')).toHaveCount(0)
+  expect(new URL(page.url()).searchParams.has('at')).toBe(false)
+  await page.getByRole('button', { name: 'Record fact', exact: true }).click()
+  const factForm = page.getByRole('form', { name: 'Record fact' })
+  await factForm.getByRole('combobox', { name: 'Field', exact: true }).selectOption({ label: 'Status' })
+  await factForm.getByLabel('Value', { exact: true }).fill('Inspected')
+  await expect(factForm.getByLabel('Effective from')).toHaveValue('')
+  await factForm.getByRole('button', { name: 'Save fact' }).click()
+  await expect(factForm).toBeVisible()
+  await factForm.getByLabel('Effective from').fill('9')
+  await factForm.getByRole('button', { name: 'Save fact' }).click()
+  await expect(page.getByRole('region', { name: 'Fact history' })).toContainText('From time 9')
+  const bookmark = new URL(page.url())
+  bookmark.searchParams.set('at', '0')
+  await page.goto(bookmark.href)
+  await expect(page.getByRole('heading', { name: 'Facts at time 0' })).toBeVisible()
+
+  await menu.getByRole('button', { name: 'Timeline', exact: true }).click()
+  for (const [name, time] of [['Morning survey', '4'], ['Evening survey', '9']]) {
+    await page.getByRole('button', { name: 'New event', exact: true }).click()
+    const event = page.getByRole('form', { name: 'New event' })
+    await event.getByLabel('Event name').fill(name)
+    await event.getByLabel('Event time').fill(time)
+    await event.getByRole('group', { name: 'Places' }).getByRole('checkbox', { name: 'West dock', exact: true }).check()
+    await event.getByRole('button', { name: 'Save event' }).click()
+    await expect(page.getByRole('article', { name })).toBeVisible()
+  }
+  await page.getByLabel('Filter events by time').fill('4')
+  await expect(page.getByRole('article', { name: 'Evening survey' })).toHaveCount(0)
+  await showAs(page, 'Author', 9)
+  await expect(page.getByLabel('Filter events by time')).toHaveValue('4')
+  await expect(page.getByRole('article', { name: 'Evening survey' })).toHaveCount(0)
+  await page.getByRole('article', { name: 'Morning survey' }).getByRole('button', { name: 'West dock' }).click()
+  await expect(page.getByRole('heading', { name: 'Facts at time 4' })).toBeVisible()
+
+  await showAs(page, 'Rowan', 4)
+  await expect(page.getByText('Viewing as Rowan at time 4.')).toBeVisible()
+  await openEntry(page, 'East dock', 'Place')
+  await expect(page.getByText('Viewing as Rowan at time 4.')).toBeVisible()
+  const preview = new URL(page.url())
+  expect(preview.searchParams.get('at')).toBe('4')
+  expect(preview.searchParams.get('view_as')).toBeTruthy()
+})
+
+test('uploads an image map, edits linked pins and attaches a legacy map image', async ({ page, browser }, info) => {
+  test.setTimeout(90_000)
+  await openWiki(page)
+  await createEntry(page, 'Ferry terminal', 'Place')
+  await createEntry(page, 'Coastal workshop', 'Place')
+  const menu = page.getByRole('navigation', { name: 'Wiki sections' })
+  await menu.getByRole('button', { name: 'Maps', exact: true }).click()
+  await page.getByRole('button', { name: 'New map', exact: true }).click()
+  const newMap = page.getByRole('form', { name: 'New map' })
+  await newMap.getByLabel('Map name').fill('Harbor survey')
+  await newMap.getByLabel('Map image').setInputFiles({ name: 'broken.png', mimeType: 'image/png', buffer: Buffer.from('broken image') })
+  await newMap.getByRole('button', { name: 'Create map' }).click()
+  await expect(newMap.getByRole('alert')).toContainText('complete PNG or JPEG')
+
+  const base64 = await page.evaluate(() => {
+    const image = document.createElement('canvas')
+    image.width = 640
+    image.height = 400
+    const context = image.getContext('2d')!
+    context.fillStyle = '#81b5c3'
+    context.fillRect(0, 0, 640, 400)
+    context.fillStyle = '#dce6cd'
+    context.beginPath()
+    context.moveTo(0, 0)
+    context.lineTo(640, 0)
+    context.lineTo(640, 400)
+    context.lineTo(355, 400)
+    context.bezierCurveTo(425, 325, 280, 318, 327, 248)
+    context.bezierCurveTo(364, 181, 118, 207, 138, 141)
+    context.bezierCurveTo(145, 107, 68, 94, 0, 108)
+    context.fill()
+    context.fillStyle = '#315a64'
+    context.font = '18px sans-serif'
+    context.fillText('FERRY BASIN', 54, 306)
+    return image.toDataURL('image/png').split(',')[1]
+  })
+  const file = { name: 'harbor.png', mimeType: 'image/png', buffer: Buffer.from(base64, 'base64') }
+  await newMap.getByLabel('Map image').setInputFiles(file)
+  await newMap.getByRole('button', { name: 'Create map' }).click()
+
+  const viewer = page.getByRole('region', { name: 'Interactive map' })
+  const viewport = viewer.getByRole('region', { name: 'Map viewport' })
+  const image = viewer.getByRole('img', { name: 'Harbor survey map image' })
+  await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(640)
+  const mapUrl = page.url()
+  const imagePath = await image.getAttribute('src')
+  expect(imagePath).toBeTruthy()
+
+  await viewer.getByRole('button', { name: 'Add pin' }).press('Enter')
+  let pin = viewer.getByRole('form', { name: 'Add map pin' })
+  await expect(pin.getByLabel('Pin label')).toBeFocused()
+  await pin.getByLabel('Pin label').fill('Departure')
+  await pin.getByRole('combobox', { name: 'Linked place', exact: true }).selectOption({ label: 'Ferry terminal' })
+  await viewport.locator('.wiki-map-image').click({ position: { x: 40, y: 80 } })
+  await expect(pin.getByLabel('Horizontal position (%)')).not.toHaveValue('50')
+  await pin.getByRole('button', { name: 'Save pin' }).click()
+  await expect(viewer.getByRole('button', { name: 'Departure', exact: true })).toBeVisible()
+
+  await viewer.getByRole('button', { name: 'Add pin' }).click()
+  pin = viewer.getByRole('form', { name: 'Add map pin' })
+  await pin.getByLabel('Pin label').fill('Temporary mark')
+  await pin.getByRole('button', { name: 'Save pin' }).click()
+  await expect(viewer.getByRole('button', { name: 'Temporary mark', exact: true })).toBeVisible()
+  await viewer.getByRole('button', { name: 'Temporary mark', exact: true }).click()
+  await viewer.getByRole('button', { name: 'Remove pin' }).click()
+  await expect(viewer.getByRole('button', { name: 'Temporary mark', exact: true })).toHaveCount(0)
+
+  await viewer.getByRole('button', { name: 'Departure', exact: true }).press('Enter')
+  await viewer.getByRole('button', { name: 'Edit pin' }).press('Enter')
+  const edit = viewer.getByRole('form', { name: 'Edit map pin' })
+  await expect(edit.getByLabel('Pin label')).toBeFocused()
+  await edit.getByLabel('Pin label').fill('Board here')
+  await edit.getByLabel('Horizontal position (%)').fill('65')
+  await edit.getByLabel('Vertical position (%)').fill('42')
+  await edit.getByRole('button', { name: 'Save pin' }).click()
+  const mapPin = viewer.getByRole('button', { name: 'Select Board here on map' })
+  await expect(mapPin).toHaveCSS('left', /px$/)
+  await expect(mapPin).toHaveAttribute('style', /left: 65%; top: 42%/)
+  await viewer.getByRole('button', { name: 'Zoom in' }).click()
+  await expect(viewport.locator('.wiki-map-image')).toHaveAttribute('style', /width: 150%/)
+  await viewport.scrollIntoViewIfNeeded()
+  const box = await viewport.boundingBox()
+  expect(box).toBeTruthy()
+  await page.mouse.move(box!.x + 150, box!.y + 55)
+  await page.mouse.down()
+  await page.mouse.move(box!.x + 65, box!.y + 55, { steps: 4 })
+  await page.mouse.up()
+  await expect.poll(() => viewport.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
+  await expect(mapPin).toHaveAttribute('style', /left: 65%; top: 42%/)
+  await viewer.getByRole('button', { name: 'Reset view' }).click()
+  await expect.poll(() => viewport.evaluate((element) => element.scrollLeft)).toBe(0)
+
+  await page.reload()
+  await expect(mapPin).toHaveAttribute('style', /left: 65%; top: 42%/)
+  await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(640)
+  if (process.env.CGS_E2E_CAPTURE === '1') await page.screenshot({ path: info.outputPath('harbor-map.png'), fullPage: true })
+  await page.getByRole('button', { name: 'Read', exact: true }).click()
+  await expect(viewer.getByRole('button', { name: 'Add pin' })).toHaveCount(0)
+  await viewer.getByRole('button', { name: 'Board here', exact: true }).press('Enter')
+  await viewer.getByRole('button', { name: 'Open Ferry terminal' }).click()
+  await expect(page.getByRole('heading', { name: 'Ferry terminal', exact: true })).toBeVisible()
+  expect(new URL(page.url()).searchParams.has('at')).toBe(false)
+
+  const phone = await browser.newContext({
+    storageState: await page.context().storageState(), viewport: { width: 320, height: 840 }, hasTouch: true,
+  })
+  try {
+    const screen = await phone.newPage()
+    await screen.goto(mapUrl)
+    await screen.getByRole('button', { name: 'Board here', exact: true }).tap()
+    await expect(screen.getByRole('button', { name: 'Open Ferry terminal' })).toBeVisible()
+    expect(await screen.evaluate(() => document.documentElement.scrollWidth)).toBe(320)
+    if (process.env.CGS_E2E_CAPTURE === '1') await screen.screenshot({ path: info.outputPath('harbor-map-mobile.png'), fullPage: true })
+  } finally {
+    await phone.close()
+  }
+  const stranger = await browser.newContext()
+  try {
+    expect((await stranger.request.get(imagePath!)).status()).toBe(401)
+    const other = await stranger.newPage()
+    await other.goto('/')
+    await other.getByLabel('Username').fill('e2e-other')
+    await other.getByLabel('Password').fill(process.env.CGS_E2E_PASSWORD!)
+    await other.getByRole('button', { name: 'Sign in', exact: true }).click()
+    await expect(other.getByRole('button', { name: 'Create world' })).toBeVisible()
+    expect((await stranger.request.get(imagePath!)).status()).toBe(404)
+  } finally {
+    await stranger.close()
+  }
+
+  await page.getByRole('button', { name: 'Build', exact: true }).click()
+  await menu.getByRole('button', { name: 'Maps', exact: true }).click()
+  await page.getByRole('button', { name: 'Add map reference', exact: true }).click()
+  const legacy = page.getByRole('form', { name: 'Add map reference' })
+  await legacy.getByLabel('Entry name').fill('Old harbor chart')
+  await legacy.getByLabel('Asset location').fill('archive/chart.png')
+  await legacy.getByLabel('Initial facts start at time').fill('0')
+  await legacy.getByRole('button', { name: 'Save entry' }).click()
+  await expect(page.getByRole('region', { name: 'Fact history' })).toContainText('archive/chart.png')
+  const oldMap = new URL(page.url()).searchParams.get('entry')
+  await page.getByRole('button', { name: 'Attach map image' }).click()
+  const attachment = page.getByRole('form', { name: 'Attach map image' })
+  await attachment.getByLabel('Map image').setInputFiles(file)
+  await attachment.getByRole('button', { name: 'Attach image' }).click()
+  await expect(viewer.getByRole('img', { name: 'Old harbor chart map image' })).toBeVisible()
+  expect(new URL(page.url()).searchParams.get('entry')).toBe(oldMap)
+  await showTime(page, 0)
+  await expect(page.getByRole('region', { name: 'Fact history' })).toContainText('archive/chart.png')
 })
 
 test('nests actions and preserves canonical chronology when the outline changes', async ({ page }, info) => {

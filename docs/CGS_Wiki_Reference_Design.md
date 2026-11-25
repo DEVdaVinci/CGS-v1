@@ -1,6 +1,6 @@
 # CGS Wiki workspace and reference coverage
 
-This design describes the complete Wiki target, the current gaps, and the delivery order. The W1 workspace is deployed. The acceptance recheck found an open date-context issue on ordinary catalog navigation. The image map editor and remaining core checks are separate W1 passes. The owner confirmed that article revision history, comparison, and restore follow the complete Wiki release. In-world history remains a release requirement. [Acceptance checklist](CGS_Wiki_Acceptance_Checklist.md) · [Workspace acceptance recheck](CGS_W1_Core_Worldbuilding.md#w1-workspace-acceptance-recheck)
+This design describes the complete Wiki target, the current gaps, and the delivery order. The W1 workspace includes contextual date navigation and a persisted image map editor. The remaining W1 core checks cover authored data, time, space, evidence and character knowledge. The owner confirmed that article revision history, comparison, and restore follow the complete Wiki release. In-world history remains a release requirement. [Acceptance checklist](CGS_Wiki_Acceptance_Checklist.md) · [W1 map and date evidence](CGS_W1_Core_Worldbuilding.md#w1-navigation-and-image-maps-delivery-evidence)
 
 ## Design authority
 
@@ -43,12 +43,12 @@ The [current coverage audit](CGS_Wiki_Current_Coverage.md) checks the shipped bu
 | --- | --- | --- |
 | Create and find an item | **Items → New item** creates an article with an optional overview and dated properties. **New entry → Item** uses the same form. | W3 adds the remaining templates, fields and relationships. |
 | Create and find a vehicle | **Vehicles → New vehicle** stores a classified item with a stable ID. The same ID is available in Items. Existing unambiguous legacy Vehicle classifications appear in both catalogs, and mixed classifications retain their dated evidence for review. | W3 adds structured crew, cargo, propulsion, and capacity. W2 supplies compatible rule definitions and P2 handles supported live actions. |
-| Create a map | **Maps → Add map reference** saves an asset locator. The measured place layout editor is available in the place's dated History. | The W1 map starter adds real image upload and editable pins. W3 adds the later interactive map tools. |
+| Create a map | **Maps → New map** accepts a PNG or JPEG. Add, move and remove pins, and follow links to Places. **Add map reference** retains the locator workflow, and existing Map entries can attach an image under the same ID. | W3 adds layers, spatial geometry, historical context and embeds. Measured place plans have their own dated editor. |
 | Explore an encyclopedia | Overview and All articles provide a world entry point. The browser has named catalogs, global name search for authorized authors, and Read and Build modes. | W3 completes the remaining catalogs, rich article editing, full search and discovery. |
-| Browse or author at a time | Article Overview uses undated identity and authored prose. **History** holds the date control, dated facts, and related events. **Timeline** holds the calendar tools. | An ordinary click within a catalog can inherit the previous article's History date and prefill a new write. NAV-07 remains open. Structured sources, more date precision and full character-knowledge projection remain W1 core work. |
+| Browse or author at a time | An ordinary catalog or search link opens an undated Overview. Explicit historical links and active character previews preserve their date. **Timeline** has separate event filtering and state and viewpoint controls. | Structured sources, more date precision and full character-knowledge projection remain W1 core work. |
 | Model evidence, rules, and planning | The build supports dated assertions, claims, observations, beliefs, groups, and recorded action effects. | Structured sources and uncertain dates are still W1 work. Rule authoring, full planning tools, and the rest of the reference workflows are pending. |
 
-**Release assessment:** W1 workspace has shipped the navigation and authoring changes above. W1 closes after the date-context correction, image map and remaining core checks pass. W5 is the complete Phase 1 Wiki gate. [Workspace navigation](../frontend/src/wiki-workspace.tsx) · [Create forms](../frontend/src/wiki-forms.tsx) · [Django field catalog](../backend/cgs/worlds/wiki_schema.py)
+**Release assessment:** The workspace, date navigation and image map are available. W1 closes after the remaining core checks pass. W5 is the complete Phase 1 Wiki gate. [Workspace navigation](../frontend/src/wiki-workspace.tsx) · [Map editor](../frontend/src/wiki-map.tsx) · [Django field catalog](../backend/cgs/worlds/wiki_schema.py)
 
 ### Clickable preview evidence
 

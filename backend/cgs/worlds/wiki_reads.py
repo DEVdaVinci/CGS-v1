@@ -13,6 +13,7 @@ from .models import (
 from .wiki import at_tick, can_edit, value_slot, wiki_access
 from .wiki_events import event_bounds
 from .wiki_layouts import place_layout
+from .wiki_maps import describe_image_map
 from .wiki_records import derived_age, effective_values, family_links, incoming_links, observation_visible, propositions_for
 from .wiki_schema import ACTORS, FIELDS, NONLIVING
 
@@ -247,6 +248,10 @@ def _author_article(entry, at, identity):
     }
     if entry.kind == WikiEntry.Kind.GROUP:
         article["legacy_location_review"] = any(fact.field == "located_in" for fact in facts)
+    if entry.kind == WikiEntry.Kind.MAP:
+        image_map = describe_image_map(entry)
+        if image_map is not None:
+            article["image_map"] = image_map
     if at is None:
         return article
     values = effective_values(entry, facts, at)

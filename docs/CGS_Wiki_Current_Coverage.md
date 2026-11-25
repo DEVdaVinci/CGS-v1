@@ -2,6 +2,8 @@
 
 **Build reviewed** — `c092c5c`, serving `index-DoMAdis_.js` on the local CGS site. The build delivers the W1 workspace pass. W1 core coverage is still partial. The full Wiki and the World Anvil and Fandom comparison remain open at W5.
 
+The [W1 navigation and image map evidence](CGS_W1_Core_Worldbuilding.md#w1-navigation-and-image-maps-delivery-evidence) records the changes delivered after this baseline audit.
+
 The audit uses the three original Lucidchart exports, the decisions in the active CGS conversation, the five turns available from **CGS Development Roadmap**, public reference documentation and a published World Anvil world, and the shipped React and Django code and existing browser evidence. This covers documented reference workflows. Some product features require a signed-in or paid reference account, and those controls remain unverified. The proposed fields and the clickable design preview have no product coverage until the normal browser workflow saves and reopens them. [W1 evidence](CGS_W1_Core_Worldbuilding.md#evidence-reviewed) · [Browser scenarios](../frontend/e2e/wiki.spec.ts)
 
 **Reading the tables** — **Available** identifies an existing typed record or named browser workflow. **Partial** identifies exactly what exists and what is missing. **Missing** identifies a field, connection, or workflow without an equivalent. A milestone assignment gives the delivery sequence. The dependency column identifies which missing behavior actually requires other work. The [source field trace](CGS_Wiki_Field_Trace.md) records the detailed design intent and rationale for existing representations.

@@ -209,6 +209,42 @@ class WikiEntry(CreatedRecord):
         ]
 
 
+class WikiMapImage(CreatedRecord):
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    wiki = models.ForeignKey(WikiWorld, on_delete=models.RESTRICT)
+    entry = models.OneToOneField(WikiEntry, on_delete=models.RESTRICT, null=True, related_name="base_map_image")
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.RESTRICT)
+    request_key = models.UUIDField()
+    storage_key = models.CharField(max_length=100)
+    digest = models.CharField(max_length=64)
+    content_type = models.CharField(max_length=12)
+    width = models.PositiveIntegerField()
+    height = models.PositiveIntegerField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["wiki", "uploaded_by", "request_key"], name="wiki_map_upload_request_key",
+            ),
+        ]
+
+
+class WikiMapPin(CreatedRecord):
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    map_entry = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, related_name="map_pins")
+    place = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, null=True, related_name="map_place_pins")
+    label = models.CharField(max_length=100)
+    x = models.FloatField()
+    y = models.FloatField()
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(x__gte=0, x__lte=1, y__gte=0, y__lte=1), name="wiki_map_pin_image_bounds",
+            ),
+        ]
+
+
 class WikiLayout(CreatedRecord):
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     place = models.OneToOneField(WikiEntry, on_delete=models.RESTRICT, related_name="wiki_layout")

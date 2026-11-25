@@ -55,7 +55,7 @@ export function WikiHome({ entries, onSelect }: { entries: WikiEntry[]; onSelect
           return <button key={key} className="wiki-home-card" type="button" onClick={() => onSelect(key)}>
             <strong>{label}</strong>
             <span>{key === 'timeline' ? 'Events and calendars'
-              : key === 'maps' ? 'Map references and layouts' : count + (count === 1 ? ' article' : ' articles')}</span>
+              : key === 'maps' ? 'Image maps and linked places' : count + (count === 1 ? ' article' : ' articles')}</span>
           </button>
         })}
       </div>
@@ -92,7 +92,7 @@ export function WikiDirectory({ section, entries, currentId, disabled, onOpen, o
     <nav className="wiki-directory" aria-label="Wiki entries">
       <h2>{sections.find(({ key }) => key === section)?.label}</h2>
       {section === 'maps' && <p className="muted">
-        Find linked map references here. Open a place to view its measured layout in History.{' '}
+        Open an image map or a saved reference. Open a place to view its measured layout in History.{' '}
         <button className="wiki-reference" type="button" disabled={disabled} onClick={onPlaces}>Open Places</button>
       </p>}
       {available.length > 0 && <label className="field">Find an entry
@@ -158,12 +158,13 @@ export function WikiSearch({ worldId, revision, disabled, onOpen, onAuthError }:
   </div>
 }
 
-export function WikiHistoryControls({ location, entries, viewpoint, disabled, onChange }: {
+export function WikiHistoryControls({ location, entries, viewpoint, disabled, onChange, timeline = false }: {
   location: WikiLocation; entries: WikiEntry[]; viewpoint: WikiEntry | null; disabled: boolean
   onChange: (at: number, viewAs: string) => void
+  timeline?: boolean
 }) {
   return (
-    <form className="wiki-history-controls" aria-label="Historical view" onSubmit={(event) => {
+    <form className="wiki-history-controls" aria-label={timeline ? 'State and viewpoint' : 'Historical view'} onSubmit={(event) => {
       event.preventDefault()
       const data = new FormData(event.currentTarget)
       const raw = String(data.get('at') ?? '')
@@ -171,7 +172,7 @@ export function WikiHistoryControls({ location, entries, viewpoint, disabled, on
       if (raw && Number.isSafeInteger(at) && at >= 0) onChange(at, String(data.get('view_as') ?? ''))
     }}>
       <fieldset disabled={disabled}>
-        <TimeInput key={location.at} name="at" label="View state at time" day={location.at} />
+        <TimeInput key={location.at} name="at" label={timeline ? 'State and viewpoint time' : 'View state at time'} day={location.at} />
         <label className="field">View as
           <select key={location.viewAs} name="view_as" defaultValue={location.viewAs}>
             <option value="">Author</option>
@@ -179,7 +180,7 @@ export function WikiHistoryControls({ location, entries, viewpoint, disabled, on
             {viewpoint && !entries.some((entry) => entry.id === viewpoint.id) && <option value={viewpoint.id}>{viewpoint.name}</option>}
           </select>
         </label>
-        <button className="button secondary" type="submit">Show time</button>
+        <button className="button secondary" type="submit">{timeline ? 'Apply state view' : 'Show time'}</button>
       </fieldset>
     </form>
   )
