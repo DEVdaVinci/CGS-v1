@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { isWikiActor, type WikiEvent } from './wiki-api'
 import {
-  Actions, EntryChoices, EntryPicker, EventContextFields, optionalTime, readEventContext, TimeInput,
+  Actions, CitationInput, EntryChoices, EntryPicker, EventContextFields, optionalTime, readEventContext, TimeInput,
   type EventContextProps, type FormActions,
 } from './wiki-forms'
 
@@ -19,6 +19,7 @@ export function WikiGroupForm({ events, entries, event, parentId, worldId, field
       const parent = groups.length ? String(values.get('parent_id') ?? '') : parentId
       const details = {
         ...readEventContext(values), name: String(values.get('name')), source: String(values.get('source') ?? ''),
+        citation_id: String(values.get('citation_id') ?? '') || null,
         description: String(values.get('description') ?? ''), ability_use: null,
         participant_ids: values.getAll('participants').map(String), place_ids: values.getAll('places').map(String),
         item_ids: values.getAll('items').map(String), cross_reference_ids: values.getAll('references').map(String),
@@ -52,6 +53,7 @@ export function WikiGroupForm({ events, entries, event, parentId, worldId, field
       {leaves.length > 0 && (
         <EntryChoices label="Related actions and occurrences" name="references" entries={leaves} initial={event?.cross_reference_ids ?? []} />
       )}
+      <CitationInput entries={entries} initial={event?.citation_id} />
       <label className="field">Source (optional)<input name="source" maxLength={500} defaultValue={event?.source} /></label>
       <Actions {...actions} submit="Save event group" />
     </form>

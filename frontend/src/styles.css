@@ -356,7 +356,9 @@ a { color: var(--accent); }
   letter-spacing: 0.055em;
   text-transform: uppercase;
 }
-.wiki-nav-group button {
+.wiki-nav-group a {
+  display: flex;
+  align-items: center;
   min-height: 38px;
   padding: 0.45rem 0.65rem;
   border: 1px solid transparent;
@@ -364,59 +366,19 @@ a { color: var(--accent); }
   color: #f0f5ef;
   background: transparent;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
 }
-.wiki-nav-group button[aria-current="page"] { background: #d9e7d7; color: #183c32; font-weight: 700; }
-.wiki-nav-group button:not([aria-current]):not(:disabled):hover { background: #36534a; }
-.wiki-nav-group button:disabled { cursor: default; opacity: 0.68; }
-.wiki-nav-group button:focus-visible { outline-color: #daf1bf; }
+.wiki-nav-group a[aria-current="page"] { background: #d9e7d7; color: #183c32; font-weight: 700; }
+.wiki-nav-group a:not([aria-current]):not([aria-disabled]):hover { background: #36534a; }
+.wiki-nav-group a[aria-disabled] { cursor: default; opacity: 0.68; }
+.wiki-nav-group a:focus-visible { outline-color: #daf1bf; }
 
-.wiki-home-intro {
-  display: grid;
-  gap: 1rem;
-  justify-items: start;
-  min-height: 12rem;
-  align-content: center;
-  padding: clamp(1.1rem, 4vw, 2.7rem);
-  border: 1px solid #2c4b40;
-  border-radius: 11px;
-  background: linear-gradient(128deg, #203c35, #355a4d 74%, #496957);
-  color: #fffdf4;
-}
-.wiki-home-intro h1, .wiki-page-title, .wiki-catalog h2, .wiki-article-title h1 {
+.wiki-page-title, .wiki-catalog h2, .wiki-article-title h1 {
   font-family: var(--wiki-serif);
   font-weight: 600;
   letter-spacing: -0.035em;
 }
-.wiki-home-intro h1 { font-size: clamp(2rem, 5vw, 3.65rem); }
-.wiki-home-intro .wiki-prose { color: #eff5eb; max-width: 66ch; font-size: 1.03rem; }
-.wiki-home-destinations { margin-top: 1.45rem; }
-.wiki-home-destinations > h2 { font-family: var(--wiki-serif); font-size: 1.4rem; }
-.wiki-home-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
-  gap: 0.65rem;
-  margin-top: 0.65rem;
-}
-
-.wiki-home-card {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.45rem;
-  padding: 0.95rem 1rem;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  color: var(--ink);
-  background: var(--surface);
-  text-align: left;
-  cursor: pointer;
-}
-
-.wiki-home-card:hover { border-color: #94ad99; background: #f6f9f0; }
-.wiki-home-card strong { font-size: 1.06rem; }
-.wiki-home-card span { color: var(--quiet); font-size: 0.88rem; }
 .wiki-section-actions { margin: 0.8rem 0; }
 .wiki-article-tabs { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-top: 0.9rem; }
 
@@ -472,7 +434,7 @@ a { color: var(--accent); }
 
 .wiki-directory li + li { margin-top: 0.25rem; }
 .wiki-catalog li + li, .wiki-related-directory li + li { margin-top: 0; }
-.wiki-directory li button {
+.wiki-directory li a {
   display: grid;
   gap: 0.25rem;
   width: 100%;
@@ -482,14 +444,15 @@ a { color: var(--accent); }
   color: var(--ink);
   background: transparent;
   text-align: left;
+  text-decoration: none;
   overflow-wrap: anywhere;
   cursor: pointer;
 }
 
-.wiki-directory li button[aria-current="page"] { border-color: #cbdcca; background: #e9f1e6; }
-.wiki-directory li button:not(:disabled):hover { background: #edf3e9; }
-.wiki-directory li button:disabled { cursor: default; }
-.wiki-directory li button span { color: var(--quiet); font-size: 0.8rem; }
+.wiki-directory li a[aria-current="page"] { border-color: #cbdcca; background: #e9f1e6; }
+.wiki-directory li a:not([aria-disabled]):hover { background: #edf3e9; }
+.wiki-directory li a[aria-disabled] { cursor: default; }
+.wiki-directory li a span { color: var(--quiet); font-size: 0.8rem; }
 .wiki-article-title, .wiki-record {
   display: flex;
   align-items: flex-start;
@@ -793,6 +756,110 @@ a { color: var(--accent); }
   .wiki-infobox { float: none; width: 100%; margin: 0 0 0.85rem; }
 }
 
+.home-shell, .world-home {
+  --ink: #26332d;
+  --quiet: #52645a;
+  --line: #d9dfd3;
+  --accent: #245c4a;
+  --accent-hover: #174635;
+  --surface: #fffdf7;
+  color: var(--ink);
+}
+.home-shell { width: min(100%, 1350px); padding-top: clamp(1.25rem, 3vw, 2.4rem); }
+.home-masthead {
+  position: relative;
+  display: grid;
+  align-items: end;
+  min-height: clamp(15rem, 29vw, 23rem);
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #263f36 url('./assets/yukon-delta.jpg') 50% 44% / cover;
+  color: #fffcf3;
+}
+.home-masthead::after {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  content: '';
+  background: linear-gradient(90deg, #142b24f5 2%, #142b24bd 51%, #142b2433 100%),
+    linear-gradient(0deg, #142b2499, transparent 70%);
+}
+.home-cover { position: absolute; z-index: -2; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.home-masthead-content { padding: clamp(1.2rem, 5vw, 3.2rem); }
+.home-masthead h1, .home-index h2, .world-library-list h2, .sign-in-card h2 {
+  font-family: Georgia, "Times New Roman", serif;
+  letter-spacing: -0.035em;
+}
+.home-masthead h1 { font-size: clamp(2.3rem, 6vw, 4.6rem); font-weight: 600; }
+.home-introduction { max-width: 66ch; margin-top: 0.85rem; line-height: 1.58; white-space: pre-wrap; overflow-wrap: anywhere; }
+.home-masthead-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; margin-top: 1.2rem; }
+.home-masthead .primary { background: #ead7ad; color: #1d3329; border-color: #ead7ad; }
+.home-masthead .primary:hover { background: #fae8c2; color: #1d3329; }
+.home-masthead .secondary { background: #183329dc; border-color: #c8dac59c; color: #fffdf4; }
+.home-masthead .secondary:hover { background: #36594b; color: #fffdf4; border-color: #d6e4d3; }
+.home-masthead :focus-visible { outline-color: #fff4c6; }
+.wiki-workspace .home-masthead { min-height: clamp(13rem, 25vw, 19rem); }
+.world-library .creation-panel { margin-top: 1.2rem; }
+.world-library > .notice { margin-top: 0.9rem; }
+.world-library-list { margin-top: clamp(1.2rem, 3vw, 2rem); }
+.home-index-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+  margin-bottom: 0.85rem;
+}
+.home-index h2, .world-library-list h2 { font-size: clamp(1.35rem, 2.6vw, 1.9rem); }
+.world-filter { display: flex; align-items: center; min-width: 0; gap: 0.45rem; }
+.world-filter .field { flex: 1 1 auto; min-width: 0; }
+.world-filter input { min-width: 0; }
+.world-home-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(11.5rem, 0.85fr);
+  align-items: start;
+  gap: clamp(0.7rem, 2vw, 1.5rem);
+  margin-top: clamp(0.85rem, 3vw, 1.65rem);
+}
+.world-home-articles { display: grid; gap: 0.9rem; min-width: 0; }
+.home-index { min-width: 0; padding: clamp(0.85rem, 2.5vw, 1.45rem); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.home-index-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11.5rem), 1fr)); gap: 0.5rem; }
+.home-index-link {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.24rem 0.55rem;
+  align-items: start;
+  padding: 0.65rem 0.72rem;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #f3f6ed;
+  color: var(--ink);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.home-index-link:hover, .home-featured a:hover { background: #eaf1e5; }
+.home-index-link span:not([aria-hidden]), .home-featured span { grid-column: 1; color: var(--quiet); font-size: 0.85rem; }
+.home-index-link span[aria-hidden] { grid-column: 2; grid-row: 1; color: var(--accent); }
+.home-tools h2 { margin-bottom: 0.6rem; }
+.home-tools .home-index-link + .home-index-link { margin-top: 0.45rem; }
+.home-featured {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11.5rem), 1fr));
+  gap: 0.55rem;
+  margin: 0.7rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.home-featured a { display: grid; gap: 0.35rem; padding: 0.7rem; border: 1px solid var(--line); border-radius: 7px; text-decoration: none; overflow-wrap: anywhere; }
+.home-featured strong { font-family: Georgia, serif; font-size: 1.2rem; }
+.home-curation-list { display: grid; gap: 0.45rem; margin: 0 0 0.35rem; padding-left: 1.4rem; }
+.home-curation-list .form-actions { margin-top: 0.35rem; }
+.sign-in-landing { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(18rem, 1fr); gap: 1rem; align-items: stretch; }
+.sign-in-landing .home-masthead { min-height: clamp(15rem, 37vw, 30rem); }
+.sign-in-landing .sign-in-card { width: 100%; align-content: center; }
+.sign-in-landing h2 { font-size: clamp(1.6rem, 4vw, 2.4rem); }
+
 .world-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr));
@@ -804,42 +871,30 @@ a { color: var(--accent); }
 
 .world-card {
   display: grid;
-  position: relative;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.32rem 0.8rem;
-  min-height: 136px;
+  grid-template-rows: 6.5rem auto;
   height: 100%;
-  padding: 1.05rem 1.15rem;
   border: 1px solid var(--line);
   border-radius: 12px;
+  overflow: hidden;
   background: var(--surface);
   color: var(--ink);
   text-decoration: none;
   box-shadow: 0 3px 9px #162b5010;
 }
 
-.world-card:hover { border-color: #91a4e1; background: #fcfdff; }
-
-.world-card-icon {
-  display: grid;
-  grid-template-columns: repeat(2, 5px);
-  place-content: center;
-  gap: 3px;
-  width: 29px;
-  height: 29px;
-  margin-bottom: 0.35rem;
-  border-radius: 7px;
-  background: #e9efff;
-  color: var(--accent);
+.world-card:hover { border-color: #8cab95; background: #f6f8ee; }
+.world-card-art {
+  background: linear-gradient(135deg, #2b4c3f49, #3d553d66), url('./assets/yukon-delta.jpg') 65% 32% / 170% auto;
 }
-
-.world-card-icon span { width: 5px; height: 5px; border: 1px solid currentColor; border-radius: 1px; }
-.world-card-icon span:nth-child(2) { background: currentColor; }
+.world-grid li:nth-child(3n + 2) .world-card-art { background-position: 12% 80%; }
+.world-grid li:nth-child(3n) .world-card-art { background-position: 92% 64%; }
+.world-card-caption { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.35rem 0.8rem; padding: 1rem; }
 
 .world-card-name {
   grid-column: 1;
   overflow-wrap: anywhere;
-  font-size: 1.09rem;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.24rem;
   font-weight: 675;
   line-height: 1.32;
 }
@@ -850,7 +905,13 @@ a { color: var(--accent); }
   font-size: 0.85rem;
 }
 
-.world-card-arrow { grid-column: 2; grid-row: 2; align-self: start; color: var(--accent); }
+.world-card-arrow { grid-column: 2; grid-row: 1; align-self: start; color: var(--accent); }
+
+@media (max-width: 680px) {
+  .world-home-columns, .sign-in-landing { grid-template-columns: minmax(0, 1fr); }
+  .world-filter { width: 100%; }
+  .home-masthead { min-height: 13.5rem; }
+}
 
 .back-link {
   display: inline-flex;
@@ -863,6 +924,13 @@ a { color: var(--accent); }
 }
 
 .back-link:hover { text-decoration: underline; }
+
+.world-home-context {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
 
 .world-title { margin-bottom: 1.4rem; }
 

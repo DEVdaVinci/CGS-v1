@@ -97,6 +97,10 @@ def typed_value(entry, field, value):
         amount = Decimal(value)
         if field in {"mass_kg", "width_cm", "length_cm"} and amount < 0:
             reject("INVALID_VALUE", f"{definition.label} must be nonnegative.")
+        if definition.minimum is not None and amount < definition.minimum:
+            reject("INVALID_VALUE", f"{definition.label} must be at least {definition.minimum}.")
+        if definition.maximum is not None and amount > definition.maximum:
+            reject("INVALID_VALUE", f"{definition.label} must be at most {definition.maximum}.")
         return _decimal_text(amount)
     elif definition.value_kind == "distribution":
         return _distribution(value, definition.label)

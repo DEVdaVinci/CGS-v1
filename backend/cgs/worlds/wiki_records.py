@@ -174,7 +174,7 @@ def observation_visible(observation, visible_ids):
     return (
         not source.author_only
         and str(source.entry_id) in visible_ids
-        and (not observation.claim_id or str(source.speaker_id) in visible_ids)
+        and (not observation.claim_id or not source.speaker_id or str(source.speaker_id) in visible_ids)
         and (not source.qualifier_id or str(source.qualifier_id) in visible_ids)
         and (not FIELDS[source.field].target_kinds or observation.value in visible_ids)
     )

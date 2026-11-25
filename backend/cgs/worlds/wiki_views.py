@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from cgs.api import CgsView, parse_id, resource_unavailable
 
 from .wiki_maps import read_map_image, stage_map_image
-from .wiki_reads import read_wiki, search_wiki
+from .wiki_reads import read_wiki, read_wiki_home, search_wiki
 from .wiki_schema import WikiLocationQuery, WikiSearchQuery, WikiWriteInput
 from .wiki_writes import save_wiki_change
 
@@ -31,6 +31,11 @@ class WikiSearchView(CgsView):
         return Response(search_wiki(
             parse_id(world_id, "world_id"), request.user.pk, query.validated_data["q"],
         ))
+
+
+class WikiHomeView(CgsView):
+    def get(self, request, world_id):
+        return Response(read_wiki_home(parse_id(world_id, "world_id"), request.user.pk))
 
 
 class WikiChangeView(CgsView):

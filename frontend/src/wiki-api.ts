@@ -3,6 +3,7 @@ import { request } from './api'
 export type WikiKind = 'person' | 'place' | 'group' | 'class' | 'ability' | 'item'
   | 'species' | 'organism' | 'culture' | 'role' | 'resource' | 'body_part' | 'trait' | 'goal'
   | 'image' | 'model_3d' | 'texture' | 'animation' | 'map' | 'territory' | 'era'
+  | 'source' | 'process' | 'skill' | 'milestone'
 export type WikiEntry = {
   id: string; name: string; kind: WikiKind; author_only?: boolean
   catalog_type?: 'vehicle'; classification_needs_review?: boolean
@@ -20,21 +21,25 @@ export type WikiField = {
   qualifier_kind: WikiKind | null
   qualifier_required: boolean
   many: boolean
+  minimum?: number | null
+  maximum?: number | null
 }
 export type WikiValue = string | number
 export type WikiSection = 'overview' | 'all' | 'characters' | 'organisms' | 'places' | 'groups'
-  | 'items' | 'vehicles' | 'maps' | 'library' | 'definitions' | 'media' | 'timeline'
+  | 'items' | 'vehicles' | 'maps' | 'library' | 'definitions' | 'media' | 'timeline' | 'sources'
 export type WikiLocation = {
   at: number | null; viewAs: string; entryId: string; section?: WikiSection; eventId?: string; history?: boolean
 }
 export type WikiAssertion = {
   id: string; field: string; value: WikiValue; from_tick: number; until_tick: number | null
   author_only: boolean; source: string; event_id: string | null
+  citation_id: string | null
   qualifier_id?: string | null
 }
 export type WikiClaim = {
-  id: string; field: string; value: WikiValue; tick: number; speaker_id: string
+  id: string; field: string; value: WikiValue; tick: number; speaker_id: string | null
   author_only: boolean; source: string
+  citation_id: string | null
   qualifier_id?: string | null
 }
 export type WikiObservation = {
@@ -43,16 +48,19 @@ export type WikiObservation = {
   entry_id: string; qualifier_id?: string | null
 }
 type AbilityUse = { ability_id: string; actor_id: string }
+export type EventDatePrecision = 'exact' | 'bounded' | 'unknown'
 
 export type WikiEvent = {
   id: string; name: string; tick: number | null; source: string; description: string
   summary: string; method: string
+  citation_id: string | null
+  date_precision: EventDatePrecision
   node_kind: 'group' | 'occurrence' | 'action'; parent_id: string | null; sort_order: number
   start_tick: number | null; end_tick: number | null; display_start: number | null; display_end: number | null
   cross_reference_ids: string[]
   cause_event_ids: string[]
   cause_state: (WikiAssertion & { entry_id: string })[]
-  links: { entry_id: string; role: 'participant' | 'performer' | 'place' | 'item' | 'purpose' | 'backstory' | 'era' }[]
+  links: { entry_id: string; role: 'participant' | 'performer' | 'target' | 'place' | 'item' | 'purpose' | 'backstory' | 'era' }[]
   ability_use: AbilityUse | null
   changes: {
     id: string; entry_id: string; field: string; value: WikiValue | null; previous_value: WikiValue | null
@@ -97,10 +105,13 @@ export type WikiImageMap = {
   width: number; height: number; pins: WikiMapPin[]
 }
 export type WikiArticleSection = { id: string; heading: string; body: string }
+export type WikiDiscovery = { observer_id: string; learned_at: number; source: string }
+export type WikiWorldHome = { introduction: string; cover_map_id: string | null; featured: WikiEntry[] }
 export type WikiArticle = {
   entry: WikiEntry
   overview?: string
   sections?: WikiArticleSection[]
+  discoveries?: WikiDiscovery[]
   values?: WikiEffectiveValue[]
   assertions?: WikiAssertion[]
   claims?: WikiClaim[]
@@ -126,6 +137,8 @@ export type WikiArticle = {
 export type WikiView = {
   world_name: string; at: number | null; viewpoint: WikiEntry | null; entries: WikiEntry[]; fields: WikiField[]
   world_introduction?: string
+  world_home?: WikiWorldHome
+  home_cover_ids?: string[]
   article: WikiArticle | null; can_edit?: boolean; edit_counter?: number
   timeline?: WikiEvent[]
   days_per_year?: number | null
@@ -144,8 +157,10 @@ type FieldChange = { entry_id: string } & TypedValue
 type EventChange = FieldChange & { mode?: 'set' | 'add' | 'end'; source?: string }
 type EventDetails = {
   name: string; source: string; description: string; ability_use: AbilityUse | null
+  citation_id?: string | null
   participant_ids: string[]; place_ids: string[]; item_ids: string[]
   performer_ids?: string[]
+  target_ids?: string[]
   summary?: string; method?: string
   cause_event_ids?: string[]; cause_assertion_ids?: string[]
   purpose_ids?: string[]; backstory_ids?: string[]; era_ids?: string[]
@@ -160,15 +175,20 @@ export type WikiCommand =
   | { op: 'rename_entry'; entry_id: string; name: string }
   | { op: 'update_overview'; entry_id: string; overview: string }
   | { op: 'update_world_introduction'; introduction: string }
+  | { op: 'update_world_home'; introduction: string; cover_map_id: string | null; featured_entry_ids: string[] }
+  | ({ op: 'set_discovery'; entry_id: string; learned_at: number | null } & Pick<WikiDiscovery, 'observer_id' | 'source'>)
   | { op: 'update_article_sections'; entry_id: string; sections: WikiArticleSection[] }
-  | ({ op: 'record_fact'; from_tick: number; until_tick: number | null; source: string } & FieldChange)
-  | { op: 'correct_fact'; assertion_id: string; value: WikiValue; source?: string; author_only?: boolean }
-  | ({ op: 'record_event'; tick: number; changes: EventChange[]; parent_id?: string; node_kind?: 'action' | 'occurrence' } & EventDetails)
+  | ({ op: 'record_fact'; from_tick: number; until_tick: number | null; source: string; citation_id?: string | null } & FieldChange)
+  | { op: 'correct_fact'; assertion_id: string; value: WikiValue; source?: string; citation_id?: string | null; author_only?: boolean }
+  | ({
+    op: 'record_event'; tick: number | null; date_precision?: EventDatePrecision
+    changes: EventChange[]; parent_id?: string; node_kind?: 'action' | 'occurrence'
+  } & EventDetails)
   | ({ op: 'record_event_group'; parent_id?: string } & EventDetails)
-  | ({ op: 'edit_event'; event_id: string } & EventDetails)
+  | ({ op: 'edit_event'; event_id: string; tick?: number | null; date_precision?: EventDatePrecision } & EventDetails)
   | { op: 'organize_event'; event_id: string; parent_id: string | null; position?: number }
   | { op: 'correct_event_date'; event_id: string; tick: number }
-  | ({ op: 'record_claim'; speaker_id: string; tick: number; source: string } & FieldChange)
+  | ({ op: 'record_claim'; speaker_id: string | null; tick: number; source: string; citation_id?: string | null } & FieldChange)
   | { op: 'record_observation'; observer_id: string; source_id: string; source_kind: 'assertion' | 'claim'; learned_at: number; about_tick?: number }
   | ({
     holder_id: string; from_tick: number; until_tick: number | null; about_tick: number | null
@@ -188,6 +208,21 @@ export type WikiCommand =
 export type WikiAttempt = { key: string; edit: number; command: WikiCommand; location: WikiLocation }
 
 const wikiPath = (worldId: string) => '/worlds/' + encodeURIComponent(worldId) + '/wiki'
+
+export function wikiHref(worldId: string, { at = null, viewAs = '', entryId = '', section, eventId, history }: Partial<WikiLocation> = {}, hash = '') {
+  const params = new URLSearchParams()
+  if (at !== null) params.set('at', String(at))
+  if (viewAs) params.set('view_as', viewAs)
+  if (entryId) params.set('entry', entryId)
+  if (section && section !== 'overview') params.set('section', section)
+  if (section === 'timeline' && eventId) params.set('event', eventId)
+  if (entryId && history) params.set('tab', 'history')
+  return wikiPath(worldId) + '/' + (params.size ? '?' + params : '') + hash
+}
+
+export function getWikiHome(worldId: string, signal: AbortSignal) {
+  return request<WikiWorldHome & { can_edit: boolean }>(wikiPath(worldId) + '/home', { signal })
+}
 
 export function getWiki(worldId: string, location: WikiLocation, signal: AbortSignal) {
   const params = location.at === null ? new URLSearchParams({ overview: 'true' }) : new URLSearchParams({ at: String(location.at) })

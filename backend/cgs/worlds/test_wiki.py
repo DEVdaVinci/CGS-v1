@@ -47,6 +47,9 @@ class WikiTests(TransactionTestCase):
     def entry(self, name, kind="place", **fields):
         return self.apply({"op": "create_entry", "name": name, "kind": kind, **fields})
 
+    def discover(self, subject, observer, at=0):
+        return self.apply({"op": "set_discovery", "entry_id": subject, "observer_id": observer, "learned_at": at})
+
     def fact(self, entry, field, value, start=0, **fields):
         return self.apply({
             "op": "record_fact", "entry_id": entry, "field": field, "value": value,
@@ -120,6 +123,7 @@ class WikiTests(TransactionTestCase):
             stranger, _ = self.sign_in(provision("map-stranger"))
             self.assertEqual(stranger.get(media_url).status_code, 404)
             self.assertEqual(self.browser.get(media_url, {"at": 0, "view_as": observer}).status_code, 404)
+            self.discover(map_id, observer)
             self.assertNotIn("image_map", self.article(map_id, observer=observer))
 
             editor = provision("map-reader")
@@ -238,6 +242,7 @@ class WikiTests(TransactionTestCase):
         self.assertEqual(self.article(legacy, 4)["entry"]["id"], legacy)
         self.assertEqual(self.values(legacy, 4)["item_type"], "Vehicle")
         self.assertEqual(self.values(disputed, 6)["item_type"], "Tool")
+        self.discover(transport, actor)
         self.assertNotIn("catalog_type", self.article(transport, 0, observer=actor)["entry"])
 
         unauthorized, _ = self.sign_in(provision("workspace-outsider"))
@@ -283,9 +288,58 @@ class WikiTests(TransactionTestCase):
         reader, token = self.sign_in(account)
         self.assertEqual(self.post(command, browser=reader, token=token).status_code, 403)
         self.assertEqual(reader.get(path, {"overview": "true"}).json()["article"]["sections"], sections)
+        self.discover(subject, observer)
         projection = self.browser.get(path, {"at": 7, "view_as": observer}).json()
         self.assertNotIn("sections", projection["article"])
         self.assertNotIn("world_introduction", projection)
+
+    def test_world_home_curation_validates_scope_and_keeps_order(self):
+        first = self.entry("Archive")
+        second = self.entry("Clerk", "person")
+        hidden = self.entry("Reserved", author_only=True)
+        command = {
+            "op": "update_world_home", "introduction": "Floodplain archive", "cover_map_id": None,
+            "featured_entry_ids": [second, first],
+        }
+        self.apply(command)
+        home = self.browser.get(self.path + "/home").json()
+        self.assertEqual(home["introduction"], "Floodplain archive")
+        self.assertEqual([entry["id"] for entry in home["featured"]], [second, first])
+        self.assertEqual(self.post({**command, "featured_entry_ids": [hidden]}).status_code, 422)
+        self.assertEqual(self.post({**command, "cover_map_id": first}).status_code, 422)
+        self.assertEqual(self.browser.get(self.path + "/home").json(), home)
+        self.assertNotIn("world_home", self.browser.get(self.path, {"at": 0, "view_as": second}).json())
+
+    def test_discovery_scopes_names_and_direct_reads_by_observer_and_date(self):
+        observer = self.entry("Clerk", "person")
+        other = self.entry("Engineer", "person")
+        subject = self.entry("Flood archive")
+        hidden = self.entry("Reserved", author_only=True)
+        link = self.discover(subject, observer, 5)
+        path = self.path + "/entries/" + subject
+        self.assertEqual(self.browser.get(path, {"at": 4, "view_as": observer}).status_code, 404)
+        self.assertEqual(self.browser.get(path, {"at": 5, "view_as": other}).status_code, 404)
+        known = self.browser.get(path, {"at": 5, "view_as": observer}).json()
+        self.assertEqual({entry["id"] for entry in known["entries"]}, {subject, observer})
+        self.assertNotIn("discoveries", known["article"])
+        self.assertEqual(self.discover(subject, observer, 6), link)
+        self.assertEqual(self.browser.get(path, {"at": 5, "view_as": observer}).status_code, 404)
+        self.assertEqual(self.post({
+            "op": "set_discovery", "entry_id": hidden, "observer_id": observer, "learned_at": 1,
+        }).status_code, 422)
+
+    def test_event_target_can_be_linked_without_changing_state(self):
+        performer = self.entry("Inspector", "person")
+        target = self.entry("Floodgate", "item")
+        event_id = self.apply({
+            "op": "record_event", "node_kind": "action", "name": "Inspect gate", "tick": 4,
+            "performer_ids": [performer], "target_ids": [target],
+        })
+        event = self.article(target, 4)["events"][0]
+        self.assertEqual(event["id"], event_id)
+        self.assertEqual({(link["role"], link["entry_id"]) for link in event["links"]},
+                         {("performer", performer), ("target", target)})
+        self.assertEqual(event["changes"], [])
 
     def test_biography_and_family_keep_their_own_meaning_as_of_time(self):
         clinic = self.entry("Clinic")
@@ -569,6 +623,8 @@ class WikiTests(TransactionTestCase):
         mira = self.entry("Mira", "person")
         clerk = self.entry("Clerk", "person")
         goal = self.entry("Get inside", "goal")
+        self.discover(gate, mira)
+        self.discover(gate, clerk)
         self.fact(gate, "status", "Open")
         self.fact(goal, "goal_owner", mira)
         claim = self.apply({"op": "record_claim", "entry_id": gate, "field": "status", "value": "Locked",
@@ -642,6 +698,7 @@ class WikiTests(TransactionTestCase):
         self.assertEqual(self.values(mira, 11)["condition"], "Sprained")
         cycle = self.post({"op": "record_fact", "entry_id": hall, "field": "located_in", "value": landing, "from_tick": 4})
         self.assertEqual(cycle.json()["field_errors"][0]["code"], "RELATIONSHIP_CYCLE")
+        self.discover(landing, mira)
         self.assertNotIn("layout", self.article(landing, 10, observer=mira))
 
     def test_nested_events_keep_independent_order_dates_and_effects(self):
@@ -701,6 +758,7 @@ class WikiTests(TransactionTestCase):
             "op": "record_observation", "observer_id": mira, "source_kind": "claim",
             "source_id": claim, "learned_at": 13,
         })
+        self.discover(gate, mira)
         self.assertEqual(self.article(gate, 10, mira)["observations"], [])
         known = self.article(gate, 11, mira)
         self.assertEqual([(o["id"], o["value"]) for o in known["observations"]], [(learned, "Open")])
@@ -906,3 +964,99 @@ class WikiTests(TransactionTestCase):
         self.assertEqual(replayed.json()["receipt_id"], str(receipt.pk))
         self.assertEqual(replayed.json()["record_id"], event_id)
         self.assertEqual(WikiEvent.objects.filter(wiki_id=self.world).count(), 1)
+
+    def test_approximate_and_unknown_events_do_not_create_dated_effects(self):
+        actor = self.entry("Records clerk", "person")
+        command = {
+            "op": "record_event", "name": "Archive transfer", "tick": None, "date_precision": "bounded",
+            "start_tick": 8, "end_tick": 14, "participant_ids": [actor],
+        }
+        forbidden = self.post({**command, "changes": [{"entry_id": actor, "field": "status", "value": "Away"}]})
+        self.assertEqual(forbidden.json()["field_errors"][0]["code"], "EFFECT_TIME_REQUIRED")
+        approximate = self.apply(command)
+        undated = self.apply({
+            "op": "record_event", "name": "Uncatalogued delivery", "tick": None, "date_precision": "unknown",
+            "participant_ids": [actor],
+        })
+        exact = self.apply({
+            "op": "record_event", "name": "Archive audit", "tick": 20, "start_tick": 18, "end_tick": 22,
+            "participant_ids": [actor],
+        })
+        events = {event["id"]: event for event in self.article(actor)["events"]}
+        self.assertEqual((events[approximate]["date_precision"], events[approximate]["tick"]), ("bounded", None))
+        self.assertEqual((events[approximate]["display_start"], events[approximate]["display_end"]), (8, 14))
+        self.assertEqual((events[undated]["date_precision"], events[undated]["display_start"]), ("unknown", None))
+        self.assertEqual((events[exact]["date_precision"], events[exact]["display_end"]), ("exact", 22))
+        self.assertEqual(self.post({"op": "correct_event_date", "event_id": approximate, "tick": 10}).status_code, 422)
+        self.apply({
+            "op": "edit_event", "event_id": approximate, "name": command["name"],
+            "date_precision": "exact", "tick": 10, "start_tick": None, "end_tick": None,
+        })
+        result = WikiEvent.objects.get(pk=approximate)
+        self.assertEqual((result.date_precision, result.tick, result.start_tick), ("exact", 10, None))
+
+    def test_structured_sources_preserve_opposing_accounts_and_observation_scope(self):
+        place = self.entry("Ferry terminal")
+        observer = self.entry("Archivist", "person")
+        source = self.entry("Ferry ledger", "source")
+        self.fact(source, "source_medium", "Document")
+        self.fact(source, "source_locator", "Box 4, folio 11")
+        fact_id = self.fact(place, "status", "Open", source="Original margin note", citation_id=source)
+        command = {"op": "record_claim", "entry_id": place, "field": "status", "value": "Closed", "tick": 3}
+        self.assertEqual(self.post(command).json()["field_errors"][0]["code"], "CLAIM_ATTRIBUTION_REQUIRED")
+        self.assertEqual(self.post({**command, "citation_id": place}).status_code, 422)
+        claim_id = self.apply({**command, "citation_id": source})
+        self.apply({
+            "op": "record_observation", "source_kind": "claim", "source_id": claim_id,
+            "observer_id": observer, "learned_at": 8,
+        })
+        event_id = self.apply({
+            "op": "record_event", "name": "Ledger read", "tick": 8, "place_ids": [place], "citation_id": source,
+        })
+        self.apply({"op": "correct_fact", "assertion_id": fact_id, "value": "Open at low water"})
+        article = self.article(place, 8)
+        self.assertEqual(article["assertions"][0]["citation_id"], source)
+        self.assertEqual(article["assertions"][0]["source"], "Original margin note")
+        self.assertEqual(article["claims"][0]["citation_id"], source)
+        self.assertIsNone(article["claims"][0]["speaker_id"])
+        self.assertEqual(article["events"][0]["id"], event_id)
+        self.assertEqual(article["events"][0]["citation_id"], source)
+        observed = self.article(place, 8, observer)["observations"][0]
+        self.assertEqual(observed["value"], "Closed")
+        self.assertNotIn("source_id", observed)
+        self.assertEqual(self.browser.get(self.path + "/entries/" + source, {"at": 8, "view_as": observer}).status_code, 404)
+
+    def test_physical_and_cognitive_inputs_have_independent_scales_and_dates(self):
+        actor = self.entry("Surveyor", "person")
+        trait = self.entry("Work rate scale", "trait")
+        skill = self.entry("Contour reading", "skill")
+        part = self.entry("Left hand", "body_part")
+        process = self.entry("Pattern recognition", "process")
+        goal = self.entry("Survey the inlet", "goal")
+        milestone = self.entry("First contour", "milestone")
+        self.fact(trait, "unit", "observations/min", until_tick=10)
+        self.fact(trait, "unit", "observations/hour", 10)
+        self.fact(actor, "processing_speed", "5.25", qualifier_id=trait)
+        self.fact(actor, "mental_process", process)
+        self.fact(actor, "skill", skill)
+        self.fact(actor, "success_probability", "0.6", qualifier_id=skill)
+        self.fact(actor, "part_damage_pct", "32.5", qualifier_id=part)
+        self.fact(actor, "part_function_pct", "70", qualifier_id=part)
+        self.fact(actor, "mood", "Focused")
+        self.fact(actor, "reported_mood", "Hopeful")
+        self.fact(milestone, "milestone_goal", goal)
+        self.fact(milestone, "milestone_order", 1)
+        invalid = {
+            "op": "record_fact", "entry_id": actor, "field": "success_probability", "value": "1.01",
+            "from_tick": 10, "qualifier_id": skill,
+        }
+        self.assertEqual(self.post(invalid).json()["field_errors"][0]["code"], "INVALID_VALUE")
+        self.assertEqual(self.post({**invalid, "qualifier_id": part, "value": "0.2"}).status_code, 422)
+        for time, unit in ((1, "observations/min"), (10, "observations/hour")):
+            values = {item["field"]: item for item in self.article(actor, time)["values"]}
+            self.assertEqual(values["processing_speed"]["unit"], unit)
+            self.assertEqual(values["success_probability"]["qualifier_id"], skill)
+            self.assertEqual(values["part_damage_pct"]["qualifier_id"], part)
+            self.assertEqual(values["part_function_pct"]["value"], "70")
+            self.assertEqual((values["mood"]["value"], values["reported_mood"]["value"]), ("Focused", "Hopeful"))
+        self.assertEqual(self.article(goal)["incoming_links"][0]["entry_id"], milestone)

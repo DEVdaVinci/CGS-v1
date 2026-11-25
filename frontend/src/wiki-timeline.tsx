@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { canPerformEvent, type WikiEntry, type WikiEvent, type WikiField, type WikiValue } from './wiki-api'
 import { formatDistribution } from './wiki-distribution'
 import { type ArticleEdit } from './wiki-forms'
+import { WorkspaceLink } from './home-masthead'
 
 export type TimelineEdit =
   | { kind: 'new-group'; parentId?: string }
@@ -14,13 +15,14 @@ type TimelineProps = {
   eventTime?: string
   onEventTimeChange?: (time: string) => void
   onOpen?: (id: string, at: number | null) => void
+  entryHref: (id: string, at: number | null) => string
   onFocus: (id: string) => void
   onEdit?: (edit: ArticleEdit | TimelineEdit) => void
   onCorrectDate?: (event: WikiEvent) => void
 }
 
 const linkLabels = {
-  performer: 'Performed by', participant: 'Participants', place: 'Places', item: 'Items', purpose: 'Purpose goals',
+  performer: 'Performed by', participant: 'Participants', target: 'Targets', place: 'Places', item: 'Items', purpose: 'Purpose goals',
   backstory: 'Backstory of', era: 'Eras',
 } as const
 
@@ -39,13 +41,14 @@ function ancestors(event: WikiEvent, index: Map<string, WikiEvent>) {
 }
 
 function dateLabel(event: WikiEvent) {
-  if (event.display_start === null) return 'Unscheduled'
+  if (event.display_start === null) return 'Date unknown'
   const { display_start: start, display_end: end } = event
+  if (event.date_precision === 'bounded') return 'Possible time ' + start + ' to ' + end
   return start === end ? 'Time ' + start : 'Time ' + start + ' to ' + end
 }
 
 export function WikiTimeline({
-  events, enclosing, entries, fields, currentEvent, eventTime = '', onEventTimeChange, onOpen, onFocus, onEdit, onCorrectDate,
+  events, enclosing, entries, fields, currentEvent, eventTime = '', onEventTimeChange, onOpen, entryHref, onFocus, onEdit, onCorrectDate,
 }: TimelineProps) {
   const title = enclosing ? 'Dated events' : 'World timeline'
   const allEvents = enclosing ? [...events, ...enclosing] : events
@@ -64,7 +67,7 @@ export function WikiTimeline({
   const filtered = Boolean(person || place || era || eventTime !== '')
   const matches = events.filter((event) => {
     if (person && event.ability_use?.actor_id !== person && !event.links.some(
-      (link) => (link.role === 'participant' || link.role === 'performer') && link.entry_id === person,
+      (link) => (link.role === 'participant' || link.role === 'performer' || link.role === 'target') && link.entry_id === person,
     )) return false
     if (place && !event.links.some((link) => link.role === 'place' && link.entry_id === place)) return false
     if (era && !event.links.some((link) => link.role === 'era' && link.entry_id === era)) return false
@@ -106,6 +109,9 @@ export function WikiTimeline({
     group.push(event)
     byTime.set(event.tick, group)
   }
+  const approximate = matches.filter((event) => event.date_precision === 'bounded')
+    .sort((a, b) => a.start_tick! - b.start_tick! || a.end_tick! - b.end_tick! || a.id.localeCompare(b.id))
+  const undated = matches.filter((event) => event.date_precision === 'unknown')
 
   useEffect(() => {
     if (currentEvent) document.getElementById('wiki-event-' + currentEvent)?.scrollIntoView({ block: 'nearest' })
@@ -114,7 +120,7 @@ export function WikiTimeline({
   function linked(id: string, at: number | null) {
     const entry = directory.get(id)
     return onOpen && entry ? (
-      <button type="button" className="wiki-reference" onClick={() => onOpen(id, at)}>{entry.name}</button>
+      <WorkspaceLink className="wiki-reference" href={entryHref(id, at)} onFollow={() => onOpen(id, at)}>{entry.name}</WorkspaceLink>
     ) : <span>{entry?.name ?? 'Unavailable entry'}</span>
   }
 
@@ -145,7 +151,7 @@ export function WikiTimeline({
   }
 
   function card(event: WikiEvent, depth = 0) {
-    const time = event.tick ?? event.display_start
+    const time = event.tick
     const group = event.node_kind === 'group'
     const open = filtered || expanded.has(event.id) || activePath.has(event.id)
     const path = ancestors(event, index)
@@ -158,7 +164,8 @@ export function WikiTimeline({
             <h4>{enclosing ? event.name : (
               <button className="wiki-reference" type="button" onClick={() => focus(event.id)}>{event.name}</button>
             )}</h4>
-            {displayMode === 'outline' && <small className="muted">{dateLabel(event)} · {group ? 'Event group' : event.node_kind === 'action' ? 'Recorded action' : 'Occurrence'}</small>}
+            {(displayMode === 'outline' || event.date_precision !== 'exact' || event.display_start !== event.display_end)
+              && <small className="muted">{dateLabel(event)} · {group ? 'Event group' : event.node_kind === 'action' ? 'Recorded action' : 'Occurrence'}</small>}
             {context.has(event.id) && <p className="muted">Enclosing event</p>}
           </div>
           <div className="form-actions">
@@ -173,9 +180,9 @@ export function WikiTimeline({
               </>}
               <button type="button" className="button secondary" onClick={() => onEdit({ kind: 'edit-event', event })}>Edit details</button>
               <button type="button" className="button secondary" onClick={() => onEdit({ kind: 'organize', event })}>Move or reorder</button>
-              {!group && <button type="button" className="button secondary" onClick={() => onEdit({ kind: 'correct-date', event })}>Correct event date</button>}
+              {!group && time !== null && <button type="button" className="button secondary" onClick={() => onEdit({ kind: 'correct-date', event })}>Correct event date</button>}
             </>}
-            {onCorrectDate && !group && <button type="button" className="button secondary"
+            {onCorrectDate && !group && time !== null && <button type="button" className="button secondary"
               onClick={() => onCorrectDate(event)}>Correct event date</button>}
           </div>
         </header>
@@ -227,6 +234,7 @@ export function WikiTimeline({
             </li>
           ))}</ul>
         </section>}
+        {event.citation_id && <p className="wiki-event-source">Source article {linked(event.citation_id, null)}</p>}
         {event.source && <p className="muted wiki-event-source">Source: {event.source}</p>}
       </article>
     )
@@ -265,13 +273,21 @@ export function WikiTimeline({
         </label>}
       </div>}
       {events.length === 0 && <p className="muted">No events recorded in this view.</p>}
-      {displayMode === 'outline' ? visibleRows.map(({ event, depth }) => card(event, depth)) : [...byTime].map(([time, group]) => (
+      {displayMode === 'outline' ? visibleRows.map(({ event, depth }) => card(event, depth)) : <>
+        {[...byTime].map(([time, group]) => (
         <section key={time} className="wiki-time-group" aria-label={'Time ' + time}>
           <h3>Time {time}</h3>
           {group.map((event) => card(event))}
         </section>
-      ))}
-      {events.length > 0 && (displayMode === 'chronology' ? !byTime.size : !visibleRows.length)
+        ))}
+        {approximate.length > 0 && <section className="wiki-time-group" aria-label="Approximate dates">
+          <h3>Approximate dates</h3>{approximate.map((event) => card(event))}
+        </section>}
+        {undated.length > 0 && <section className="wiki-time-group" aria-label="Unknown dates">
+          <h3>Unknown dates</h3>{undated.map((event) => card(event))}
+        </section>}
+      </>}
+      {events.length > 0 && (displayMode === 'chronology' ? !byTime.size && !approximate.length && !undated.length : !visibleRows.length)
         && <p className="muted">No events match this view.</p>}
     </section>
   )

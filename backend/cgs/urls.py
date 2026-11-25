@@ -5,7 +5,7 @@ from cgs.accounts import views as sessions
 from cgs.web import world_library
 from cgs.worlds import views as worlds
 from cgs.worlds.draft_views import DraftEditsView, DraftView
-from cgs.worlds.wiki_views import WikiChangeView, WikiMapImageView, WikiMapUploadView, WikiSearchView, WikiView
+from cgs.worlds.wiki_views import WikiChangeView, WikiHomeView, WikiMapImageView, WikiMapUploadView, WikiSearchView, WikiView
 
 
 urlpatterns = [
@@ -24,6 +24,7 @@ urlpatterns = [
     path("api/v1/worlds/<str:world_id>/draft/entries/<str:entry_id>", DraftView.as_view(), name="draft-entry"),
     path("api/v1/worlds/<str:world_id>/wiki", WikiView.as_view(), name="wiki"),
     path("api/v1/worlds/<str:world_id>/wiki/search", WikiSearchView.as_view(), name="wiki-search"),
+    path("api/v1/worlds/<str:world_id>/wiki/home", WikiHomeView.as_view(), name="wiki-home"),
     path("api/v1/worlds/<str:world_id>/wiki/timeline", WikiView.as_view(), {"timeline": True}, name="wiki-timeline"),
     path("api/v1/worlds/<str:world_id>/wiki/entries/<str:entry_id>", WikiView.as_view(), name="wiki-entry"),
     path("api/v1/worlds/<str:world_id>/wiki/changes", WikiChangeView.as_view(), name="wiki-change"),

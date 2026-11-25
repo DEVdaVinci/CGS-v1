@@ -10,6 +10,9 @@ import {
   type SignedInSession,
   type World,
 } from './api'
+import { HomeMasthead } from './home-masthead'
+import { getWikiHome, wikiHref, type WikiWorldHome } from './wiki-api'
+import { WikiHome } from './wiki-workspace'
 
 type AuthErrorHandler = (error: unknown) => boolean
 
@@ -18,6 +21,16 @@ const roleLabel: Record<World['role'], string> = {
   editor: 'Editor',
   reader: 'Reader',
   player: 'Player',
+}
+
+function recentWorld(accountId: string, worldId?: string) {
+  try {
+    const key = 'cgs.recent-world.' + accountId
+    if (worldId) localStorage.setItem(key, worldId)
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
 }
 
 export function WorldLibrary({
@@ -38,6 +51,9 @@ export function WorldLibrary({
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [createdName, setCreatedName] = useState('')
+  const [query, setQuery] = useState('')
+  const [search, setSearch] = useState('')
+  const [resume, setResume] = useState<World>()
   const nameInput = useRef<HTMLInputElement>(null)
   const createButton = useRef<HTMLButtonElement>(null)
 
@@ -48,21 +64,33 @@ export function WorldLibrary({
     setListLoading(true)
     setListFailed(false)
     try {
-      const page = await listWorlds(cursor, request.signal)
+      const page = await listWorlds(cursor, request.signal, query)
       if (request.signal.aborted) return
-      setWorlds((previous) => [...new Map([...previous, ...page.items].map((world) => [world.id, world])).values()])
+      setWorlds((previous) => cursor
+        ? [...new Map([...previous, ...page.items].map((world) => [world.id, world])).values()]
+        : page.items)
       setNextCursor(page.next_cursor)
     } catch (error) {
       if (!request.signal.aborted && !onAuthError(error)) setListFailed(true)
     } finally {
       if (!request.signal.aborted) setListLoading(false)
     }
-  }, [onAuthError])
+  }, [onAuthError, query])
 
   useEffect(() => {
     void loadPage()
     return () => listRequest.current?.abort()
   }, [loadPage])
+
+  useEffect(() => {
+    const id = recentWorld(account.account_id)
+    if (!id) return
+    const controller = new AbortController()
+    void getWorld(id, controller.signal).then((world) => {
+      if (!controller.signal.aborted) setResume(world)
+    }, () => undefined)
+    return () => controller.abort()
+  }, [account.account_id])
 
   useEffect(() => {
     if (formOpen && !attempt) nameInput.current?.focus()
@@ -97,7 +125,8 @@ export function WorldLibrary({
     try {
       const { world } = await createWorld(request.name, request.key, account.csrf_token)
       rememberCreation(null)
-      setWorlds((previous) => [world, ...previous.filter((item) => item.id !== world.id)])
+      setWorlds((previous) => !query || world.name.toLocaleLowerCase().includes(query.toLocaleLowerCase())
+        ? [world, ...previous.filter((item) => item.id !== world.id)] : previous)
       setCreatedName(world.name)
       closeForm()
     } catch (error) {
@@ -118,9 +147,8 @@ export function WorldLibrary({
   }
 
   return (
-    <>
-      <div className="workspace-heading">
-        <h1>Worlds</h1>
+    <div className="world-library">
+      <HomeMasthead title="Worlds">
         <button
           className="button primary"
           type="button"
@@ -134,7 +162,10 @@ export function WorldLibrary({
         >
           Create world
         </button>
-      </div>
+        {resume && <a className="button secondary" href={'/worlds/' + resume.id + '/'} aria-label={'Continue ' + resume.name}>
+          Continue working <span aria-hidden="true">↗</span>
+        </a>}
+      </HomeMasthead>
 
       {formOpen && (
         <section className="creation-panel" aria-labelledby="creation-title">
@@ -167,6 +198,24 @@ export function WorldLibrary({
       )}
       {createdName && <p className="notice success" role="status">Created {createdName}.</p>}
 
+      <section className="world-library-list" aria-labelledby="world-library-title">
+      <div className="home-index-heading">
+        <h2 id="world-library-title">Your worlds</h2>
+        <form className="world-filter" role="search" onSubmit={(event) => {
+          event.preventDefault()
+          const value = search.trim().normalize('NFC')
+          if (value === query) return
+          setWorlds([])
+          setNextCursor(null)
+          setQuery(value)
+        }}>
+          <label className="field"><span className="visually-hidden">Find a world</span>
+            <input type="search" value={search} maxLength={100} placeholder="Find a world"
+              onChange={(event) => setSearch(event.target.value)} />
+          </label>
+          <button className="button secondary" type="submit">Search</button>
+        </form>
+      </div>
       {listFailed && (
         <div className="list-error">
           <p className="error-message" role="alert">CGS couldn’t load your worlds.</p>
@@ -178,10 +227,12 @@ export function WorldLibrary({
           {worlds.map((world) => (
             <li key={world.id}>
               <a className="world-card" href={'/worlds/' + world.id + '/'} aria-labelledby={'world-' + world.id} aria-describedby={'role-' + world.id}>
-                <span className="world-card-icon" aria-hidden="true"><span /><span /><span /><span /></span>
-                <span className="world-card-name" id={'world-' + world.id}>{world.name}</span>
-                <span className="world-card-role" id={'role-' + world.id}>{roleLabel[world.role]}</span>
-                <span className="world-card-arrow" aria-hidden="true">→</span>
+                <span className="world-card-art" aria-hidden="true" />
+                <span className="world-card-caption">
+                  <span className="world-card-name" id={'world-' + world.id}>{world.name}</span>
+                  <span className="world-card-role" id={'role-' + world.id}>{roleLabel[world.role]}</span>
+                  <span className="world-card-arrow" aria-hidden="true">↗</span>
+                </span>
               </a>
             </li>
           ))}
@@ -189,25 +240,39 @@ export function WorldLibrary({
       )}
       {listLoading && <p className="muted" role="status">Loading worlds…</p>}
       {!listLoading && !listFailed && worlds.length === 0 && (
-        <p className="empty-state">No worlds yet. Create one to get started.</p>
+        <p className="empty-state">{query ? 'No worlds match your search.' : 'No worlds yet. Create one to get started.'}</p>
       )}
       {!listLoading && !listFailed && nextCursor && (
         <button className="button secondary load-more" onClick={() => void loadPage(nextCursor)}>Load more</button>
       )}
-    </>
+      </section>
+    </div>
   )
 }
 
-export function WorldOverview({ worldId, onAuthError }: { worldId: string; onAuthError: AuthErrorHandler }) {
+export function WorldOverview({ accountId, worldId, onAuthError }: {
+  accountId: string; worldId: string; onAuthError: AuthErrorHandler
+}) {
   const [world, setWorld] = useState<World | null>(null)
+  const [home, setHome] = useState<WikiWorldHome>()
+  const [homeError, setHomeError] = useState(false)
   const [failure, setFailure] = useState<'unavailable' | 'connection' | null>(null)
   const [requestNumber, setRequestNumber] = useState(0)
 
   useEffect(() => {
     const request = new AbortController()
     void getWorld(worldId, request.signal).then(
-      (result) => {
-        if (!request.signal.aborted) setWorld(result)
+      async (result) => {
+        if (request.signal.aborted) return
+        setWorld(result)
+        recentWorld(accountId, result.id)
+        if (result.role !== 'owner' && result.role !== 'editor') return
+        try {
+          const presentation = await getWikiHome(result.id, request.signal)
+          if (!request.signal.aborted) setHome(presentation)
+        } catch (error) {
+          if (!request.signal.aborted && !onAuthError(error)) setHomeError(true)
+        }
       },
       (error: unknown) => {
         if (request.signal.aborted || onAuthError(error)) return
@@ -215,30 +280,25 @@ export function WorldOverview({ worldId, onAuthError }: { worldId: string; onAut
       },
     )
     return () => request.abort()
-  }, [worldId, requestNumber, onAuthError])
+  }, [accountId, worldId, requestNumber, onAuthError])
+
+  const wikiAccess = world?.role === 'owner' || world?.role === 'editor'
+  const canEdit = world?.role === 'owner' || world?.capabilities.includes('edit_world')
 
   return (
     <>
-      <a className="back-link" href="/">← All worlds</a>
+      <div className="world-home-context">
+        <a className="back-link" href="/">← All worlds</a>
+        {world && <span className="world-card-role">{roleLabel[world.role]}</span>}
+      </div>
       {world && (
         <>
-          <div className="workspace-heading">
-            <h1>{world.name}</h1>
-            {(world.role === 'owner' || world.role === 'editor') && (
-              <div className="form-actions">
-                <a className="button primary" href={'/worlds/' + world.id + '/wiki/'}>Open Wiki</a>
-                <a className="button secondary" href={'/worlds/' + world.id + '/draft/'}>
-                  {world.role === 'owner' || world.capabilities.includes('edit_world') ? 'Edit draft' : 'View draft'}
-                </a>
-              </div>
-            )}
-          </div>
-          <dl className="world-metadata">
-            <div>
-              <dt>Your role</dt>
-              <dd>{roleLabel[world.role]}</dd>
-            </div>
-          </dl>
+          {wikiAccess ? <WikiHome worldId={world.id} worldName={world.name} home={home} actions={<>
+            <a className="button primary" href={wikiHref(world.id)}>Open Wiki</a>
+            {canEdit && <a className="button secondary" href={wikiHref(world.id) + '?edit_home=1'}>Edit world home</a>}
+            <a className="button secondary" href={'/worlds/' + world.id + '/draft/'}>{canEdit ? 'Edit draft' : 'View draft'}</a>
+          </>} /> : <HomeMasthead title={world.name} />}
+          {homeError && <p className="error-message" role="alert">The world introduction and featured articles couldn’t be loaded.</p>}
         </>
       )}
       {!world && !failure && <p className="muted" role="status">Loading world…</p>}

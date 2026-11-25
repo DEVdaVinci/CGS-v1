@@ -7,8 +7,8 @@ from cgs.api import CgsError, resource_unavailable
 
 from .drafts import _scoped_read
 from .models import (
-    MutationReceipt, WikiAssertion, WikiClaim, WikiEntry, WikiEvent, WikiEventLink,
-    WikiFinding, WikiLearnedAbility, WikiObservation, WikiProposition, WikiWorld, World,
+    MutationReceipt, WikiAssertion, WikiClaim, WikiDiscovery, WikiEntry, WikiEvent, WikiEventLink,
+    WikiFinding, WikiLearnedAbility, WikiMapImage, WikiObservation, WikiProposition, WikiWorld, World,
 )
 from .services import digest_json
 from .wiki import (
@@ -36,6 +36,10 @@ def _field_of(record):
 
 def _value_arguments(entry, data):
     return typed_assertion(entry, data["field"], data["value"], data.get("qualifier_id"))
+
+
+def _citation(wiki, citation_id):
+    return entry_for(wiki, citation_id, WikiEntry.Kind.SOURCE) if citation_id else None
 
 
 def _slot_query(fact):
@@ -101,6 +105,36 @@ def _update_world_introduction(wiki, command):
     return wiki.pk, set()
 
 
+def _update_world_home(wiki, command):
+    cover_id = command["cover_map_id"]
+    if cover_id and not WikiMapImage.objects.filter(wiki=wiki, entry_id=cover_id, entry__author_only=False).exists():
+        reject("INVALID_HOME_COVER", "Choose an uploaded, nonprivate map from this world.")
+    featured_ids = command["featured_entry_ids"]
+    if WikiEntry.objects.filter(wiki=wiki, pk__in=featured_ids, author_only=False).count() != len(featured_ids):
+        reject("INVALID_HOME_ARTICLES", "Choose articles from this world that are visible outside author-only editing.")
+    wiki.introduction = command["introduction"]
+    wiki.cover_map_id = cover_id
+    wiki.featured_entry_ids = featured_ids
+    wiki.save(update_fields=["introduction", "cover_map", "featured_entry_ids"])
+    return wiki.pk, set()
+
+
+def _set_discovery(wiki, command):
+    observer = _actor_for(wiki, command["observer_id"])
+    subject = entry_for(wiki, command["entry_id"])
+    learned_at = command["learned_at"]
+    discoveries = WikiDiscovery.objects.filter(observer=observer, subject=subject)
+    if learned_at is None:
+        discoveries.delete()
+        return subject.pk, set()
+    if subject.author_only or subject.pk == observer.pk:
+        reject("INVALID_DISCOVERY", "Choose a nonprivate subject other than the observer.")
+    discovery, _ = WikiDiscovery.objects.update_or_create(
+        observer=observer, subject=subject, defaults={"learned_at": learned_at, "source": command["source"]},
+    )
+    return discovery.pk, set()
+
+
 def _update_article_sections(wiki, command):
     entry = entry_for(wiki, command["entry_id"])
     entry.article_sections = command["sections"]
@@ -115,6 +149,7 @@ def _record_fact(wiki, command):
     fact = WikiAssertion.objects.create(
         **_value_arguments(entry, command),
         from_tick=start, until_tick=end, author_only=command["author_only"], source=command["source"],
+        citation=_citation(wiki, command.get("citation_id")),
     )
     return fact.pk, {_field_of(fact)}
 
@@ -123,8 +158,10 @@ def _correct_fact(wiki, command):
     fact = _in_world(WikiAssertion.objects.filter(entry__wiki=wiki).select_related("entry"), command["assertion_id"])
     fact.value = typed_value(fact.entry, fact.field, command["value"])
     fact.source = command.get("source", fact.source)
+    if "citation_id" in command:
+        fact.citation = _citation(wiki, command["citation_id"])
     fact.author_only = command.get("author_only", fact.author_only)
-    fact.save(update_fields=["value", "source", "author_only"])
+    fact.save(update_fields=["value", "source", "citation", "author_only"])
     return fact.pk, {_field_of(fact)}
 
 
@@ -159,6 +196,7 @@ def _apply_transition(fact, event, mode):
 EVENT_LINKS = (
     ("participant_ids", WikiEventLink.Role.PARTICIPANT, (*ACTORS, WikiEntry.Kind.GROUP)),
     ("performer_ids", WikiEventLink.Role.PERFORMER, EVENT_PERFORMERS),
+    ("target_ids", WikiEventLink.Role.TARGET, ENTITY_KINDS),
     ("place_ids", WikiEventLink.Role.PLACE, (WikiEntry.Kind.PLACE,)),
     ("item_ids", WikiEventLink.Role.ITEM, (WikiEntry.Kind.ITEM,)),
     ("purpose_ids", WikiEventLink.Role.PURPOSE, (WikiEntry.Kind.GOAL,)),
@@ -170,14 +208,16 @@ EVENT_LINKS = (
 def _save_event_details(wiki, event, command):
     event.name = _named(command["name"])
     event.source = command.get("source", event.source)
+    if "citation_id" in command:
+        event.citation = _citation(wiki, command["citation_id"])
     event.description = command.get("description", event.description)
     event.summary = command.get("summary", event.summary)
     event.method = command.get("method", event.method)
     event.start_tick = command.get("start_tick", event.start_tick)
     event.end_tick = command.get("end_tick", event.end_tick)
     event_bounds(event)
-    if event.node_kind == WikiEvent.Kind.GROUP and command.get("performer_ids"):
-        reject("GROUP_EFFECT", "Record performers on an action or occurrence within the group.")
+    if event.node_kind == WikiEvent.Kind.GROUP and (command.get("performer_ids") or command.get("target_ids")):
+        reject("GROUP_EFFECT", "Record performers and targets on an action or occurrence within the group.")
     if "ability_use" in command:
         use = command["ability_use"]
         if use and event.node_kind == WikiEvent.Kind.GROUP:
@@ -210,7 +250,13 @@ def _save_event_details(wiki, event, command):
 
 
 def _record_event(wiki, command):
-    event = WikiEvent(wiki=wiki, tick=command["tick"], node_kind=command.get("node_kind", WikiEvent.Kind.OCCURRENCE))
+    precision = command.get("date_precision", WikiEvent.Precision.EXACT)
+    if precision != WikiEvent.Precision.EXACT and command.get("changes"):
+        reject("EFFECT_TIME_REQUIRED", "Give this event an exact effective time before adding state changes.")
+    event = WikiEvent(
+        wiki=wiki, tick=command["tick"], node_kind=command.get("node_kind", WikiEvent.Kind.OCCURRENCE),
+        date_precision=precision,
+    )
     attach_event(event, command.get("parent_id"))
     _save_event_details(wiki, event, command)
     affected = set()
@@ -239,6 +285,15 @@ def _record_event_group(wiki, command):
 
 def _edit_event(wiki, command):
     event = _in_world(WikiEvent.objects.filter(wiki=wiki), command["event_id"])
+    if "date_precision" in command or "tick" in command:
+        precision, tick = command.get("date_precision", event.date_precision), command.get("tick", event.tick)
+        if event.node_kind == WikiEvent.Kind.GROUP:
+            reject("GROUP_DATE", "Edit the group range in its start and end fields.")
+        if (precision != event.date_precision or tick != event.tick) and (
+            event.opened_assertions.exists() or event.closed_assertions.exists()
+        ):
+            reject("EFFECT_TIME_REQUIRED", "This event has state changes. Use Correct event date to move their effective time.")
+        event.date_precision, event.tick = precision, tick
     _save_event_details(wiki, event, command)
     return event.pk, set()
 
@@ -248,6 +303,8 @@ def _correct_event_date(wiki, command):
     tick = command["tick"]
     if event.node_kind == WikiEvent.Kind.GROUP:
         reject("GROUP_DATE", "Edit the group dates separately from its recorded actions.")
+    if event.date_precision != WikiEvent.Precision.EXACT:
+        reject("EVENT_DATE_NOT_EXACT", "Use Edit event details to change an approximate or unknown date.")
     records = list(
         WikiAssertion.objects.filter(entry__wiki=wiki).filter(Q(opened_by=event) | Q(closed_by=event))
     )
@@ -282,9 +339,12 @@ def _correct_event_date(wiki, command):
 
 def _record_claim(wiki, command):
     entry = entry_for(wiki, command["entry_id"])
-    speaker = _actor_for(wiki, command["speaker_id"])
+    speaker = _actor_for(wiki, command["speaker_id"]) if command.get("speaker_id") else None
+    citation = _citation(wiki, command.get("citation_id"))
+    if speaker is None and citation is None:
+        reject("CLAIM_ATTRIBUTION_REQUIRED", "Choose a speaker or cite a source article for the claim.")
     claim = WikiClaim.objects.create(
-        **_value_arguments(entry, command), speaker=speaker,
+        **_value_arguments(entry, command), speaker=speaker, citation=citation,
         tick=command["tick"], source=command["source"], author_only=command["author_only"],
     )
     return claim.pk, set()
@@ -303,7 +363,10 @@ def _record_observation(wiki, command):
     model = WikiAssertion if is_assertion else WikiClaim
     source = _in_world(model.objects.filter(entry__wiki=wiki).select_related("entry"), command["source_id"])
     definition = FIELDS[source.field]
-    if source.author_only or source.entry.author_only or (not is_assertion and source.speaker.author_only):
+    if (
+        source.author_only or source.entry.author_only
+        or (not is_assertion and source.speaker_id and source.speaker.author_only)
+    ):
         reject("PRIVATE_EVIDENCE", "Author-only records cannot be shared as a character’s evidence.")
     if source.qualifier_id and source.qualifier.author_only:
         reject("PRIVATE_EVIDENCE", "This evidence names an author-only qualifier.")
@@ -381,6 +444,8 @@ OPERATIONS = {
     "rename_entry": _rename_entry,
     "update_overview": _update_overview,
     "update_world_introduction": _update_world_introduction,
+    "update_world_home": _update_world_home,
+    "set_discovery": _set_discovery,
     "update_article_sections": _update_article_sections,
     "record_fact": _record_fact,
     "correct_fact": _correct_fact,

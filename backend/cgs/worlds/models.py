@@ -162,7 +162,9 @@ class WikiWorld(models.Model):
     world = models.OneToOneField(World, primary_key=True, on_delete=models.RESTRICT)
     edit_counter = models.PositiveBigIntegerField(default=0)
     days_per_year = models.PositiveIntegerField(null=True, blank=True)
-    introduction = models.CharField(max_length=3000, blank=True, default="")
+    introduction = models.CharField(max_length=3000, blank=True, default="", db_default="")
+    featured_entry_ids = models.JSONField(default=list, db_default=models.Value([], output_field=models.JSONField()), blank=True)
+    cover_map = models.ForeignKey("WikiEntry", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
 
 class WikiEntry(CreatedRecord):
@@ -188,6 +190,10 @@ class WikiEntry(CreatedRecord):
         MAP = "map", "Map"
         TERRITORY = "territory", "Territory"
         ERA = "era", "Era"
+        SOURCE = "source", "Source"
+        PROCESS = "process", "Mental process"
+        SKILL = "skill", "Skill"
+        MILESTONE = "milestone", "Goal milestone"
 
     class CatalogType(models.TextChoices):
         VEHICLE = "vehicle", "Vehicle"
@@ -197,7 +203,7 @@ class WikiEntry(CreatedRecord):
     kind = models.CharField(max_length=12, choices=Kind)
     name = models.CharField(max_length=100)
     overview = models.CharField(max_length=1500, blank=True, default="")
-    article_sections = models.JSONField(default=list, blank=True)
+    article_sections = models.JSONField(default=list, db_default=models.Value([], output_field=models.JSONField()), blank=True)
     catalog_type = models.CharField(max_length=12, choices=CatalogType, blank=True, default="")
     author_only = models.BooleanField(default=False)
 
@@ -208,6 +214,19 @@ class WikiEntry(CreatedRecord):
                 condition=models.Q(catalog_type="") | models.Q(kind="item", catalog_type="vehicle"),
                 name="wiki_entry_catalog_type_matches_kind",
             ),
+        ]
+
+
+class WikiDiscovery(CreatedRecord):
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    observer = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, related_name="discoveries")
+    subject = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, related_name="discovered_by")
+    learned_at = models.PositiveBigIntegerField()
+    source = models.CharField(max_length=500, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["observer", "subject"], name="wiki_discovery_observer_subject"),
         ]
 
 
@@ -298,17 +317,24 @@ class WikiEvent(CreatedRecord):
         GROUP = "group", "Event group"
         ACTION = "action", "Recorded action"
 
+    class Precision(models.TextChoices):
+        EXACT = "exact", "Exact"
+        BOUNDED = "bounded", "Approximate range"
+        UNKNOWN = "unknown", "Unknown"
+
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     wiki = models.ForeignKey(WikiWorld, on_delete=models.RESTRICT)
     name = models.CharField(max_length=120)
     tick = models.PositiveBigIntegerField(null=True)
     node_kind = models.CharField(max_length=12, choices=Kind, default=Kind.OCCURRENCE)
+    date_precision = models.CharField(max_length=7, choices=Precision, default=Precision.EXACT, db_default="exact")
     parent = models.ForeignKey("self", on_delete=models.RESTRICT, null=True, related_name="children")
     sort_order = models.PositiveBigIntegerField(default=0)
     start_tick = models.PositiveBigIntegerField(null=True)
     end_tick = models.PositiveBigIntegerField(null=True)
     cross_references = models.ManyToManyField("self", symmetrical=False, related_name="mentioned_by", blank=True)
     source = models.CharField(max_length=500, blank=True)
+    citation = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, null=True, related_name="+")
     description = models.CharField(max_length=1500, blank=True, default="")
     summary = models.CharField(max_length=500, blank=True, default="")
     method = models.CharField(max_length=1500, blank=True, default="")
@@ -333,8 +359,14 @@ class WikiEvent(CreatedRecord):
                 name="wiki_event_ability_actor_pair",
             ),
             models.CheckConstraint(
-                condition=(Q(node_kind="group", tick__isnull=True, ability__isnull=True)
-                           | (~Q(node_kind="group") & Q(tick__isnull=False))),
+                condition=(
+                    Q(node_kind="group", date_precision="exact", tick__isnull=True, ability__isnull=True)
+                    | (~Q(node_kind="group") & (
+                        Q(date_precision="exact", tick__isnull=False)
+                        | Q(date_precision="bounded", tick__isnull=True, start_tick__isnull=False, end_tick__isnull=False)
+                        | Q(date_precision="unknown", tick__isnull=True, start_tick__isnull=True, end_tick__isnull=True)
+                    ))
+                ),
                 name="wiki_event_kind_clock",
             ),
             models.CheckConstraint(condition=~Q(id=F("parent")), name="wiki_event_no_self_parent"),
@@ -345,6 +377,7 @@ class WikiEventLink(models.Model):
     class Role(models.TextChoices):
         PARTICIPANT = "participant", "Participant"
         PERFORMER = "performer", "Performer"
+        TARGET = "target", "Target"
         PLACE = "place", "Place"
         ITEM = "item", "Item"
         PURPOSE = "purpose", "Purpose"
@@ -383,6 +416,7 @@ class WikiAssertion(CreatedRecord):
     from_tick = models.PositiveBigIntegerField()
     until_tick = models.PositiveBigIntegerField(null=True)
     source = models.CharField(max_length=500, blank=True)
+    citation = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, null=True, related_name="+")
     author_only = models.BooleanField(default=False)
     opened_by = models.ForeignKey(
         WikiEvent, on_delete=models.RESTRICT, null=True, related_name="opened_assertions",
@@ -407,16 +441,22 @@ class WikiAssertion(CreatedRecord):
 class WikiClaim(CreatedRecord):
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     entry = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT)
-    speaker = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, related_name="wiki_testimony")
+    speaker = models.ForeignKey(WikiEntry, null=True, on_delete=models.RESTRICT, related_name="wiki_testimony")
     field = models.CharField(max_length=32)
     qualifier = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, null=True, related_name="+")
     value = models.JSONField()
     tick = models.PositiveBigIntegerField()
     source = models.CharField(max_length=500, blank=True)
+    citation = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, null=True, related_name="+")
     author_only = models.BooleanField(default=False)
 
     class Meta:
         indexes = [models.Index(fields=["entry", "tick"], name="wiki_claim_timeline")]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(speaker__isnull=False) | Q(citation__isnull=False), name="wiki_claim_has_attribution",
+            ),
+        ]
 
 
 class WikiObservation(CreatedRecord):

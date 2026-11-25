@@ -5,7 +5,7 @@ from rest_framework import serializers
 from cgs.api import StrictSerializer, TextField
 
 from .draft_validation import canonical_input
-from .models import WikiEntry
+from .models import WikiEntry, WikiEvent
 
 
 MAX_CLOCK = 9_007_199_254_740_991
@@ -18,6 +18,8 @@ PHYSICAL_ENTITIES = (*ACTORS, *DEFINITIONS, "item", "place")
 NONLIVING = ("item", "place", "group", "culture", "territory", *VISUAL_ASSETS)
 MEASURED_TRAITS = (
     "actual_rating", "physical_average", "physical_distribution", "power_average", "power_distribution",
+    "processing_speed", "mental_bandwidth", "processing_efficiency", "processing_cost",
+    "processing_overload", "emotional_stress",
 )
 IDENTITY = "Identity and classification"
 PHYSICAL = "Physical traits and condition"
@@ -45,6 +47,8 @@ class WikiField:
     inherited: bool = False
     inverse: str = ""
     acyclic: bool = False
+    minimum: int | None = None
+    maximum: int | None = None
 
     @property
     def target_kinds(self):
@@ -63,6 +67,8 @@ class WikiField:
             "qualifier_kind": self.qualifier_kind,
             "qualifier_required": self.qualifier_required,
             "many": self.many,
+            "minimum": self.minimum,
+            "maximum": self.maximum,
         }
 
 
@@ -113,6 +119,11 @@ FIELDS = {
                   qualifier_kind="body_part", qualifier_required=True),
         WikiField("functionality", "Physical function", ACTORS, section=PHYSICAL,
                   qualifier_kind="body_part", qualifier_required=True),
+        WikiField("health_pct", "Overall health (%)", ACTORS, "decimal", section=PHYSICAL, minimum=0, maximum=100),
+        WikiField("part_damage_pct", "Part damage (%)", ACTORS, "decimal", section=PHYSICAL,
+                  qualifier_kind="body_part", qualifier_required=True, minimum=0, maximum=100),
+        WikiField("part_function_pct", "Part functionality (%)", ACTORS, "decimal", section=PHYSICAL,
+                  qualifier_kind="body_part", qualifier_required=True, minimum=0, maximum=100),
         WikiField("parent", "Parent", ACTORS, "reference", section=RELATIONSHIPS,
                   targets=ACTORS, many=True, inverse="Children", acyclic=True),
         WikiField("sibling", "Sibling", ACTORS, "reference", section=RELATIONSHIPS, targets=ACTORS, many=True),
@@ -179,7 +190,7 @@ FIELDS = {
         WikiField("ability_type", "Ability type", ("ability",), section=IDENTITY,
                   choices=("Power", "Ability", "Technique")),
         WikiField("ability_domain", "Ability domain", ("ability",), section=IDENTITY,
-                  choices=("Physical", "Mental"), many=True),
+                  choices=("Physical", "Mental", "Financial"), many=True),
         WikiField("physical_average", "Average physical measurement", ("species",), "decimal",
                   section=SPECIES_PROFILE, qualifier_kind="trait", qualifier_required=True),
         WikiField("physical_distribution", "Physical measurement distribution", ("species",), "distribution",
@@ -195,13 +206,37 @@ FIELDS = {
         WikiField("values", "Value", ACTORS, section=MIND, many=True),
         WikiField("preference", "Preference", ACTORS, section=MIND, many=True),
         WikiField("mood", "Emotional state", ACTORS, section=MIND),
+        WikiField("reported_mood", "Mood", ACTORS, section=MIND),
         WikiField("mental_state", "Mental state", ACTORS, section=MIND),
+        WikiField("mental_process", "Mental process", ACTORS, "reference", "process", section=MIND, many=True),
+        WikiField("skill", "Skill", ACTORS, "reference", "skill", section=MIND, many=True),
+        WikiField("success_probability", "Success probability (0–1)", ACTORS, "decimal", section=MIND,
+                  qualifier_kind="skill", qualifier_required=True, minimum=0, maximum=1),
+        WikiField("processing_speed", "Processing speed", (*ACTORS, "process", "skill"), "decimal", section=MIND,
+                  qualifier_kind="trait", qualifier_required=True, minimum=0),
+        WikiField("mental_bandwidth", "Mental bandwidth", ACTORS, "decimal", section=MIND,
+                  qualifier_kind="trait", qualifier_required=True, minimum=0),
+        WikiField("processing_efficiency", "Processing efficiency", (*ACTORS, "process", "skill"), "decimal", section=MIND,
+                  qualifier_kind="trait", qualifier_required=True, minimum=0),
+        WikiField("processing_cost", "Processing cost", (*ACTORS, "process", "skill"), "decimal", section=MIND,
+                  qualifier_kind="trait", qualifier_required=True, minimum=0),
+        WikiField("processing_overload", "Processing overload", ACTORS, "decimal", section=MIND,
+                  qualifier_kind="trait", qualifier_required=True, minimum=0),
+        WikiField("emotional_stress", "Emotional stress", ACTORS, "decimal", section=MIND,
+                  qualifier_kind="trait", qualifier_required=True, minimum=0),
         WikiField("goal_owner", "Goal owner", ("goal",), "reference", section=MIND, targets=ACTORS, inverse="Goals"),
         WikiField("parent_goal", "Parent goal", ("goal",), "reference", "goal",
                   section=MIND, inverse="Subgoals", acyclic=True),
         WikiField("goal_subject", "Related subject", ("goal",), "reference",
                   section=MIND, targets=tuple(WikiEntry.Kind.values)),
         WikiField("priority", "Priority", ("goal",), "integer", section=MIND),
+        WikiField("milestone_goal", "Goal", ("milestone",), "reference", "goal", section=MIND, inverse="Milestones"),
+        WikiField("milestone_order", "Order within goal", ("milestone",), "integer", section=MIND),
+        WikiField("source_medium", "Medium", ("source",), section="Source details",
+                  choices=("Document", "Artifact", "Recording", "Person", "Other")),
+        WikiField("source_locator", "Locator", ("source",), section="Source details"),
+        WikiField("source_excerpt", "Excerpt", ("source",), section="Source details"),
+        WikiField("source_person", "Recorded person", ("source",), "reference", section="Source details", targets=ACTORS),
     )
 }
 
@@ -285,6 +320,26 @@ class UpdateWorldIntroduction(StrictSerializer):
     introduction = TextField(max_length=3000, allow_blank=True)
 
 
+class UpdateWorldHome(StrictSerializer):
+    op = serializers.ChoiceField(choices=("update_world_home",))
+    introduction = TextField(max_length=3000, allow_blank=True)
+    cover_map_id = WikiRef(allow_null=True)
+    featured_entry_ids = serializers.ListField(child=WikiRef(), max_length=8)
+
+    def validate_featured_entry_ids(self, entries):
+        if len(entries) != len(set(entries)):
+            raise serializers.ValidationError("Feature each article only once.")
+        return entries
+
+
+class SetDiscovery(StrictSerializer):
+    op = serializers.ChoiceField(choices=("set_discovery",))
+    entry_id = WikiRef()
+    observer_id = WikiRef()
+    learned_at = ExactClock(allow_null=True)
+    source = TextField(max_length=500, allow_blank=True, default="")
+
+
 class ArticleSection(StrictSerializer):
     id = WikiRef()
     heading = TextField(max_length=120)
@@ -317,6 +372,7 @@ class RecordFact(StateValue):
     from_tick = ExactClock()
     until_tick = ExactClock(allow_null=True, default=None)
     source = TextField(max_length=500, allow_blank=True, default="")
+    citation_id = WikiRef(allow_null=True, required=False)
 
 
 class CorrectFact(StrictSerializer):
@@ -324,6 +380,7 @@ class CorrectFact(StrictSerializer):
     assertion_id = WikiRef()
     value = serializers.JSONField()
     source = TextField(max_length=500, allow_blank=True, required=False)
+    citation_id = WikiRef(allow_null=True, required=False)
     author_only = serializers.BooleanField(required=False)
 
 
@@ -335,11 +392,13 @@ class AbilityUse(StrictSerializer):
 class EventDetails(StrictSerializer):
     name = TextField(max_length=120)
     source = TextField(max_length=500, allow_blank=True, required=False)
+    citation_id = WikiRef(allow_null=True, required=False)
     description = TextField(max_length=1500, allow_blank=True, required=False)
     summary = TextField(max_length=500, allow_blank=True, required=False)
     method = TextField(max_length=1500, allow_blank=True, required=False)
     participant_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     performer_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
+    target_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     place_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     item_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     purpose_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
@@ -360,7 +419,8 @@ class EventChange(StateValue):
 
 class RecordEvent(EventDetails):
     op = serializers.ChoiceField(choices=("record_event",))
-    tick = ExactClock()
+    tick = ExactClock(allow_null=True)
+    date_precision = serializers.ChoiceField(choices=WikiEvent.Precision.values, required=False)
     source = TextField(max_length=500, allow_blank=True, default="")
     changes = EventChange(many=True, required=False, max_length=40)
     parent_id = WikiRef(allow_null=True, required=False)
@@ -375,6 +435,8 @@ class RecordEventGroup(EventDetails):
 class EditEvent(EventDetails):
     op = serializers.ChoiceField(choices=("edit_event",))
     event_id = WikiRef()
+    tick = ExactClock(allow_null=True, required=False)
+    date_precision = serializers.ChoiceField(choices=WikiEvent.Precision.values, required=False)
 
 
 class OrganizeEvent(StrictSerializer):
@@ -407,7 +469,8 @@ class CorrectEvent(StrictSerializer):
 
 class RecordClaim(StateValue):
     op = serializers.ChoiceField(choices=("record_claim",))
-    speaker_id = WikiRef()
+    speaker_id = WikiRef(allow_null=True, required=False)
+    citation_id = WikiRef(allow_null=True, required=False)
     tick = ExactClock()
     source = TextField(max_length=500, allow_blank=True, default="")
 
@@ -521,6 +584,8 @@ COMMANDS = {
     "rename_entry": RenameEntry,
     "update_overview": UpdateOverview,
     "update_world_introduction": UpdateWorldIntroduction,
+    "update_world_home": UpdateWorldHome,
+    "set_discovery": SetDiscovery,
     "update_article_sections": UpdateArticleSections,
     "record_fact": RecordFact,
     "correct_fact": CorrectFact,

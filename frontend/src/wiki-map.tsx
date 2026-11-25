@@ -1,5 +1,6 @@
-import { type FormEvent, type PointerEvent, useRef, useState } from 'react'
+import { type FormEvent, type PointerEvent, useLayoutEffect, useRef, useState } from 'react'
 import { ApiError } from './api'
+import { WorkspaceLink } from './home-masthead'
 import { mapImageUrl, uploadMapImage, type WikiEntry, type WikiImageMap, type WikiMapPin } from './wiki-api'
 import { Actions, EntryPicker, type FormActions } from './wiki-forms'
 
@@ -65,20 +66,29 @@ export function WikiMapImageForm({ worldId, map, token, onAuthError, ...actions 
 const zoomLevels = [1, 1.5, 2, 3, 4]
 
 type Position = { x: string; y: string }
+export type MapView = { selectedId: string; zoomIndex: number; left: number; top: number }
 
-export function WikiMapPanel({ entry, map, worldId, entries, busy, onAttach, onSave, onOpenPlace }: {
+export function WikiMapPanel({ entry, map, worldId, entries, busy, onAttach, onSave, onOpenPlace, placeHref,
+  initialView, onViewChange, onEditing }: {
   entry: WikiEntry; map?: WikiImageMap; worldId: string; entries: WikiEntry[]; busy: boolean
   onAttach?: () => void; onSave?: FormActions['onSave']; onOpenPlace: (id: string) => void
+  placeHref: (id: string) => string; initialView?: MapView; onViewChange: (view: MapView) => void
+  onEditing: (open: boolean) => void
 }) {
-  const [selectedId, setSelectedId] = useState('')
+  const [selectedId, setSelectedId] = useState(initialView?.selectedId ?? '')
   const [pinEdit, setPinEdit] = useState<'new' | WikiMapPin | null>(null)
   const [position, setPosition] = useState<Position>({ x: '50', y: '50' })
-  const [zoomIndex, setZoomIndex] = useState(0)
+  const [zoomIndex, setZoomIndex] = useState(initialView?.zoomIndex ?? 0)
   const [imageFailed, setImageFailed] = useState(false)
   const [imageAttempt, setImageAttempt] = useState(0)
   const viewport = useRef<HTMLDivElement>(null)
   const pan = useRef<{ id: number; x: number; y: number; left: number; top: number; moved: boolean } | null>(null)
   const suppressPlacement = useRef(false)
+  const initialScroll = useRef({ left: initialView?.left ?? 0, top: initialView?.top ?? 0 })
+
+  useLayoutEffect(() => {
+    viewport.current?.scrollTo(initialScroll.current.left, initialScroll.current.top)
+  }, [])
 
   if (!map) {
     return (
@@ -96,15 +106,31 @@ export function WikiMapPanel({ entry, map, worldId, entries, busy, onAttach, onS
   const placing = Boolean(pinEdit && onSave && !busy)
   const zoom = zoomLevels[zoomIndex]
 
+  function remember(changes: Partial<MapView> = {}) {
+    onViewChange({
+      selectedId, zoomIndex, left: viewport.current?.scrollLeft ?? 0, top: viewport.current?.scrollTop ?? 0, ...changes,
+    })
+  }
+
   function choosePin(pin: WikiMapPin) {
     setSelectedId(pin.id)
+    remember({ selectedId: pin.id })
+  }
+
+  function adjustZoom(index: number) {
+    setZoomIndex(index)
+    remember({ zoomIndex: index })
+  }
+
+  function cancelPin() {
     setPinEdit(null)
+    onEditing(false)
   }
 
   function startPin(pin: WikiMapPin | 'new') {
+    onEditing(true)
     setPinEdit(pin)
     if (pin === 'new') {
-      setSelectedId('')
       setPosition({ x: '50', y: '50' })
     } else {
       setPosition({ x: String(pin.x * 100), y: String(pin.y * 100) })
@@ -153,23 +179,24 @@ export function WikiMapPanel({ entry, map, worldId, entries, busy, onAttach, onS
     <section className="wiki-block wiki-image-map" aria-label="Interactive map">
       <div className="wiki-card-heading wiki-map-toolbar">
         <div className="form-actions" aria-label="Map view controls">
-          <button type="button" className="button secondary" disabled={zoomIndex === 0} onClick={() => setZoomIndex(zoomIndex - 1)}>Zoom out</button>
+          <button type="button" className="button secondary" disabled={zoomIndex === 0} onClick={() => adjustZoom(zoomIndex - 1)}>Zoom out</button>
           <button type="button" className="button secondary" disabled={zoomIndex === zoomLevels.length - 1}
-            onClick={() => setZoomIndex(zoomIndex + 1)}>Zoom in</button>
+            onClick={() => adjustZoom(zoomIndex + 1)}>Zoom in</button>
           <button type="button" className="button secondary" onClick={() => {
-            setZoomIndex(0)
             viewport.current?.scrollTo(0, 0)
+            adjustZoom(0)
           }}>Reset view</button>
           <output aria-label="Map zoom">{zoom * 100}%</output>
         </div>
-        {onSave && <button type="button" className="button primary" disabled={busy} onClick={() => startPin('new')}>Add pin</button>}
+        {onSave && <button type="button" className="button primary" disabled={busy || Boolean(pinEdit)}
+          onClick={() => startPin('new')}>Add pin</button>}
       </div>
       {placing && <p className="muted">Click to place the pin, drag to pan, or enter its position.</p>}
       <div className="wiki-map-workspace">
         <div className="wiki-map-canvas">
           <div className="wiki-map-viewport" ref={viewport} role="region" tabIndex={0} aria-label="Map viewport"
             data-placing={placing || undefined} onPointerDown={startPan} onPointerMove={movePan}
-            onPointerUp={endPan} onPointerCancel={endPan} onLostPointerCapture={endPan}
+            onPointerUp={endPan} onPointerCancel={endPan} onLostPointerCapture={endPan} onScroll={() => remember()}
             onPointerLeave={(event) => { if (!pan.current?.moved) endPan(event) }}>
             <div className="wiki-map-image" style={{ width: zoom * 100 + '%', aspectRatio: map.width + ' / ' + map.height }}
               onClick={(event) => {
@@ -182,7 +209,7 @@ export function WikiMapPanel({ entry, map, worldId, entries, busy, onAttach, onS
                 onError={() => setImageFailed(true)} />
               {map.pins.filter((pin) => pin.id !== existingPin?.id || !placing).map((pin) => (
                 <button key={pin.id} className="wiki-map-pin" type="button"
-                  aria-label={'Select ' + pin.label + ' on map'} aria-pressed={pin.id === selectedId} disabled={busy}
+                  aria-label={'Select ' + pin.label + ' on map'} aria-pressed={pin.id === selectedId} disabled={busy || Boolean(pinEdit)}
                   style={{ left: pin.x * 100 + '%', top: pin.y * 100 + '%' }} onClick={(event) => {
                     event.stopPropagation()
                     choosePin(pin)
@@ -207,7 +234,7 @@ export function WikiMapPanel({ entry, map, worldId, entries, busy, onAttach, onS
                 {map.pins.map((pin) => (
                   <li key={pin.id}>
                     <button type="button" className="button secondary" aria-pressed={pin.id === selectedId}
-                      disabled={busy} onClick={() => choosePin(pin)}>{pin.label}</button>
+                      disabled={busy || Boolean(pinEdit)} onClick={() => choosePin(pin)}>{pin.label}</button>
                   </li>
                 ))}
               </ul>
@@ -216,8 +243,8 @@ export function WikiMapPanel({ entry, map, worldId, entries, busy, onAttach, onS
           {selected && (!pinEdit || !onSave) && <section className="wiki-map-pin-detail" aria-label="Selected pin">
             <h3>{selected.label}</h3>
             <div className="form-actions">
-              {linkedPlace && <button type="button" className="wiki-reference" disabled={busy}
-                onClick={() => onOpenPlace(linkedPlace.id)}>Open {linkedPlace.name}</button>}
+              {linkedPlace && <WorkspaceLink className="wiki-reference" href={placeHref(linkedPlace.id)} disabled={busy}
+                onFollow={() => onOpenPlace(linkedPlace.id)}>Open {linkedPlace.name}</WorkspaceLink>}
               {onSave && <>
                 <button type="button" className="button secondary" disabled={busy} onClick={() => startPin(selected)}>Edit pin</button>
                 <button type="button" className="button secondary" disabled={busy}
@@ -241,7 +268,7 @@ export function WikiMapPanel({ entry, map, worldId, entries, busy, onAttach, onS
                     onChange={(event) => setPosition({ ...position, y: event.target.value })} />
                 </label>
               </div>
-              <Actions busy={busy} onCancel={() => setPinEdit(null)} submit="Save pin" />
+              <Actions busy={busy} onCancel={cancelPin} submit="Save pin" />
             </fieldset>
           </form>}
         </aside>

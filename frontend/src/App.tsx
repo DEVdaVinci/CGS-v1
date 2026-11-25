@@ -5,6 +5,7 @@ import { DraftEditor } from './draft-editor'
 import { clearPendingEdits } from './draft-api'
 import { clearWikiAttempts } from './wiki-api'
 import { Wiki } from './wiki'
+import { HomeMasthead } from './home-masthead'
 
 type SessionState =
   | { phase: 'loading' | 'failed' }
@@ -180,9 +181,11 @@ export function App() {
         </main>
       )}
       {state.phase === 'ready' && !state.session.authenticated && (
-        <main className="centered">
+        <main className="workspace home-shell">
+          <div className="sign-in-landing">
+            <HomeMasthead title="CGS" introduction="Build and explore your worlds." />
           <section className="sign-in-card" aria-labelledby="sign-in-title">
-            <h1 id="sign-in-title">Sign in to CGS</h1>
+            <h2 id="sign-in-title">Sign in to CGS</h2>
             <p className="muted sign-in-intro">Use the account you created for this installation.</p>
             {notice && <p className="notice" role="status">{notice}</p>}
             <SignInForm
@@ -194,10 +197,11 @@ export function App() {
               onAuthError={onAuthError}
             />
           </section>
+          </div>
         </main>
       )}
       {account && (
-        <main className={worldRoute?.[2] === 'wiki' ? 'workspace wiki-shell' : 'workspace'}>
+        <main className={worldRoute?.[2] === 'wiki' ? 'workspace wiki-shell' : worldRoute?.[2] === 'draft' ? 'workspace' : 'workspace home-shell'}>
           {notice && <p className="notice" role="status">{notice}</p>}
           {signOutError && <p className="error-message" role="alert">{signOutError}</p>}
           {worldId ? (
@@ -205,7 +209,7 @@ export function App() {
               ? <Wiki key={account.account_id + worldId} account={account} worldId={worldId} onAuthError={onAuthError} />
               : worldRoute?.[2] === 'draft'
                 ? <DraftEditor key={account.account_id + worldId} account={account} worldId={worldId} onAuthError={onAuthError} />
-                : <WorldOverview key={account.account_id + worldId} worldId={worldId} onAuthError={onAuthError} />
+                : <WorldOverview key={account.account_id + worldId} accountId={account.account_id} worldId={worldId} onAuthError={onAuthError} />
           ) : (
             <WorldLibrary key={account.account_id} account={account} onAuthError={onAuthError} />
           )}

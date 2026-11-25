@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import {
-  canPerformEvent, getWiki, isWikiActor,
-  type WikiArticleSection, type WikiAssertion, type WikiClaim, type WikiCommand, type WikiEntry, type WikiEvent,
+  canPerformEvent, getWiki, isWikiActor, type EventDatePrecision,
+  type WikiArticleSection, type WikiAssertion, type WikiClaim, type WikiCommand, type WikiDiscovery, type WikiEntry, type WikiEvent,
   type WikiEntryTemplate, type WikiField, type WikiKind, type WikiLearnedAbility, type WikiObservation, type WikiProposition, type WikiValue,
 } from './wiki-api'
 import { DistributionInput, formatDistribution } from './wiki-distribution'
@@ -12,6 +12,7 @@ export const kindLabel: Record<WikiKind, string> = {
   resource: 'Resource', body_part: 'Body part', trait: 'Trait', goal: 'Goal',
   image: 'Image', model_3d: '3D model', texture: 'Texture', animation: 'Animation',
   map: 'Map', territory: 'Territory', era: 'Era',
+  source: 'Source', process: 'Mental process', skill: 'Skill', milestone: 'Goal milestone',
 }
 
 export type ArticleEdit =
@@ -19,6 +20,7 @@ export type ArticleEdit =
   | { kind: 'claim' | 'event' }
   | { kind: 'rename' | 'overview' | 'sections' }
   | { kind: 'learn'; learned?: WikiLearnedAbility }
+  | { kind: 'discovery'; discovery?: WikiDiscovery }
   | { kind: 'edit-event'; event: WikiEvent }
   | { kind: 'correct'; fact: WikiAssertion }
   | { kind: 'correct-date'; event: WikiEvent }
@@ -60,6 +62,8 @@ const initialKeys: Partial<Record<WikiKind, string[]>> = {
   resource: ['unit'],
   trait: ['unit'],
   goal: ['goal_owner', 'parent_goal', 'goal_subject', 'priority', 'status'],
+  milestone: ['milestone_goal', 'milestone_order', 'status'],
+  source: ['source_medium', 'source_locator', 'source_excerpt', 'source_person'],
 }
 
 export function WikiEntryForm({ fixedTemplate, chooser, entries, fields, ownerId, ...actions }: FormActions & {
@@ -215,7 +219,7 @@ export function ValueInput({
         <input name={name} type="number" min={0} max={Number.MAX_SAFE_INTEGER} step={1} defaultValue={initial} required={required} />
       ) : field.value_kind === 'decimal' ? (
         <input name={name} inputMode="decimal" pattern={String.raw`-?\d{1,15}(\.\d{1,9})?`} defaultValue={initial} required={required} />
-      ) : ['description', 'appearance', 'background'].includes(field.key) ? (
+      ) : ['description', 'appearance', 'background', 'source_excerpt'].includes(field.key) ? (
         <textarea name={name} rows={3} maxLength={500} defaultValue={initial} required={required} />
       ) : (
         <input name={name} maxLength={500} defaultValue={initial} required={required} />
@@ -229,8 +233,13 @@ function readValue(value: FormDataEntryValue | null, field: WikiField): WikiValu
   return field.value_kind === 'integer' ? Number(text) : text
 }
 
-function PersonSelect({ name, label, entries }: { name: string; label: string; entries: WikiEntry[] }) {
-  return <EntryPicker name={name} label={label} entries={entries.filter(isWikiActor)} />
+function PersonSelect({ name, label, entries, optional = false }: { name: string; label: string; entries: WikiEntry[]; optional?: boolean }) {
+  return <EntryPicker name={name} label={label} entries={entries.filter(isWikiActor)} required={!optional} />
+}
+
+export function CitationInput({ entries, initial }: { entries: WikiEntry[]; initial?: string | null }) {
+  return <EntryPicker name="citation_id" label="Source article" entries={entries.filter((entry) => entry.kind === 'source')}
+    initial={initial ?? undefined} required={false} />
 }
 
 function QualifierInput({ field, entries, name, initial }: {
@@ -260,18 +269,19 @@ function CanonicalForm({ mode, fact, initialField, entry, fields, entries, at, .
     const values = new FormData(event.currentTarget)
     const value = readValue(values.get('value'), field)
     const source = String(values.get('source') ?? '')
+    const citation_id = String(values.get('citation_id') ?? '') || null
     const author_only = values.has('author_only')
     if (fact) {
-      actions.onSave({ op: 'correct_fact', assertion_id: fact.id, value, source, author_only })
+      actions.onSave({ op: 'correct_fact', assertion_id: fact.id, value, source, citation_id, author_only })
       return
     }
     const qualifier = String(values.get('qualifier_id') ?? '')
     const change = {
-      entry_id: entry.id, field: field.key, value, author_only, source,
+      entry_id: entry.id, field: field.key, value, author_only, source, citation_id,
       ...(qualifier ? { qualifier_id: qualifier } : {}),
     }
     actions.onSave(mode === 'claim'
-      ? { ...change, op: 'record_claim', speaker_id: String(values.get('speaker_id')), tick: Number(values.get('tick')) }
+      ? { ...change, op: 'record_claim', speaker_id: String(values.get('speaker_id') ?? '') || null, tick: Number(values.get('tick')) }
       : {
           ...change, op: 'record_fact', from_tick: Number(values.get('from_tick')),
           until_tick: optionalTime(values, 'until_tick'),
@@ -296,7 +306,7 @@ function CanonicalForm({ mode, fact, initialField, entry, fields, entries, at, .
         <>
           {mode === 'claim' ? (
             <div className="wiki-form-row">
-              <PersonSelect name="speaker_id" label="Speaker" entries={entries} />
+              <PersonSelect name="speaker_id" label="Speaker" entries={entries} optional />
               <TimeInput name="tick" label="Statement time" day={at} />
             </div>
           ) : (
@@ -307,6 +317,8 @@ function CanonicalForm({ mode, fact, initialField, entry, fields, entries, at, .
           )}
         </>
       )}
+      {mode === 'claim' && <p className="muted">Choose a speaker or cite a source article.</p>}
+      <CitationInput entries={entries} initial={fact?.citation_id} />
       <label className="field">Source (optional)<input name="source" maxLength={500} defaultValue={fact?.source} /></label>
       <label className="wiki-checkbox"><input type="checkbox" name="author_only" defaultChecked={fact?.author_only} /> Author only</label>
       <Actions {...actions} submit={mode === 'correct' ? 'Save correction' : mode === 'claim' ? 'Save claim' : 'Save fact'} />
@@ -460,6 +472,8 @@ export function WikiEventForm({ worldId, entry, fields, entries, at, event, even
   const [rows, setRows] = useState(entry ? [{ id: 0, entryId: entry.id, field: 'status' }] : [])
   const [nextId, setNextId] = useState(1)
   const [ability, setAbility] = useState(event?.ability_use?.ability_id ?? '')
+  const [precision, setPrecision] = useState<EventDatePrecision>(event?.date_precision ?? 'exact')
+  const canChangePrecision = !entry && !event?.changes.length
   const title = event ? 'Edit event details' : entry ? 'Record dated change' : action ? 'Record action' : 'New event'
   const fieldsFor = (id: string) => fields.filter((field) => {
     const kind = entries.find((item) => item.id === id)?.kind
@@ -471,15 +485,18 @@ export function WikiEventForm({ worldId, entry, fields, entries, at, event, even
     const values = new FormData(submission.currentTarget)
     const details = {
       ...readEventContext(values), name: String(values.get('name')), source: String(values.get('source') ?? ''),
+      citation_id: String(values.get('citation_id') ?? '') || null,
       description: String(values.get('description') ?? ''),
       participant_ids: values.getAll('participants').map(String),
       performer_ids: values.getAll('performers').map(String),
+      target_ids: values.getAll('targets').map(String),
       place_ids: values.getAll('places').map(String), item_ids: values.getAll('items').map(String),
       ability_use: ability ? { ability_id: ability, actor_id: String(values.get('actor_id')) } : null,
       start_tick: optionalTime(values, 'start_tick'), end_tick: optionalTime(values, 'end_tick'),
     }
+    const date = { tick: precision === 'exact' ? optionalTime(values, 'tick') : null, date_precision: precision }
     if (event) {
-      actions.onSave({ ...details, op: 'edit_event', event_id: event.id })
+      actions.onSave({ ...details, ...(canChangePrecision ? date : {}), op: 'edit_event', event_id: event.id })
     } else {
       const changes = rows.map((row) => {
         const qualifier = String(values.get('qualifier-' + row.id) ?? '')
@@ -493,7 +510,7 @@ export function WikiEventForm({ worldId, entry, fields, entries, at, event, even
       })
       const parent = parents.length ? String(values.get('parent_id') ?? '') : parentId
       actions.onSave({
-        ...details, op: 'record_event', tick: Number(values.get('tick')), changes,
+        ...details, ...date, op: 'record_event', changes,
         ...(parent ? { parent_id: parent } : {}), ...(action ? { node_kind: 'action' } : {}),
       })
     }
@@ -503,23 +520,37 @@ export function WikiEventForm({ worldId, entry, fields, entries, at, event, even
       <h2>{title}</h2>
       <div className="wiki-form-row">
         <label className="field">Event name<input name="name" maxLength={120} defaultValue={event?.name} required /></label>
-        {event ? <p className="muted">Time {event.tick}</p> : <TimeInput name="tick" label="Event time" day={at} />}
+        {canChangePrecision && <label className="field">Date precision
+          <select value={precision} disabled={rows.length > 0} onChange={(change) => setPrecision(change.target.value as EventDatePrecision)}>
+            <option value="exact">Exact time</option><option value="bounded">Approximate range</option><option value="unknown">Unknown</option>
+          </select>
+        </label>}
       </div>
+      {precision === 'exact' && (event && !canChangePrecision
+        ? <p className="muted">Effective at time {event.tick}</p>
+        : <TimeInput name="tick" label="Event time" day={event ? event.tick : at} />)}
       {!event && parents.length > 0 && <EntryPicker name="parent_id" label="Parent event (optional)"
         entries={parents} initial={parentId} required={false} />}
-      <details className="wiki-event-options" open={event?.start_tick != null || event?.end_tick != null}>
+      {precision === 'exact' && <details className="wiki-event-options" open={event?.date_precision === 'exact' && (event.start_tick !== null || event.end_tick !== null)}>
         <summary>Event duration</summary>
         <div className="wiki-form-row">
-          <TimeInput name="start_tick" label="Start time (optional)" day={event?.start_tick ?? undefined} optional />
-          <TimeInput name="end_tick" label="End time (optional)" day={event?.end_tick ?? undefined} optional />
+          <TimeInput name="start_tick" label="Start time (optional)" day={event?.date_precision === 'exact' ? event.start_tick : null} optional />
+          <TimeInput name="end_tick" label="End time (optional)" day={event?.date_precision === 'exact' ? event.end_tick : null} optional />
         </div>
-      </details>
+      </details>}
+      {precision === 'bounded' && <div className="wiki-form-row">
+        <TimeInput name="start_tick" label="Earliest possible time" day={event?.date_precision === 'bounded' ? event.start_tick : null} />
+        <TimeInput name="end_tick" label="Latest possible time" day={event?.date_precision === 'bounded' ? event.end_tick : null} />
+      </div>}
+      {precision !== 'exact' && <p className="muted">State changes require an exact effective time.</p>}
       <label className="field">What happened<textarea name="description" rows={3} maxLength={1500} defaultValue={event?.description} /></label>
       <EventContextFields worldId={worldId} entries={entries} fields={fields} at={at} event={event} events={events} />
       <details className="wiki-event-options" open={!entry || Boolean(event)}>
         <summary>Performers, participants, places, and items</summary>
         <EntryChoices label="Performed by" name="performers" entries={entries.filter(canPerformEvent)}
           initial={event?.links.filter((link) => link.role === 'performer').map((link) => link.entry_id) ?? []} />
+        <EntryChoices label="Targets" name="targets" entries={entries}
+          initial={event?.links.filter((link) => link.role === 'target').map((link) => link.entry_id) ?? []} />
         <div className="wiki-event-links">
           <EntryChoices label="Participants" name="participants" entries={entries.filter((e) => isWikiActor(e) || e.kind === 'group')}
             initial={event?.links.filter((link) => link.role === 'participant').map((link) => link.entry_id) ?? []} />
@@ -577,13 +608,14 @@ export function WikiEventForm({ worldId, entry, fields, entries, at, event, even
           </button>
         </fieldset>
       ))}
-      {!event && entries.length > 0 && rows.length < 40 && (
+      {!event && precision === 'exact' && entries.length > 0 && rows.length < 40 && (
         <button className="button secondary wiki-add-change" type="button" onClick={() => {
           const available = entry && fieldsFor(entry.id).find((field) => !rows.some((row) => row.field === field.key))
           setRows([...rows, { id: nextId, entryId: entry?.id ?? '', field: available?.key ?? (entry ? 'status' : '') }])
           setNextId(nextId + 1)
         }}>{rows.length ? 'Add another change' : 'Add a state change'}</button>
       )}
+      <CitationInput entries={entries} initial={event?.citation_id} />
       <label className="field">Source (optional)<input name="source" maxLength={500} defaultValue={event?.source} /></label>
       <Actions {...actions} submit={event ? 'Save event details' : entry ? 'Save dated change' : action ? 'Save action' : 'Save event'} />
     </form>
@@ -634,9 +666,38 @@ export function WikiEditForm({ edit, overview, sections, ...props }: EntryFormPr
   if (edit.kind === 'overview') return <OverviewForm {...props} overview={overview} />
   if (edit.kind === 'sections') return <ArticleSectionsForm {...props} initial={sections ?? []} />
   if (edit.kind === 'learn') return <LearnAbilityForm {...props} learned={edit.learned} />
+  if (edit.kind === 'discovery') return <DiscoveryForm {...props} discovery={edit.discovery} />
   if (edit.kind === 'correct') return <CanonicalForm {...props} mode="correct" fact={edit.fact} />
   if (edit.kind === 'proposition') return <PropositionForm {...props} record={edit.record} />
   return <CanonicalForm {...props} mode={edit.kind} initialField={edit.kind === 'fact' ? edit.field : undefined} />
+}
+
+function DiscoveryForm({ entry, entries, discovery, ...actions }: EntryFormProps & { discovery?: WikiDiscovery }) {
+  const title = discovery ? 'Edit discovery' : 'Record discovery'
+  return (
+    <form className="wiki-form" aria-label={title} onSubmit={(event) => {
+      event.preventDefault()
+      const values = new FormData(event.currentTarget)
+      actions.onSave({
+        op: 'set_discovery', entry_id: entry.id,
+        observer_id: discovery?.observer_id ?? String(values.get('observer_id')),
+        learned_at: Number(values.get('learned_at')), source: String(values.get('source') ?? ''),
+      })
+    }}>
+      <h2>{title}</h2>
+      <p className="muted">Record when a character learned that {entry.name} exists.</p>
+      {discovery
+        ? <p>{entries.find((item) => item.id === discovery.observer_id)?.name}</p>
+        : <EntryPicker name="observer_id" label="Observer" entries={entries.filter((item) => item.id !== entry.id && isWikiActor(item))} />}
+      <TimeInput name="learned_at" label="Learned at" day={discovery?.learned_at} />
+      <label className="field">Source (optional)<input name="source" maxLength={500} defaultValue={discovery?.source} /></label>
+      <Actions {...actions} submit="Save discovery" />
+      {discovery && <button className="button secondary" type="button" disabled={actions.busy}
+        onClick={() => actions.onSave({
+          op: 'set_discovery', entry_id: entry.id, observer_id: discovery.observer_id, learned_at: null, source: '',
+        })}>Remove explicit discovery</button>}
+    </form>
+  )
 }
 
 function PropositionForm({ entry, entries, fields, observations = [], record, at, ...actions }: EntryFormProps & {

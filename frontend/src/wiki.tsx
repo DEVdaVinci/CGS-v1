@@ -1,7 +1,8 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, type SignedInSession } from './api'
+import { WorkspaceLink } from './home-masthead'
 import {
-  getWiki, isWikiActor, readWikiAttempt, saveWikiChange, storeWikiAttempt,
+  getWiki, isWikiActor, readWikiAttempt, saveWikiChange, storeWikiAttempt, wikiHref,
   type WikiArticle, type WikiAttempt, type WikiCommand, type WikiEntry, type WikiEntryTemplate, type WikiKind,
   type WikiLinkedFact, type WikiLocation, type WikiSection, type WikiValue, type WikiView,
 } from './wiki-api'
@@ -9,7 +10,7 @@ import { kindLabel, type ArticleEdit, WikiCalendarForm, WikiEditForm, WikiEntryF
 import { formatDistribution } from './wiki-distribution'
 import { WikiGroupForm, WikiOrganizeForm } from './wiki-event-outline'
 import { isLayoutEdit, WikiLayoutForm, WikiLayoutPanel, type LayoutEdit } from './wiki-layout'
-import { WikiMapImageForm, WikiMapPanel } from './wiki-map'
+import { type MapView, WikiMapImageForm, WikiMapPanel } from './wiki-map'
 import { WikiTimeline, type TimelineEdit } from './wiki-timeline'
 import {
   entryLabel, sectionFor, sections, WikiDirectory, WikiHistoryControls, WikiHome, WikiIntroductionForm, WikiNavigation, WikiSearch,
@@ -31,7 +32,7 @@ function initialLocation(): WikiLocation {
   const entryId = validId.test(entry) ? entry : ''
   const viewAs = validId.test(viewpoint) ? viewpoint : ''
   const requested = params.get('section')
-  const section = requested === 'library' ? (entryId ? 'library' : 'definitions')
+  const section = requested === 'library' ? 'library'
     : sections.find((item) => item.key === requested)?.key ?? (entryId ? 'all' : 'overview')
   return {
     // Older character-view bookmarks could omit their original zero date.
@@ -44,20 +45,19 @@ function initialLocation(): WikiLocation {
   }
 }
 
-function wikiUrl(location: WikiLocation, hash = '') {
-  const params = new URLSearchParams()
-  if (location.at !== null) params.set('at', String(location.at))
-  if (location.viewAs) params.set('view_as', location.viewAs)
-  if (location.entryId) params.set('entry', location.entryId)
-  if (location.section && location.section !== 'overview') params.set('section', location.section)
-  if (location.section === 'timeline' && location.eventId) params.set('event', location.eventId)
-  if (location.entryId && location.history) params.set('tab', 'history')
-  return window.location.pathname + (params.size ? '?' + params.toString() : '') + hash
+function wikiMode(key: string, build?: boolean) {
+  try {
+    if (build !== undefined) sessionStorage.setItem(key, build ? 'build' : 'read')
+    return sessionStorage.getItem(key) !== 'read'
+  } catch {
+    return build ?? true
+  }
 }
 
 type Display = {
   view: WikiView
   openEntry: (id: string, at?: number | null) => void
+  entryHref: (id: string, at?: number | null) => string
   navigationLocked: boolean
 }
 
@@ -72,10 +72,11 @@ function entryName(view: WikiView, id: string) {
   return view.entries.find((entry) => entry.id === id)?.name
 }
 
-function EntryReference({ id, view, openEntry, navigationLocked }: Display & { id: string }) {
+function EntryReference({ id, at, view, openEntry, entryHref, navigationLocked }: Display & { id: string; at?: number | null }) {
   const name = entryName(view, id)
   return name ? (
-    <button className="wiki-reference" type="button" disabled={navigationLocked} onClick={() => openEntry(id)}>{name}</button>
+    <WorkspaceLink className="wiki-reference" href={entryHref(id, at)} disabled={navigationLocked}
+      onFollow={() => openEntry(id, at)}>{name}</WorkspaceLink>
   ) : <span>Unavailable entry</span>
 }
 
@@ -276,6 +277,8 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
             <button className="button secondary" type="button" onClick={() => edit({ kind: 'fact' })}>Record fact</button>
             <button className="button secondary" type="button" onClick={() => edit({ kind: 'event' })}>Record dated change</button>
             <button className="button secondary" type="button" onClick={() => edit({ kind: 'claim' })}>Record claim</button>
+            {!article.entry.author_only && view.entries.some((entry) => isWikiActor(entry) && entry.id !== article.entry.id) &&
+              <button className="button secondary" type="button" onClick={() => edit({ kind: 'discovery' })}>Record discovery</button>}
           </div>
         )}
       </header>
@@ -421,6 +424,7 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
                       <strong>{fieldLabel(view, fact.field)}</strong>
                       <div><ValueText {...display} field={fact.field} value={fact.value} /></div>
                       <p className="muted">{times(fact.from_tick, fact.until_tick)}{fact.author_only ? ' · Author only' : ''}</p>
+                      {fact.citation_id && <p>Source article <EntryReference {...display} id={fact.citation_id} at={null} /></p>}
                       {fact.source && <p className="muted">Source: {fact.source}</p>}
                       {fact.event_id && <button type="button" className="wiki-reference" disabled={display.navigationLocked}
                         onClick={() => { if (fact.event_id) onTimeline(fact.event_id) }}>View event</button>}
@@ -439,6 +443,7 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
             )}
           </section>
           <WikiTimeline key={article.entry.id} events={article.events ?? []} enclosing={article.event_ancestors ?? []}
+            entryHref={display.entryHref}
             entries={view.entries} fields={view.fields} onFocus={onTimeline}
             onOpen={display.navigationLocked ? undefined : display.openEntry}
             onCorrectDate={edit && ((event) => edit({ kind: 'correct-date', event }))} />
@@ -452,7 +457,8 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
                     <strong>{fieldLabel(view, claim.field)}</strong>
                     {claim.qualifier_id && <> · <EntryReference {...display} id={claim.qualifier_id} /></>}
                       <div><ValueText {...display} field={claim.field} value={claim.value} /></div>
-                      <p className="muted">{entryName(view, claim.speaker_id)} at time {claim.tick}{claim.author_only ? ' · Author only' : ''}</p>
+                      <p className="muted">{claim.speaker_id ? entryName(view, claim.speaker_id) : 'Unknown speaker'} at time {claim.tick}{claim.author_only ? ' · Author only' : ''}</p>
+                      {claim.citation_id && <p>Source article <EntryReference {...display} id={claim.citation_id} at={null} /></p>}
                       {claim.source && <p className="muted">Source: {claim.source}</p>}
                     </div>
                     {edit && !claim.author_only && !article.entry.author_only && (
@@ -469,6 +475,18 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
         <Propositions article={article} display={display} edit={edit} />
         <Observations article={article} display={display} />
       </>}
+      {!view.viewpoint && history && Boolean(article.discoveries?.length) && (
+        <section className="wiki-block" aria-label="Recorded discoveries">
+          <h2>Recorded discoveries</h2>
+          <ul className="wiki-records">{article.discoveries?.map((discovery) => <li key={discovery.observer_id} className="wiki-record">
+            <div><EntryReference {...display} id={discovery.observer_id} />
+              <p className="muted">Learned at time {discovery.learned_at}{discovery.source && ' · ' + discovery.source}</p>
+            </div>
+            {edit && <button className="button secondary" type="button"
+              onClick={() => edit({ kind: 'discovery', discovery })}>Edit discovery</button>}
+          </li>)}</ul>
+        </section>
+      )}
     </>
   )
 }
@@ -489,6 +507,8 @@ function timeOfChange(command: WikiCommand) {
     case 'record_learned_ability':
     case 'correct_learned_ability':
       return command.learned_at
+    case 'set_discovery':
+      return command.learned_at
     default:
       return null
   }
@@ -497,6 +517,7 @@ function timeOfChange(command: WikiCommand) {
 export function Wiki({ account, worldId, onAuthError }: {
   account: SignedInSession; worldId: string; onAuthError: (error: unknown) => boolean
 }) {
+  const modeKey = 'cgs.wiki-mode.' + account.account_id + '.' + worldId
   const [attempt, setAttempt] = useState(() => readWikiAttempt(account.account_id, worldId))
   const [location, setLocation] = useState(() => attempt?.location ?? initialLocation())
   const [refresh, setRefresh] = useState(0)
@@ -506,10 +527,14 @@ export function Wiki({ account, worldId, onAuthError }: {
   const [saveError, setSaveError] = useState('')
   const [stale, setStale] = useState(false)
   const [notice, setNotice] = useState('')
-  const [buildMode, setBuildMode] = useState(true)
+  const [buildMode, setBuildMode] = useState(() => wikiMode(modeKey))
+  const [pinEditing, setPinEditing] = useState(false)
   const [eventTime, setEventTime] = useState('')
   const content = useRef<HTMLDivElement>(null)
   const focusContent = useRef(false)
+  const mapViews = useRef(new Map<string, MapView>())
+  const pinGuard = useRef(false)
+  const homeRequested = useRef(new URLSearchParams(window.location.search).get('edit_home') === '1')
 
   const { at, entryId, viewAs } = location
   const timeline = location.section === 'timeline'
@@ -518,11 +543,11 @@ export function Wiki({ account, worldId, onAuthError }: {
   const failure = result?.key === key ? result.error : undefined
   const activeArticle = view?.article
   const requestedSection = location.section ?? (entryId ? 'all' : 'overview')
-  const section = requestedSection === 'library' ? (activeArticle ? sectionFor(activeArticle.entry) : 'definitions')
+  const section = requestedSection === 'library' ? (activeArticle ? sectionFor(activeArticle.entry) : 'library')
     : activeArticle && requestedSection === 'overview' ? sectionFor(activeArticle.entry) : requestedSection
   const directory = sections.find((item) => item.key === section)
   const showingHistory = Boolean(location.history || at !== null)
-  const navigationLocked = Boolean(editing || attempt || saving)
+  const navigationLocked = Boolean(editing || pinEditing || attempt || saving)
   const canBuild = Boolean(view?.can_edit && buildMode)
   const clearAttempt = useCallback(() => {
     storeWikiAttempt(account.account_id, worldId, null)
@@ -540,6 +565,11 @@ export function Wiki({ account, worldId, onAuthError }: {
       if (controller.signal.aborted || onAuthError(error)) return
       const unavailable = error instanceof ApiError && error.status === 404
       if (unavailable) clearAttempt()
+      if (unavailable && viewAs && entryId) {
+        setNotice('That article is unavailable in this character’s viewpoint.')
+        setLocation((previous) => ({ ...previous, entryId: '', history: false }))
+        return
+      }
       setResult({ key, error: unavailable ? 'unavailable' : 'connection' })
     })
     return () => controller.abort()
@@ -548,16 +578,24 @@ export function Wiki({ account, worldId, onAuthError }: {
   useEffect(() => {
     // An older Library link needs its loaded entry to select the new directory.
     const normalizedSection = requestedSection === 'library' && !view ? 'library' : section
-    window.history.replaceState(null, '', wikiUrl({ ...location, section: normalizedSection }, window.location.hash))
-  }, [location, requestedSection, section, view])
+    const state = pinGuard.current ? window.history.state : null
+    window.history.replaceState(state, '', wikiHref(worldId, { ...location, section: normalizedSection }, window.location.hash))
+  }, [worldId, location, requestedSection, section, view])
 
   useEffect(() => {
     function restoreLocation() {
       const next = initialLocation()
       const current = { ...location, section }
-      if (wikiUrl(next) === wikiUrl(current)) return
+      if (pinGuard.current) {
+        if (!window.history.state?.cgsPinEdit) {
+          window.history.pushState({ cgsPinEdit: true }, '', wikiHref(worldId, current))
+          if (!attempt && !saving) setSaveError('Save or cancel the pin before leaving this map.')
+        }
+        return
+      }
+      if (wikiHref(worldId, next) === wikiHref(worldId, current)) return
       if (navigationLocked) {
-        window.history.pushState(null, '', wikiUrl(current))
+        window.history.pushState(null, '', wikiHref(worldId, current))
         if (!attempt && !saving) setSaveError('Save or cancel the current edit before leaving this page.')
         return
       }
@@ -569,7 +607,27 @@ export function Wiki({ account, worldId, onAuthError }: {
     }
     window.addEventListener('popstate', restoreLocation)
     return () => window.removeEventListener('popstate', restoreLocation)
-  }, [attempt, location, navigationLocked, saving, section])
+  }, [worldId, attempt, location, navigationLocked, saving, section])
+
+  useEffect(() => {
+    if (!pinEditing) return
+    const protectPin = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', protectPin)
+    return () => window.removeEventListener('beforeunload', protectPin)
+  }, [pinEditing])
+
+  useEffect(() => {
+    if (!view || !homeRequested.current) return
+    homeRequested.current = false
+    if (section === 'overview' && view.can_edit && !navigationLocked) {
+      setBuildMode(wikiMode(modeKey, true))
+      setEditing({ kind: 'world-introduction' })
+      focusContent.current = true
+    }
+  }, [modeKey, navigationLocked, section, view])
 
   useEffect(() => {
     if (view && focusContent.current) {
@@ -588,7 +646,7 @@ export function Wiki({ account, worldId, onAuthError }: {
     setNotice('')
     setSaveError('')
     focusContent.current = true
-    const url = wikiUrl(next)
+    const url = wikiHref(worldId, next)
     if (url !== window.location.pathname + window.location.search) {
       window.history.pushState(null, '', url)
       window.scrollTo(0, 0)
@@ -596,15 +654,27 @@ export function Wiki({ account, worldId, onAuthError }: {
     setLocation(next)
   }
 
+  const sectionLocation = (next: WikiSection) => ({ section: next, entryId: '', viewAs, at: viewAs ? at : null })
+  const sectionHref = (next: WikiSection) => wikiHref(worldId, sectionLocation(next))
+  const articleLocation = (entry: WikiEntry, destination: WikiSection, time: number | null = null) =>
+    ({ at: viewAs ? at : time, viewAs, entryId: entry.id, section: destination })
+  const articleHref = (entry: WikiEntry, destination: WikiSection, time: number | null = null) =>
+    wikiHref(worldId, articleLocation(entry, destination, time))
+
   function selectSection(next: WikiSection) {
     if (navigationLocked || (section === next && !entryId && !location.eventId)) return
     if (next === 'timeline') setEventTime('')
-    navigate({ section: next, entryId: '', viewAs, at: viewAs ? at : null })
+    navigate(sectionLocation(next))
   }
 
   function openArticle(entry: WikiEntry, destination: WikiSection, time: number | null = null) {
     if (navigationLocked) return
-    navigate({ at: viewAs ? at : time, viewAs, entryId: entry.id, section: destination })
+    navigate(articleLocation(entry, destination, time))
+  }
+
+  function entryHref(id: string, time: number | null = at) {
+    const selected = view?.entries.find((entry) => entry.id === id)
+    return selected ? articleHref(selected, section === 'all' ? 'all' : sectionFor(selected), time) : sectionHref('all')
   }
 
   function openEntry(id: string, time: number | null = at) {
@@ -619,6 +689,19 @@ export function Wiki({ account, worldId, onAuthError }: {
     setEditing(edit)
   }
 
+  function changePinEditing(active: boolean) {
+    if (pinGuard.current === active) return
+    pinGuard.current = active
+    setPinEditing(active)
+    if (active) {
+      // Keep a Back press in the current document even when the map was opened by a full page load.
+      window.history.pushState({ cgsPinEdit: true }, '', window.location.href)
+    } else {
+      setSaveError('')
+      if (window.history.state?.cgsPinEdit) window.history.back()
+    }
+  }
+
   async function send(pending: WikiAttempt) {
     if (saving) return
     setAttempt(pending)
@@ -630,6 +713,7 @@ export function Wiki({ account, worldId, onAuthError }: {
       const saved = await saveWikiChange(worldId, pending, account.csrf_token)
       clearAttempt()
       setEditing(null)
+      changePinEditing(false)
       focusContent.current = true
       const command = pending.command
       if (command.op === 'create_image_map' || command.op === 'attach_map_image') {
@@ -661,6 +745,7 @@ export function Wiki({ account, worldId, onAuthError }: {
         clearAttempt()
         if (error.status === 404 || error.status === 403) {
           setEditing(null)
+          changePinEditing(false)
           setResult(null)
           setRefresh((previous) => previous + 1)
         } else if (error.code === 'STALE_WIKI') {
@@ -689,7 +774,7 @@ export function Wiki({ account, worldId, onAuthError }: {
   const actions = {
     onSave: save,
     busy: Boolean(attempt || saving || stale),
-    onCancel: () => { setEditing(null); setSaveError(''); setStale(false); focusContent.current = true },
+    onCancel: () => { setEditing(null); changePinEditing(false); setSaveError(''); setStale(false); focusContent.current = true },
   }
   const catalogActions = canBuild && <div className="form-actions wiki-catalog-actions">
     {section === 'maps' && <button className="button primary" type="button" disabled={navigationLocked}
@@ -720,17 +805,17 @@ export function Wiki({ account, worldId, onAuthError }: {
         <div className="wiki-workspace">
           <header className="wiki-workspace-header">
             <div className="wiki-world-title">
-              <a href={'/worlds/' + worldId + '/'}>← Back to world</a>
+              <WorkspaceLink href={'/worlds/' + worldId + '/'} disabled={navigationLocked}>← Back to world</WorkspaceLink>
               <p>{view.world_name}</p>
             </div>
             {view.can_edit && !view.viewpoint && <WikiSearch worldId={worldId} revision={refresh} disabled={navigationLocked} onAuthError={onAuthError}
-              onOpen={(entry) => openArticle(entry, sectionFor(entry))} />}
+              hrefFor={(entry) => articleHref(entry, sectionFor(entry))} onOpen={(entry) => openArticle(entry, sectionFor(entry))} />}
             <div className="form-actions wiki-workspace-actions">
               {view.can_edit && <div className="wiki-mode" role="group" aria-label="Wiki mode">
                 <button className="button secondary" type="button" aria-pressed={!buildMode} disabled={navigationLocked}
-                  onClick={() => setBuildMode(false)}>Read</button>
+                  onClick={() => setBuildMode(wikiMode(modeKey, false))}>Read</button>
                 <button className="button secondary" type="button" aria-pressed={buildMode} disabled={navigationLocked}
-                  onClick={() => setBuildMode(true)}>Build</button>
+                  onClick={() => setBuildMode(wikiMode(modeKey, true))}>Build</button>
               </div>}
               {canBuild && <button className="button primary" type="button" disabled={navigationLocked}
                 onClick={() => beginEdit({ kind: 'create' })}>New entry</button>}
@@ -738,6 +823,7 @@ export function Wiki({ account, worldId, onAuthError }: {
             </div>
           </header>
           {view.viewpoint && <p className="notice wiki-message">Viewing as {view.viewpoint.name} at time {view.at}.</p>}
+          {pinEditing && <p className="notice wiki-message" role="status">Save or cancel the pin to leave this map.</p>}
           {notice && <p className="notice success wiki-message" role="status">{notice}</p>}
           {saveError && <p className="error-message wiki-message" role="alert">{saveError}</p>}
           {attempt && !saving && (
@@ -753,7 +839,7 @@ export function Wiki({ account, worldId, onAuthError }: {
             }}>Reload and discard edit</button>
           )}
           <div className="wiki-workspace-body">
-            <WikiNavigation section={section} disabled={navigationLocked} onSelect={selectSection} />
+            <WikiNavigation section={section} disabled={navigationLocked} hrefFor={sectionHref} onSelect={selectSection} />
             <div className="wiki-workspace-content" tabIndex={-1} ref={content} aria-label="Wiki content">
               {editing?.kind === 'map-image' ? (
                 <div className="wiki-article">
@@ -767,11 +853,14 @@ export function Wiki({ account, worldId, onAuthError }: {
                 </div>
               ) : editing?.kind === 'world-introduction' ? (
                 <div className="wiki-article">
-                  <WikiIntroductionForm {...actions} introduction={view.world_introduction} />
+                  <WikiIntroductionForm {...actions} home={view.world_home} entries={view.entries} coverIds={view.home_cover_ids ?? []} />
                 </div>
               ) : section === 'overview' ? (
-                <WikiHome worldName={view.world_name} introduction={view.world_introduction} entries={view.entries}
-                  onSelect={selectSection} onEdit={canBuild ? () => beginEdit({ kind: 'world-introduction' }) : undefined} />
+                <WikiHome worldId={worldId} worldName={view.world_name} home={view.world_home} entries={view.entries} disabled={navigationLocked}
+                  sectionHref={sectionHref} entryHref={(entry) => articleHref(entry, sectionFor(entry))} onSelect={selectSection}
+                  onEntry={(entry) => openArticle(entry, sectionFor(entry))}
+                  actions={canBuild && <button className="button secondary" type="button" disabled={navigationLocked}
+                    onClick={() => beginEdit({ kind: 'world-introduction' })}>Edit world home</button>} />
               ) : timeline ? (
                 <div className="wiki-article">
                   {!editing && <h1 className="wiki-page-title">Timeline</h1>}
@@ -806,6 +895,7 @@ export function Wiki({ account, worldId, onAuthError }: {
                   {editing?.kind === 'organize' && <WikiOrganizeForm {...actions} event={editing.event} events={view.timeline ?? []} />}
                   {editing?.kind === 'correct-date' && <WikiEvidenceForm {...actions} edit={editing} entries={view.entries} at={view.at} />}
                   {!editing && <WikiTimeline events={view.timeline ?? []} entries={view.entries} fields={view.fields}
+                    entryHref={entryHref}
                     eventTime={eventTime} onEventTimeChange={setEventTime}
                     currentEvent={location.eventId} onEdit={canBuild && !navigationLocked ? beginEdit : undefined}
                     onFocus={(eventId) => navigate({ ...location, eventId })}
@@ -826,11 +916,11 @@ export function Wiki({ account, worldId, onAuthError }: {
                       {!editing && activeArticle && (
                         <Article article={activeArticle} onEdit={canBuild ? beginEdit : undefined}
                           breadcrumbs={<nav className="wiki-breadcrumbs" aria-label="Article location">
-                            <button className="wiki-reference" type="button" disabled={navigationLocked}
-                              onClick={() => selectSection('overview')}>World overview</button>
+                            <WorkspaceLink className="wiki-reference" href={sectionHref('overview')} disabled={navigationLocked}
+                              onFollow={() => selectSection('overview')}>World overview</WorkspaceLink>
                             <span aria-hidden="true">/</span>
-                            <button className="wiki-reference" type="button" disabled={navigationLocked}
-                              onClick={() => selectSection(section)}>{directory?.label}</button>
+                            <WorkspaceLink className="wiki-reference" href={sectionHref(section)} disabled={navigationLocked}
+                              onFollow={() => selectSection(section)}>{directory?.label ?? 'Library'}</WorkspaceLink>
                           </nav>}
                           history={showingHistory}
                           historyControls={<WikiHistoryControls location={location} entries={view.entries} viewpoint={view.viewpoint}
@@ -840,7 +930,7 @@ export function Wiki({ account, worldId, onAuthError }: {
                             })} />}
                           onShowHistory={() => navigate({ ...location, section, history: true })}
                           onShowOverview={showOverview}
-                          display={{ view, navigationLocked, openEntry }}
+                          display={{ view, navigationLocked, openEntry, entryHref }}
                           onTimeline={(eventId) => {
                             setEventTime('')
                             navigate({ ...location, section: 'timeline', entryId: '', eventId })
@@ -849,15 +939,18 @@ export function Wiki({ account, worldId, onAuthError }: {
                           onLayoutEdit={canBuild ? beginEdit : undefined}
                           mapPanel={activeArticle.entry.kind === 'map' && <WikiMapPanel key={activeArticle.entry.id}
                             entry={activeArticle.entry} map={activeArticle.image_map} worldId={worldId} entries={view.entries}
-                            busy={navigationLocked || stale} onSave={canBuild ? save : undefined}
+                            busy={actions.busy} onSave={canBuild ? save : undefined}
                             onAttach={canBuild ? () => beginEdit({ kind: 'map-image', map: activeArticle.entry }) : undefined}
+                            initialView={mapViews.current.get(activeArticle.entry.id)}
+                            onViewChange={(mapView) => mapViews.current.set(activeArticle.entry.id, mapView)}
+                            onEditing={changePinEditing} placeHref={(id) => entryHref(id, null)}
                             onOpenPlace={(id) => openEntry(id, null)} />}
                         />
                       )}
                     </div>
                   )}
                   {!editing && <WikiDirectory key={section} section={section} entries={view.entries} currentId={entryId}
-                    disabled={navigationLocked} actions={catalogActions}
+                    disabled={navigationLocked} actions={catalogActions} hrefFor={(entry) => articleHref(entry, section)}
                     onOpen={(entry) => openArticle(entry, section)} onPlaces={() => selectSection('places')} />}
                 </>
               )}
