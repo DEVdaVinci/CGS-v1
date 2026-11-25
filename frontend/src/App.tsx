@@ -197,7 +197,7 @@ export function App() {
         </main>
       )}
       {account && (
-        <main className="workspace">
+        <main className={worldRoute?.[2] === 'wiki' ? 'workspace wiki-shell' : 'workspace'}>
           {notice && <p className="notice" role="status">{notice}</p>}
           {signOutError && <p className="error-message" role="alert">{signOutError}</p>}
           {worldId ? (

@@ -1,37 +1,62 @@
 import { request } from './api'
 
 export type WikiKind = 'person' | 'place' | 'group' | 'class' | 'ability' | 'item'
-export type WikiEntry = { id: string; name: string; kind: WikiKind; author_only?: boolean }
+  | 'species' | 'organism' | 'culture' | 'role' | 'resource' | 'body_part' | 'trait' | 'goal'
+  | 'image' | 'model_3d' | 'texture' | 'animation' | 'map' | 'territory' | 'era'
+export type WikiEntry = {
+  id: string; name: string; kind: WikiKind; author_only?: boolean
+  catalog_type?: 'vehicle'; classification_needs_review?: boolean
+}
+export type WikiEntryTemplate = WikiKind | 'vehicle'
 export type WikiField = {
   key: string
   label: string
   kinds: WikiKind[]
-  value_kind: 'text' | 'integer' | 'reference'
+  value_kind: 'text' | 'integer' | 'decimal' | 'reference' | 'distribution'
   target_kind: WikiKind | null
   choices: string[]
+  section: string
+  target_kinds: WikiKind[]
+  qualifier_kind: WikiKind | null
+  qualifier_required: boolean
+  many: boolean
 }
 export type WikiValue = string | number
-export type WikiSection = 'all' | 'characters' | 'places' | 'library' | 'timeline'
-export type WikiLocation = { at: number; viewAs: string; entryId: string; section?: WikiSection; eventId?: string }
+export type WikiSection = 'overview' | 'all' | 'characters' | 'places' | 'items' | 'vehicles' | 'maps' | 'library' | 'timeline'
+export type WikiLocation = {
+  at: number | null; viewAs: string; entryId: string; section?: WikiSection; eventId?: string; history?: boolean
+}
 export type WikiAssertion = {
   id: string; field: string; value: WikiValue; from_tick: number; until_tick: number | null
   author_only: boolean; source: string; event_id: string | null
+  qualifier_id?: string | null
 }
 export type WikiClaim = {
   id: string; field: string; value: WikiValue; tick: number; speaker_id: string
   author_only: boolean; source: string
+  qualifier_id?: string | null
 }
 export type WikiObservation = {
   id: string; field: string; value: WikiValue; about_tick: number; learned_at: number
   observer_id: string; source_kind: 'assertion' | 'claim'; source_id?: string; speaker_id?: string
+  entry_id: string; qualifier_id?: string | null
 }
 type AbilityUse = { ability_id: string; actor_id: string }
 
 export type WikiEvent = {
-  id: string; name: string; tick: number; source: string; description: string
-  links: { entry_id: string; role: 'participant' | 'place' | 'item' }[]
+  id: string; name: string; tick: number | null; source: string; description: string
+  summary: string; method: string
+  node_kind: 'group' | 'occurrence' | 'action'; parent_id: string | null; sort_order: number
+  start_tick: number | null; end_tick: number | null; display_start: number | null; display_end: number | null
+  cross_reference_ids: string[]
+  cause_event_ids: string[]
+  cause_state: (WikiAssertion & { entry_id: string })[]
+  links: { entry_id: string; role: 'participant' | 'performer' | 'place' | 'item' | 'purpose' | 'backstory' | 'era' }[]
   ability_use: AbilityUse | null
-  changes: { entry_id: string; field: string; value: WikiValue }[]
+  changes: {
+    id: string; entry_id: string; field: string; value: WikiValue | null; previous_value: WikiValue | null
+    qualifier_id: string | null
+  }[]
 }
 
 export type WikiLearnedAbility = { id: string; ability_id: string; learned_at: number; source: string }
@@ -39,39 +64,107 @@ export type WikiFinding = {
   id: string; code: 'CANON_CONFLICT' | 'OBSERVATION_SOURCE_CHANGED'; field: string
   record_ids: string[]; from_tick: number; until_tick: number | null
 }
+export type WikiEffectiveValue = {
+  field: string; qualifier_id?: string; default_sources?: string[]; unit?: string
+} & ({ state: 'value'; value: WikiValue } | { state: 'unknown' | 'conflict' })
+export type WikiLinkedFact = {
+  id: string; entry_id: string; field: string; label: string; qualifier_id: string | null
+  from_tick: number; until_tick: number | null; source: string
+}
+export type WikiProposition = {
+  id: string; holder_id: string; subject_id: string; kind: 'belief' | 'desired_state'
+  field: string; value: WikiValue; qualifier_id: string | null; from_tick: number; until_tick: number | null
+  about_tick: number | null; evidence_id: string | null; source: string; author_only: boolean
+}
+export type WikiWaypoint = { id: string; name: string; x_cm: number; y_cm: number }
+export type WikiBounds = { left_cm: number; top_cm: number; width_cm: number; height_cm: number }
+export type WikiLayoutFrame = {
+  id: string; place_id: string; name: string; from_tick: number; points: WikiWaypoint[]
+} & WikiBounds
+export type WikiConnection = {
+  id: string; name: string; from_place: string; from_point: string; to_place: string; to_point: string
+  from_tick: number; until_tick: number | null; bidirectional: boolean; length_cm: number | null
+  description: string; source: string
+}
+export type WikiPlaceLayout = {
+  frame: WikiLayoutFrame | null; available: WikiLayoutFrame[]; connections: WikiConnection[]
+}
 export type WikiArticle = {
   entry: WikiEntry
-  values?: ({ field: string } & ({ state: 'value'; value: WikiValue } | { state: 'unknown' | 'conflict' }))[]
+  overview?: string
+  values?: WikiEffectiveValue[]
   assertions?: WikiAssertion[]
   claims?: WikiClaim[]
   events?: WikiEvent[]
+  event_ancestors?: WikiEvent[]
+  family?: {
+    parents: string[]; children: string[]
+    siblings: { entry_id: string; declared: boolean; shared_parent_ids: string[] }[]
+  }
   learned_abilities?: WikiLearnedAbility[]
   contents?: WikiEntry[]
+  parts?: WikiEntry[]
+  occupants?: WikiEntry[]
+  layout?: WikiPlaceLayout
+  legacy_location_review?: boolean
   observations: WikiObservation[]
   findings?: WikiFinding[]
+  incoming_links?: WikiLinkedFact[]
+  propositions?: WikiProposition[]
+  age_years?: number | null
 }
 export type WikiView = {
-  world_name: string; at: number; viewpoint: WikiEntry | null; entries: WikiEntry[]; fields: WikiField[]
+  world_name: string; at: number | null; viewpoint: WikiEntry | null; entries: WikiEntry[]; fields: WikiField[]
   article: WikiArticle | null; can_edit?: boolean; edit_counter?: number
   timeline?: WikiEvent[]
+  days_per_year?: number | null
 }
 
-type TypedValue = { field: string; value: WikiValue; author_only: boolean }
+export function isWikiActor(entry: WikiEntry) {
+  return entry.kind === 'person' || entry.kind === 'organism'
+}
+
+export function canPerformEvent(entry: WikiEntry) {
+  return isWikiActor(entry) || entry.kind === 'group' || entry.kind === 'item'
+}
+
+type TypedValue = { field: string; value: WikiValue; author_only: boolean; qualifier_id?: string }
 type FieldChange = { entry_id: string } & TypedValue
+type EventChange = FieldChange & { mode?: 'set' | 'add' | 'end'; source?: string }
 type EventDetails = {
   name: string; source: string; description: string; ability_use: AbilityUse | null
   participant_ids: string[]; place_ids: string[]; item_ids: string[]
+  performer_ids?: string[]
+  summary?: string; method?: string
+  cause_event_ids?: string[]; cause_assertion_ids?: string[]
+  purpose_ids?: string[]; backstory_ids?: string[]; era_ids?: string[]
+  start_tick?: number | null; end_tick?: number | null
+  cross_reference_ids?: string[]
 }
 export type WikiCommand =
-  | { op: 'create_entry'; name: string; kind: WikiKind; author_only: boolean; initial_at?: number; initial_values?: TypedValue[] }
+  | {
+    op: 'create_entry'; name: string; kind: WikiKind; author_only: boolean; overview?: string
+    catalog_type?: 'vehicle'; initial_at?: number; initial_values?: TypedValue[]
+  }
   | { op: 'rename_entry'; entry_id: string; name: string }
+  | { op: 'update_overview'; entry_id: string; overview: string }
   | ({ op: 'record_fact'; from_tick: number; until_tick: number | null; source: string } & FieldChange)
-  | { op: 'correct_fact'; assertion_id: string; value: WikiValue }
-  | ({ op: 'record_event'; tick: number; changes: FieldChange[] } & EventDetails)
+  | { op: 'correct_fact'; assertion_id: string; value: WikiValue; source?: string; author_only?: boolean }
+  | ({ op: 'record_event'; tick: number; changes: EventChange[]; parent_id?: string; node_kind?: 'action' | 'occurrence' } & EventDetails)
+  | ({ op: 'record_event_group'; parent_id?: string } & EventDetails)
   | ({ op: 'edit_event'; event_id: string } & EventDetails)
+  | { op: 'organize_event'; event_id: string; parent_id: string | null; position?: number }
   | { op: 'correct_event_date'; event_id: string; tick: number }
   | ({ op: 'record_claim'; speaker_id: string; tick: number; source: string } & FieldChange)
-  | { op: 'record_observation'; observer_id: string; source_id: string; source_kind: 'assertion' | 'claim'; learned_at: number }
+  | { op: 'record_observation'; observer_id: string; source_id: string; source_kind: 'assertion' | 'claim'; learned_at: number; about_tick?: number }
+  | ({
+    holder_id: string; from_tick: number; until_tick: number | null; about_tick: number | null
+    evidence_id: string | null; source: string
+  } & FieldChange & ({ op: 'record_proposition' } | { op: 'correct_proposition'; proposition_id: string }))
+  | { op: 'set_calendar'; days_per_year: number | null }
+  | ({ op: 'save_layout'; place_id: string; name: string; from_tick: number } & WikiBounds)
+  | { op: 'save_waypoint'; place_id: string; point_id?: string; from_tick: number; name: string; x_cm: number; y_cm: number }
+  | ({ op: 'save_connection'; connection_id?: string } & Omit<WikiConnection, 'id'>)
   | { op: 'record_learned_ability'; character_id: string; ability_id: string; learned_at: number; source: string }
   | { op: 'correct_learned_ability'; learned_ability_id: string; learned_at: number; source: string }
 
@@ -80,10 +173,14 @@ export type WikiAttempt = { key: string; edit: number; command: WikiCommand; loc
 const wikiPath = (worldId: string) => '/worlds/' + encodeURIComponent(worldId) + '/wiki'
 
 export function getWiki(worldId: string, location: WikiLocation, signal: AbortSignal) {
-  const params = new URLSearchParams({ at: String(location.at) })
+  const params = location.at === null ? new URLSearchParams({ overview: 'true' }) : new URLSearchParams({ at: String(location.at) })
   if (location.viewAs) params.set('view_as', location.viewAs)
   const path = location.section === 'timeline' ? '/timeline' : location.entryId ? '/entries/' + encodeURIComponent(location.entryId) : ''
   return request<WikiView>(wikiPath(worldId) + path + '?' + params.toString(), { signal })
+}
+
+export function searchWiki(worldId: string, query: string, signal: AbortSignal) {
+  return request<{ entries: WikiEntry[] }>(wikiPath(worldId) + '/search?' + new URLSearchParams({ q: query }), { signal })
 }
 
 export function saveWikiChange(worldId: string, attempt: WikiAttempt, token: string) {
@@ -104,7 +201,7 @@ export function readWikiAttempt(accountId: string, worldId: string): WikiAttempt
   try {
     const stored = JSON.parse(sessionStorage.getItem(prefix(accountId) + worldId) ?? 'null') as WikiAttempt | null
     return stored && typeof stored.key === 'string' && Number.isSafeInteger(stored.edit) &&
-      stored.location && Number.isSafeInteger(stored.location.at) &&
+      stored.location && (stored.location.at === null || Number.isSafeInteger(stored.location.at)) &&
       typeof stored.location.viewAs === 'string' && typeof stored.location.entryId === 'string' &&
       typeof stored.command?.op === 'string' ? stored : null
   } catch {
