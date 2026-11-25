@@ -4,7 +4,7 @@ Source **Wiki.pdf**, pages 1–4, from the Lucidchart export supplied by the pro
 
 The **Prior build** column describes the W1 implementation at `fc9e0e3`. **Omitted** means its browser could not record the source concept in its own right. The proposed representation and target are design assignments. Verify current behavior against the build under review. Each grouped row still requires evidence for every named field, type, and connection. Typed source concepts need a typed authoring and read path. Use the [acceptance checklist](CGS_Wiki_Acceptance_Checklist.md) for check IDs and the [decision requirements](CGS_Wiki_Reference_Design.md#source-trace-and-design-decisions) when changing any source element.
 
-The [current coverage audit](CGS_Wiki_Current_Coverage.md) compares `c092c5c` with the original diagrams and public reference workflows, including the authored fields still missing before W2.
+The [current gap inventory](CGS_Wiki_Current_Coverage.md) compares the running build with the original diagrams and documented reference workflows. It records the outstanding authored fields and the dependencies for their evaluated and rendered uses.
 
 ## Entity, organism, and item fields
 
