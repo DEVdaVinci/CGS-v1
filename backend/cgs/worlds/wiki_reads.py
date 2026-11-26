@@ -307,6 +307,41 @@ def _place_contents(place, at):
     return [_describe_entry(item, author=True) for item in entries]
 
 
+def _place_context(place, at):
+    parents = at_tick(WikiAssertion.objects.filter(entry__wiki_id=place.wiki_id, field="located_in"), at)
+    ancestors = []
+    seen = {str(place.pk)}
+    current = place
+    review = False
+    while True:
+        candidates = list(parents.filter(entry=current).order_by().values_list("value", flat=True).distinct()[:2])
+        if not candidates:
+            break
+        if len(candidates) > 1 or candidates[0] in seen:
+            review = True
+            break
+        current = WikiEntry.objects.filter(wiki_id=place.wiki_id, kind="place", pk=candidates[0]).first()
+        if current is None:
+            review = True
+            break
+        ancestors.append(current)
+        seen.add(str(current.pk))
+    path = [str(entry.pk) for entry in reversed(ancestors)]
+    scoped_territories = at_tick(WikiAssertion.objects.filter(
+        entry_id__in=path, field="territory",
+    ), at).order_by("entry_id", "value").values_list("entry_id", "value").distinct()
+    territories_by_place = defaultdict(list)
+    for entry_id, territory_id in scoped_territories:
+        territories_by_place[str(entry_id)].append(territory_id)
+    return {
+        "place_path": path, "place_path_needs_review": review,
+        "enclosing_territories": [
+            {"place_id": entry_id, "territory_id": territory_id}
+            for entry_id in path for territory_id in territories_by_place[entry_id]
+        ],
+    }
+
+
 def _learned_abilities(character, at):
     abilities = WikiLearnedAbility.objects.filter(character=character, learned_at__lte=at).order_by("ability__name", "id")
     return [
@@ -412,6 +447,7 @@ def _author_article(entry, at, identity):
         article["parts"] = [item for item in contents if item["kind"] == "place"]
         article["occupants"] = [item for item in contents if item["kind"] != "place"]
         article["layout"] = place_layout(entry, at)
+        article.update(_place_context(entry, at))
     return article
 
 

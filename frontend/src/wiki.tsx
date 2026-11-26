@@ -356,6 +356,30 @@ function ArticleOverview({ article, display, onEditVariant }: {
   )
 }
 
+function PlaceHierarchy({ article, display }: { article: WikiArticle; display: Display }) {
+  const path = article.place_path ?? []
+  const territories = article.enclosing_territories ?? []
+  if (!path.length && !article.place_path_needs_review) return null
+  return <section className="wiki-block" aria-label="Place hierarchy">
+    <h2>Place hierarchy</h2>
+    <ol className="wiki-place-path" aria-label="Enclosing places">
+      {path.map((id, index) => <li key={id}>
+        {index > 0 && <span aria-hidden="true">›</span>}
+        <EntryReference {...display} id={id} at={display.view.at} />
+      </li>)}
+      <li>{path.length > 0 && <span aria-hidden="true">›</span>}{article.entry.name}</li>
+    </ol>
+    {article.place_path_needs_review && <p className="muted">Review the recorded parent links to complete this path.</p>}
+    {territories.length > 0 && <section className="wiki-fact-section" aria-label="Enclosing territories">
+      <h3>Enclosing territories</h3>
+      <ul className="wiki-records">{territories.map(({ place_id, territory_id }) => <li key={place_id + territory_id}>
+        <EntryReference {...display} id={territory_id} at={display.view.at} /> · Recorded on{' '}
+        <EntryReference {...display} id={place_id} at={display.view.at} />
+      </li>)}</ul>
+    </section>}
+  </section>
+}
+
 function Article({ article, display, breadcrumbs, history, historyControls, onShowHistory, onShowOverview, onEdit, onTimeline, onGoal, onTermSet, onLayoutEdit, mapPanel }: {
   article: WikiArticle; display: Display; onEdit?: (edit: ArticleEdit) => void
   breadcrumbs: ReactNode
@@ -522,6 +546,7 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
               ) : <p className="muted">No abilities learned by time {view.at}.</p>}
             </section>
           )}
+          {article.place_path && <PlaceHierarchy article={article} display={display} />}
           {article.contents && (
             <section className="wiki-block" aria-label="Here at the selected time">
               <h2>Here at time {view.at}</h2>

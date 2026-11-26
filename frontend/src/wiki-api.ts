@@ -177,6 +177,9 @@ export type WikiArticle = {
   contents?: WikiEntry[]
   parts?: WikiEntry[]
   occupants?: WikiEntry[]
+  place_path?: string[]
+  place_path_needs_review?: boolean
+  enclosing_territories?: { place_id: string; territory_id: string }[]
   layout?: WikiPlaceLayout
   image_map?: WikiImageMap
   legacy_location_review?: boolean

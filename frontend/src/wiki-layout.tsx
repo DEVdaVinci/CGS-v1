@@ -19,6 +19,7 @@ export function WikiLayoutPanel({ layout, entries, onEdit, onOpen }: {
   layout: WikiPlaceLayout; entries: WikiEntry[]; onEdit?: (edit: LayoutEdit) => void; onOpen: (id: string) => void
 }) {
   const { frame, connections } = layout
+  const aspect = frame ? frame.width_cm / frame.height_cm : 1
   const entriesById = new Map(entries.map((entry) => [entry.id, entry]))
   const framesByPlace = new Map(layout.available.map((item) => [item.place_id, item]))
 
@@ -42,7 +43,7 @@ export function WikiLayoutPanel({ layout, entries, onEdit, onOpen }: {
         <p className="muted">{frame.name} · {dimension(frame.width_cm)} × {dimension(frame.height_cm)}
           {' · From time ' + frame.from_tick}</p>
         <figure className="wiki-plan">
-          <div className="wiki-plan-drawing" style={{ aspectRatio: Math.min(Math.max(frame.width_cm / frame.height_cm, 0.65), 3.5) }}
+          <div className="wiki-plan-drawing" style={{ aspectRatio: aspect, maxWidth: Math.min(360 * aspect, 704) }}
             role="img" aria-label={'Measured plan for ' + frame.name}>
             {frame.points.map((point) => (
               <span key={point.id} className="wiki-plan-marker" title={point.name}
@@ -76,7 +77,8 @@ export function WikiLayoutPanel({ layout, entries, onEdit, onOpen }: {
               <strong>{connection.name}</strong>
               <p>{endpoint(connection.from_place, connection.from_point)} {connection.bidirectional ? '↔' : '→'} {endpoint(connection.to_place, connection.to_point)}</p>
               <p className="muted">From time {connection.from_tick}{connection.until_tick === null ? '' : ' until time ' + connection.until_tick}
-                {connection.length_cm === null ? '' : ' · ' + dimension(connection.length_cm)}</p>
+                {' · '}{connection.bidirectional ? 'Both directions' : 'One way'}
+                {' · '}{connection.length_cm === null ? 'Length unspecified' : dimension(connection.length_cm)}</p>
               {connection.description && <p className="wiki-prose">{connection.description}</p>}
               {connection.source && <p className="muted">{connection.source}</p>}
             </div>

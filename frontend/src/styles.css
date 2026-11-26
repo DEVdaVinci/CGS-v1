@@ -633,11 +633,14 @@ a { color: var(--accent); }
   margin: 0.9rem 0;
 }
 .wiki-timeline [aria-pressed="true"] { color: var(--accent); background: #edf2ff; }
+.wiki-place-path { display: flex; flex-wrap: wrap; gap: 0.45rem; padding: 0; list-style: none; }
+.wiki-place-path li { display: flex; align-items: baseline; gap: 0.45rem; }
+.wiki-place-path li > span { color: var(--quiet); }
 .wiki-plan { margin: 1rem 0; max-width: 44rem; }
 .wiki-plan-drawing {
   position: relative;
   margin: 1.15rem 0;
-  border: 2px solid #8ea8ce;
+  outline: 2px solid #8ea8ce;
   border-radius: 0.3rem;
   background-color: #f1f6ff;
   background-image: linear-gradient(#dce7f7 1px, transparent 1px), linear-gradient(90deg, #dce7f7 1px, transparent 1px);
