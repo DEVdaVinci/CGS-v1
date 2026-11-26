@@ -80,6 +80,11 @@ function EntryReference({ id, at, view, openEntry, entryHref, navigationLocked }
   ) : <span>Unavailable entry</span>
 }
 
+function recordHref(display: Display, currentEntry: string, destination: string, record: string) {
+  const article = currentEntry === destination ? '' : display.entryHref(destination, display.view.at ?? 0)
+  return article + '#wiki-record-' + record
+}
+
 function ValueText({ field, value, unit, ...display }: Display & { field: string; value: WikiValue; unit?: string | null }) {
   const definition = display.view.fields.find((item) => item.key === field)
   if (definition?.target_kinds.length && typeof value === 'string') return <EntryReference {...display} id={value} />
@@ -150,7 +155,12 @@ function Observations({ article, display }: { article: WikiArticle; display: Dis
                   {viewpoint ? 'Learned' : (entryName(display.view, item.observer_id) ?? 'Character') + ' learned'} at time {item.learned_at}
                   {item.about_tick === null ? ' · About time unspecified' : ' · About time ' + item.about_tick}
                   {item.speaker_id ? ' · Statement by ' + (entryName(display.view, item.speaker_id) ?? 'a character') : ''}
+                  {item.author_only ? ' · Author only' : ''}
                 </p>
+                {item.learning_note && <p className="wiki-prose"><strong>How they learned it</strong> {item.learning_note}</p>}
+                {item.source_id && <a href={recordHref(display, article.entry.id, item.entry_id, item.source_id)}>
+                  {item.source_kind === 'claim' ? 'Source claim' : 'Source fact'}
+                </a>}
               </div>
             </li>
           ))}
@@ -166,6 +176,10 @@ function Propositions({ article, display, edit }: { article: WikiArticle; displa
   const label = goal ? 'Desired state' : 'Beliefs'
   const canRecord = isWikiActor(article.entry) || goal
   if (!canRecord && !records.length) return null
+  function evidenceHref(holderId: string, evidenceId: string) {
+    const destination = article.observations.some((observation) => observation.id === evidenceId) ? article.entry.id : holderId
+    return recordHref(display, article.entry.id, destination, evidenceId)
+  }
   return (
     <section className="wiki-block" aria-label={label}>
       <div className="wiki-card-heading">
@@ -184,9 +198,19 @@ function Propositions({ article, display, edit }: { article: WikiArticle; displa
               {' · '}<ValueText {...display} field={record.field} value={record.value} unit={record.unit} /></p>
             <p className="muted">{times(record.from_tick, record.until_tick)}
               {record.about_tick === null ? '' : ' · About time ' + record.about_tick}
+              {record.confidence === undefined ? '' : ' · Confidence ' + record.confidence}
               {record.author_only ? ' · Author only' : ''}</p>
             {record.source && <p className="muted">{record.source}</p>}
-            {record.evidence_id && <a href={'#wiki-record-' + record.evidence_id}>Recorded evidence</a>}
+            {record.evidence_id && <a href={evidenceHref(record.holder_id, record.evidence_id)}>Recorded evidence</a>}
+            {record.additional_evidence_ids?.length ? <ul aria-label="Additional observations">
+              {record.additional_evidence_ids.map((id) => {
+                const observation = article.observations.find((item) => item.id === id)
+                return <li key={id}><a href={evidenceHref(record.holder_id, id)}>
+                  {observation ? (entryName(display.view, observation.entry_id) ?? 'Observation')
+                    + ' · Learned at time ' + observation.learned_at : 'Additional observation'}
+                </a></li>
+              })}
+            </ul> : null}
           </div>
           {edit && record.holder_id === article.entry.id && <button className="button secondary" type="button"
             onClick={() => edit({ kind: 'proposition', record })}>{goal ? 'Correct desired state' : 'Correct belief'}</button>}
@@ -562,9 +586,9 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
                     {edit && (
                       <div className="form-actions">
                         <button className="button secondary" type="button" onClick={() => edit({ kind: 'correct', fact })}>Correct value</button>
-                        {!fact.author_only && !article.entry.author_only && (
-                          <button className="button secondary" type="button" onClick={() => edit({ kind: 'observe', source: fact, sourceKind: 'assertion' })}>Record observation</button>
-                        )}
+                        <button className="button secondary" type="button" onClick={() => edit({
+                          kind: 'observe', source: fact, sourceKind: 'assertion', privateSource: article.entry.author_only,
+                        })}>Record observation</button>
                       </div>
                     )}
                   </li>
@@ -593,12 +617,16 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
                         {claim.author_only ? ' · Author only' : ''}
                       </p>
                       {claim.citation_id && <p>Source article <EntryReference {...display} id={claim.citation_id} at={null} /></p>}
+                      {claim.additional_citation_ids?.length ? <ul aria-label="Additional source articles">
+                        {claim.additional_citation_ids.map((id) => <li key={id}><EntryReference {...display} id={id} at={null} /></li>)}
+                      </ul> : null}
                       {claim.source && <p className="muted">Source: {claim.source}</p>}
                     </div>
                     {edit && <div className="form-actions">
                       <button className="button secondary" type="button" onClick={() => edit({ kind: 'correct-claim', claim })}>Correct claim</button>
-                      {!claim.author_only && !article.entry.author_only && <button className="button secondary" type="button"
-                        onClick={() => edit({ kind: 'observe', source: claim, sourceKind: 'claim' })}>Record observation</button>}
+                      <button className="button secondary" type="button" onClick={() => edit({
+                        kind: 'observe', source: claim, sourceKind: 'claim', privateSource: article.entry.author_only,
+                      })}>Record observation</button>
                     </div>}
                   </li>
                 ))}
@@ -776,7 +804,7 @@ export function Wiki({ account, worldId, onAuthError }: {
   }, [view, location, editing])
 
   useEffect(() => {
-    if (view && window.location.hash.startsWith('#section-')) {
+    if (view && /^#(?:section|wiki-record)-/.test(window.location.hash)) {
       document.getElementById(window.location.hash.slice(1))?.scrollIntoView()
     }
   }, [view])

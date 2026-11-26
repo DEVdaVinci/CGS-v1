@@ -52,6 +52,7 @@ export type WikiClaim = {
   date_precision: EventDatePrecision; start_tick: number | null; end_tick: number | null
   author_only: boolean; source: string
   citation_id: string | null
+  additional_citation_ids?: string[]
   qualifier_id?: string | null
   unit?: string | null
 }
@@ -60,6 +61,7 @@ export type WikiObservation = {
   observer_id: string; source_kind: 'assertion' | 'claim'; source_id?: string; speaker_id?: string
   entry_id: string; qualifier_id?: string | null
   unit?: string | null
+  learning_note?: string; author_only?: boolean
 }
 type AbilityUse = { ability_id: string; actor_id: string }
 export type EventDatePrecision = 'exact' | 'bounded' | 'unknown'
@@ -110,6 +112,7 @@ export type WikiProposition = {
   field: string; value: WikiValue; qualifier_id: string | null; from_tick: number; until_tick: number | null
   about_tick: number | null; evidence_id: string | null; source: string; author_only: boolean
   unit?: string | null
+  additional_evidence_ids?: string[]; confidence?: string
 }
 export const causalPhases = { cause: 'Cause', intermediary: 'Intermediary', outcome: 'Outcome' } as const
 export type CausalPhase = keyof typeof causalPhases
@@ -239,15 +242,20 @@ export type WikiCommand =
   | ({ op: 'edit_event'; event_id: string; tick?: number | null; date_precision?: EventDatePrecision } & EventDetails)
   | { op: 'organize_event'; event_id: string; parent_id: string | null; position?: number }
   | { op: 'correct_event_date'; event_id: string; tick: number }
-  | ({ op: 'record_claim'; speaker_id: string | null; source: string; citation_id?: string | null } & FieldChange & ClaimDate)
+  | ({
+    op: 'record_claim'; speaker_id: string | null; source: string; citation_id?: string | null; additional_citation_ids?: string[]
+  } & FieldChange & ClaimDate)
   | ({
     op: 'correct_claim'; claim_id: string; value: WikiValue; source: string; citation_id: string | null
-    author_only: boolean; bind_unit?: boolean
+    additional_citation_ids?: string[]; author_only: boolean; bind_unit?: boolean
   } & ClaimDate)
-  | { op: 'record_observation'; observer_id: string; source_id: string; source_kind: 'assertion' | 'claim'; learned_at: number; about_tick?: number }
+  | {
+    op: 'record_observation'; observer_id: string; source_id: string; source_kind: 'assertion' | 'claim'
+    learned_at: number; about_tick?: number; learning_note?: string; author_only?: boolean
+  }
   | ({
     holder_id: string; from_tick: number; until_tick: number | null; about_tick: number | null
-    evidence_id: string | null; source: string
+    evidence_id: string | null; source: string; additional_evidence_ids?: string[]; confidence?: string | null
   } & FieldChange & ({ op: 'record_proposition' } | { op: 'correct_proposition'; proposition_id: string }))
   | (CausalAccountInput & ({ op: 'record_causal_account' } | { op: 'correct_causal_account'; account_id: string }))
   | { op: 'set_calendar'; days_per_year: number | null }

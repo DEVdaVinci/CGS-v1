@@ -46,7 +46,7 @@ export type ArticleEdit =
   | { kind: 'correct'; fact: WikiAssertion }
   | { kind: 'correct-claim'; claim: WikiClaim }
   | { kind: 'correct-date'; event: WikiEvent }
-  | { kind: 'observe'; source: WikiAssertion | WikiClaim; sourceKind: 'assertion' | 'claim' }
+  | { kind: 'observe'; source: WikiAssertion | WikiClaim; sourceKind: 'assertion' | 'claim'; privateSource?: boolean }
   | { kind: 'proposition'; record?: WikiProposition }
   | { kind: 'causal-account'; account?: WikiCausalAccount }
   | { kind: 'event-report'; event: WikiEvent; report?: WikiEventReport }
@@ -362,14 +362,15 @@ function CanonicalForm({ mode, fact, claim, initialField, initialQualifier, entr
       date_precision: precision, tick: optionalTime(values, 'tick'),
       start_tick: optionalTime(values, 'statement_start'), end_tick: optionalTime(values, 'statement_end'),
     }
-    if (claim) return actions.onSave({ op: 'correct_claim', claim_id: claim.id, ...details, ...dates, ...unit })
+    const supporting = isStatement ? { additional_citation_ids: values.getAll('additional_citations').map(String) } : {}
+    if (claim) return actions.onSave({ op: 'correct_claim', claim_id: claim.id, ...details, ...dates, ...unit, ...supporting })
     const qualifier = String(values.get('qualifier_id') ?? '')
     const change = {
       entry_id: entry.id, field: field.key, ...details,
       ...(qualifier ? { qualifier_id: qualifier } : {}),
     }
     actions.onSave(isStatement
-      ? { ...change, ...dates, op: 'record_claim', speaker_id: String(values.get('speaker_id') ?? '') || null }
+      ? { ...change, ...dates, ...supporting, op: 'record_claim', speaker_id: String(values.get('speaker_id') ?? '') || null }
       : {
           ...change, op: 'record_fact', from_tick: Number(values.get('from_tick')),
           until_tick: optionalTime(values, 'until_tick'),
@@ -414,6 +415,8 @@ function CanonicalForm({ mode, fact, claim, initialField, initialQualifier, entr
       </div>}
       {mode === 'claim' && <p className="muted">Choose a speaker or cite a source article.</p>}
       <CitationInput entries={entries} initial={record?.citation_id} />
+      {isStatement && <EntryChoices label="Additional source articles" name="additional_citations"
+        entries={entries.filter((candidate) => candidate.kind === 'source')} initial={claim?.additional_citation_ids ?? []} />}
       <label className="field">Source (optional)<input name="source" maxLength={500} defaultValue={record?.source} /></label>
       <label className="wiki-checkbox"><input type="checkbox" name="author_only" defaultChecked={record?.author_only} /> Author only</label>
       <Actions {...actions} submit={record ? 'Save correction' : isStatement ? 'Save claim' : 'Save fact'} />
@@ -735,7 +738,8 @@ export function WikiEvidenceForm({ edit, entries, at, ...actions }: FormActions 
       ? { op: 'correct_event_date', event_id: edit.event.id, tick }
       : {
           op: 'record_observation', observer_id: String(values.get('observer_id')), source_id: edit.source.id,
-          source_kind: edit.sourceKind, learned_at: tick,
+          source_kind: edit.sourceKind, learned_at: tick, learning_note: String(values.get('learning_note') ?? ''),
+          author_only: values.has('author_only'),
           ...(optionalTime(values, 'about_tick') === null ? {} : { about_tick: Number(values.get('about_tick')) }),
         })
   }
@@ -751,7 +755,13 @@ export function WikiEvidenceForm({ edit, entries, at, ...actions }: FormActions 
         day={edit.kind === 'correct-date' ? edit.event.tick : at === null ? null
           : Math.max(at, 'from_tick' in edit.source ? edit.source.from_tick : edit.source.tick ?? edit.source.start_tick ?? 0)}
       />
-      {edit.kind === 'observe' && <TimeInput name="about_tick" label="About time (optional)" optional />}
+      {edit.kind === 'observe' && <>
+        <TimeInput name="about_tick" label="About time (optional)" optional />
+        <label className="field">How they learned it (optional)<textarea name="learning_note" rows={3} maxLength={500} /></label>
+        <label className="wiki-checkbox">
+          <input type="checkbox" name="author_only" defaultChecked={edit.privateSource || edit.source.author_only} /> Author only
+        </label>
+      </>}
       <Actions {...actions} submit={date ? 'Save corrected date' : 'Save observation'} />
     </form>
   )
@@ -817,6 +827,14 @@ function PropositionForm({ entry, entries, fields, observations = [], record, at
   const holder = entries.find((item) => item.id === record?.holder_id) ?? entry
   const goal = holder.kind === 'goal' || holder.kind === 'milestone'
   const evidence = observations.filter((observation) => observation.observer_id === holder.id)
+  const observationLabels = evidence.map((observation) => {
+    const subject = entries.find((candidate) => candidate.id === observation.entry_id)?.name ?? 'Record'
+    const measure = fields.find((candidate) => candidate.key === observation.field)?.label ?? observation.field
+    return {
+      id: observation.id,
+      name: subject + ' · ' + measure + ' · Learned at ' + observation.learned_at + (observation.author_only ? ' · Author only' : ''),
+    }
+  })
   const noun = goal ? 'desired state' : 'belief'
   const title = (record ? 'Correct ' : 'Record ') + noun
 
@@ -831,6 +849,10 @@ function PropositionForm({ entry, entries, fields, observations = [], record, at
         from_tick: Number(data.get('from_tick')), until_tick: optionalTime(data, 'until_tick'),
         about_tick: optionalTime(data, 'about_tick'), source: String(data.get('source') ?? ''),
         evidence_id: String(data.get('evidence') ?? '') || null, author_only: data.has('author_only'),
+        ...(!goal && {
+          additional_evidence_ids: data.getAll('additional_evidence').map(String),
+          confidence: String(data.get('confidence') ?? '').trim() || null,
+        }),
         ...(qualifier ? { qualifier_id: qualifier } : {}),
       }
       actions.onSave(record
@@ -854,15 +876,19 @@ function PropositionForm({ entry, entries, fields, observations = [], record, at
         <TimeInput name="until_tick" label="Effective until (optional)" day={record?.until_tick ?? undefined} optional />
         <TimeInput name="about_tick" label="About time (optional)" day={record?.about_tick ?? undefined} optional />
       </div>
-      {!goal && <label className="field">Evidence (optional)
-        <select name="evidence" defaultValue={record?.evidence_id ?? ''}>
-          <option value="">No recorded evidence</option>
-          {evidence.map((observation) => <option key={observation.id} value={observation.id}>
-            {entries.find((candidate) => candidate.id === observation.entry_id)?.name ?? 'Record'} · {fields.find((candidate) => candidate.key === observation.field)?.label}
-            {' · Learned at ' + observation.learned_at}
-          </option>)}
-        </select>
-      </label>}
+      {!goal && <>
+        <label className="field">Confidence (0–1, optional)
+          <input name="confidence" type="number" step="any" min={0} max={1} defaultValue={record?.confidence} />
+        </label>
+        <label className="field">Evidence (optional)
+          <select name="evidence" defaultValue={record?.evidence_id ?? ''}>
+            <option value="">No recorded evidence</option>
+            {observationLabels.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+        </label>
+        <EntryChoices name="additional_evidence" label="Additional observations" initial={record?.additional_evidence_ids ?? []}
+          entries={observationLabels} />
+      </>}
       <label className="field">Source (optional)<input name="source" maxLength={500} defaultValue={record?.source} /></label>
       <label className="wiki-checkbox"><input type="checkbox" name="author_only" defaultChecked={record?.author_only} /> Author only</label>
       <Actions {...actions} submit={'Save ' + noun} />

@@ -394,6 +394,17 @@ def _claim_dates(command, claim=None):
     return {"date_precision": precision, **dates}
 
 
+def _save_claim_citations(wiki, claim, command):
+    if "additional_citation_ids" in command:
+        citations = [
+            _citation(wiki, citation_id) for citation_id in dict.fromkeys(command["additional_citation_ids"])
+            if citation_id != str(claim.citation_id)
+        ]
+        claim.additional_citations.set(citations)
+    elif "citation_id" in command and claim.citation_id:
+        claim.additional_citations.remove(claim.citation_id)
+
+
 def _record_claim(wiki, command):
     entry = entry_for(wiki, command["entry_id"])
     speaker = _actor_for(wiki, command["speaker_id"]) if command.get("speaker_id") else None
@@ -405,6 +416,7 @@ def _record_claim(wiki, command):
         **_value_arguments(entry, command, dates["tick"]), **dates,
         speaker=speaker, citation=citation, source=command["source"], author_only=command["author_only"],
     )
+    _save_claim_citations(wiki, claim, command)
     return claim.pk, set()
 
 
@@ -425,6 +437,7 @@ def _correct_claim(wiki, command):
     for name, value in dates.items():
         setattr(claim, name, value)
     claim.save(update_fields=["value", "source", "author_only", "citation", "recorded_unit", "unit_source", *dates])
+    _save_claim_citations(wiki, claim, command)
     return claim.pk, {_field_of(claim)}
 
 
@@ -449,15 +462,17 @@ def _record_observation(wiki, command):
     model = WikiAssertion if is_assertion else WikiClaim
     source = _in_world(model.objects.filter(entry__wiki=wiki).select_related("entry"), command["source_id"])
     definition = FIELDS[source.field]
-    if (
-        source.author_only or source.entry.author_only
-        or (not is_assertion and source.speaker_id and source.speaker.author_only)
-    ):
-        reject("PRIVATE_EVIDENCE", "Author-only records cannot be shared as a character’s evidence.")
-    if source.qualifier_id and source.qualifier.author_only:
-        reject("PRIVATE_EVIDENCE", "This evidence names an author-only qualifier.")
-    if definition.target_kinds and entry_for(wiki, source.value).author_only:
-        reject("PRIVATE_EVIDENCE", "This evidence points to an author-only entry.")
+    author_only = command.get("author_only", False)
+    if not author_only:
+        if (
+            source.author_only or source.entry.author_only
+            or (not is_assertion and source.speaker_id and source.speaker.author_only)
+        ):
+            reject("PRIVATE_EVIDENCE", "Mark this observation author only to use a protected record.")
+        if source.qualifier_id and source.qualifier.author_only:
+            reject("PRIVATE_EVIDENCE", "Mark this observation author only to use a protected qualifier.")
+        if definition.target_kinds and entry_for(wiki, source.value).author_only:
+            reject("PRIVATE_EVIDENCE", "Mark this observation author only to reference a protected entry.")
     about_tick = command.get("about_tick", source.from_tick if is_assertion else source.tick)
     learned = command["learned_at"]
     compatible = contains_tick(source, about_tick) if is_assertion else _compatible_claim_time(source, about_tick, learned)
@@ -466,7 +481,7 @@ def _record_observation(wiki, command):
     observation = WikiObservation.objects.create(
         observer=observer, assertion=source if is_assertion else None, claim=source if not is_assertion else None,
         value=source.value, recorded_unit=source.recorded_unit, unit_source_id=source.unit_source_id,
-        about_tick=about_tick, learned_at=command["learned_at"],
+        about_tick=about_tick, learned_at=learned, learning_note=command.get("learning_note", ""), author_only=author_only,
     )
     return observation.pk, set()
 
@@ -516,6 +531,22 @@ def _save_proposition(wiki, command):
         )
         if evidence.learned_at > start:
             reject("INVALID_EVIDENCE_TIME", "Choose evidence learned by the start of this belief.")
+    if "additional_evidence_ids" in command:
+        additional_ids = set(command["additional_evidence_ids"])
+    elif existing:
+        additional_ids = {str(pk) for pk in proposition.additional_evidence.values_list("pk", flat=True)}
+    else:
+        additional_ids = set()
+    additional_ids.discard(command.get("evidence_id"))
+    additional = list(WikiObservation.objects.filter(observer=holder, pk__in=additional_ids))
+    if len(additional) != len(additional_ids):
+        reject("INVALID_RECORD", "Choose additional observations recorded for the holder of this belief.")
+    if any(observation.learned_at > start for observation in additional):
+        reject("INVALID_EVIDENCE_TIME", "Choose evidence learned by the start of this belief.")
+    if "confidence" in command:
+        if command["confidence"] is not None and holder.kind not in ACTORS:
+            reject("INVALID_HOLDER", "Confidence belongs to a belief held by a character or organism.")
+        proposition.confidence = command["confidence"]
     old_measure_at = proposition.from_tick if proposition.about_tick is None else proposition.about_tick
     qualifier_id = values["qualifier"].pk if values["qualifier"] else None
     measurement_slot = (subject.pk, values["field"], qualifier_id)
@@ -536,6 +567,7 @@ def _save_proposition(wiki, command):
     proposition.from_tick, proposition.until_tick = start, end
     proposition.evidence, proposition.source, proposition.author_only = evidence, command["source"], command["author_only"]
     proposition.save()
+    proposition.additional_evidence.set(additional)
     return proposition.pk, set()
 
 

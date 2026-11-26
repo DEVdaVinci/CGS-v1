@@ -94,7 +94,9 @@ def _known_entries(observer, at):
     # A recorded observation can establish identity as well as a value. Admit
     # the evidence only when every identity it names is eligible for projection.
     evidence = []
-    observations = WikiObservation.objects.filter(observer=observer, learned_at__lte=at).select_related("assertion", "claim")
+    observations = WikiObservation.objects.filter(
+        observer=observer, learned_at__lte=at, author_only=False,
+    ).select_related("assertion", "claim")
     for observation in observations:
         source = observation.assertion or observation.claim
         if source.author_only:
@@ -136,7 +138,7 @@ def _serialize_assertion(fact):
 
 
 def _serialize_claim(claim):
-    return {
+    data = {
         "id": str(claim.pk), "field": claim.field, "value": claim.value,
         "unit": claim.recorded_unit,
         "tick": claim.tick, "speaker_id": _id(claim.speaker_id),
@@ -144,6 +146,10 @@ def _serialize_claim(claim):
         "source": claim.source, "citation_id": _id(claim.citation_id), "author_only": claim.author_only,
         "qualifier_id": _id(claim.qualifier_id),
     }
+    citations = [str(entry.pk) for entry in claim.additional_citations.all() if entry.pk != claim.citation_id]
+    if citations:
+        data["additional_citation_ids"] = citations
+    return data
 
 
 def _observations_about(entry):
@@ -164,8 +170,12 @@ def _serialize_observation(observation, *, author=False):
     }
     if observation.claim_id and source.speaker_id:
         evidence["speaker_id"] = str(observation.claim.speaker_id)
+    if observation.learning_note:
+        evidence["learning_note"] = observation.learning_note
     if author:
         evidence["source_id"] = str(source.pk)
+        if observation.author_only:
+            evidence["author_only"] = True
     return evidence
 
 
@@ -333,7 +343,9 @@ def _article_events(entry):
 
 def _author_article(entry, at, identity):
     facts = list(WikiAssertion.objects.filter(entry=entry).order_by("field", "from_tick", "id"))
-    claims = WikiClaim.objects.filter(entry=entry).order_by("tick", "id")
+    claims = WikiClaim.objects.filter(entry=entry).prefetch_related(Prefetch(
+        "additional_citations", queryset=WikiEntry.objects.order_by("name", "id"),
+    )).order_by("tick", "id")
     events, event_ancestors = _article_events(entry)
     findings = list(WikiFinding.objects.filter(entry=entry, resolved_at_edit__isnull=True).order_by("from_tick", "id"))
     evidence = {record_id for finding in findings if finding.details for record_id in finding.record_ids}

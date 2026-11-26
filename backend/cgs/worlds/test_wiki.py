@@ -1091,6 +1091,107 @@ class WikiTests(TransactionTestCase):
         self.assertEqual(list(baseline["source"]["entities"]), [old_id])
         self.assertNotEqual(gate, old_id)
 
+    def test_claims_observations_and_beliefs_keep_separate_evidence_and_scope(self):
+        from .models import WikiClaim, WikiObservation, WikiProposition
+
+        reader = self.entry("Courier", "person")
+        speaker = self.entry("Station clerk", "person")
+        other = self.entry("Dispatch assistant", "person")
+        depot = self.entry("Dispatch office")
+        signal = self.entry("Track notice")
+        restricted = self.entry("Records annex")
+        log = self.entry("Timetable log", "source")
+        note = self.entry("Desk memorandum", "source")
+        receipt = self.entry("Delivery record", "source", author_only=True)
+        self.fact(depot, "status", "Open")
+        secret_fact = self.fact(restricted, "status", "Confidential visit", author_only=True)
+        first_claim = self.apply({
+            "op": "record_claim", "entry_id": depot, "field": "status", "value": "Closed", "speaker_id": speaker,
+            "citation_id": log, "additional_citation_ids": [log, note, receipt, note], "tick": 2,
+        })
+        second_claim = self.apply({
+            "op": "record_claim", "entry_id": depot, "field": "status", "value": "Awaiting inspection",
+            "speaker_id": other, "citation_id": note, "tick": 2,
+        })
+        corroborating = self.fact(signal, "status", "Service suspended", start=3)
+        first = self.apply({
+            "op": "record_observation", "observer_id": reader, "source_kind": "claim", "source_id": first_claim,
+            "learned_at": 3, "learning_note": "Heard the clerk at the counter.",
+        })
+        second = self.apply({
+            "op": "record_observation", "observer_id": reader, "source_kind": "assertion", "source_id": corroborating,
+            "learned_at": 4, "learning_note": "Read the track notice.",
+        })
+        somebody_else = self.apply({
+            "op": "record_observation", "observer_id": other, "source_kind": "claim", "source_id": second_claim,
+            "learned_at": 3,
+        })
+        private_input = {
+            "op": "record_observation", "observer_id": reader, "source_kind": "assertion", "source_id": secret_fact,
+            "learned_at": 4, "learning_note": "Confidential note",
+        }
+        self.assertEqual(self.post(private_input).json()["field_errors"][0]["code"], "PRIVATE_EVIDENCE")
+        private = self.apply({**private_input, "author_only": True})
+
+        belief = {
+            "op": "record_proposition", "holder_id": reader, "entry_id": depot, "field": "status", "value": "Closed",
+            "from_tick": 4, "until_tick": 8, "evidence_id": first, "additional_evidence_ids": [first, second, second],
+            "confidence": "0.65",
+        }
+        for invalid, code in (({"from_tick": 3}, "INVALID_EVIDENCE_TIME"),
+                              ({"additional_evidence_ids": [somebody_else]}, "INVALID_RECORD")):
+            response = self.post({**belief, **invalid})
+            self.assertEqual(response.json()["field_errors"][0]["code"], code)
+        invalid_confidence = self.post({**belief, "confidence": "1.5"})
+        self.assertEqual(invalid_confidence.status_code, 400)
+        original_edit = self.edit
+        key = uuid4()
+        saved = self.post(belief, key=key)
+        self.assertEqual(saved.status_code, 200, saved.json())
+        belief_id = saved.json()["record_id"]
+        self.edit = saved.json()["edit_counter"]
+        self.assertEqual(self.post(belief, expected=original_edit, key=key).json(), saved.json())
+        self.apply({**belief, "additional_evidence_ids": [private], "value": "Closed for confidential work"})
+
+        claim_row = WikiClaim.objects.get(pk=first_claim)
+        self.assertEqual({str(pk) for pk in claim_row.additional_citations.values_list("pk", flat=True)}, {note, receipt})
+        belief_row = WikiProposition.objects.get(pk=belief_id)
+        self.assertEqual({str(pk) for pk in belief_row.additional_evidence.values_list("pk", flat=True)}, {second})
+        self.assertTrue(WikiObservation.objects.get(pk=private).author_only)
+        self.assertEqual(self.article(reader, 3, reader)["propositions"], [])
+        scoped = self.article(reader, 4, reader)
+        self.assertEqual({item["id"] for item in scoped["observations"]}, {first, second})
+        self.assertEqual([item["id"] for item in scoped["propositions"]], [belief_id])
+        self.assertEqual(scoped["propositions"][0]["confidence"], "0.65")
+        self.assertEqual(scoped["propositions"][0]["additional_evidence_ids"], [second])
+        self.assertEqual(self.browser.get(self.path + "/entries/" + restricted, {"at": 4, "view_as": reader}).status_code, 404)
+        directory = self.browser.get(self.path, {"at": 4, "view_as": reader}).json()["entries"]
+        self.assertFalse({receipt, log, note} & {item["id"] for item in directory})
+
+        self.apply({"op": "correct_claim", "claim_id": first_claim, "value": "May close later"})
+        saved_claim = next(claim for claim in self.article(depot, 4)["claims"] if claim["id"] == first_claim)
+        self.assertEqual(set(saved_claim["additional_citation_ids"]), {note, receipt})
+        self.assertEqual(self.article(reader, 4, reader), scoped)
+        self.assertEqual(self.values(depot, 4)["status"], "Open")
+
+        later_belief = self.apply({
+            **belief, "from_tick": 8, "until_tick": None, "value": "Open", "confidence": "1",
+        })
+        self.assertEqual([item["id"] for item in self.article(reader, 4, reader)["propositions"]], [belief_id])
+        self.assertEqual([item["id"] for item in self.article(reader, 8, reader)["propositions"]], [later_belief])
+
+        legacy_key = uuid4()
+        legacy = {
+            "op": "record_observation", "observer_id": other, "source_kind": "claim", "source_id": second_claim,
+            "learned_at": 3,
+        }
+        old_receipt = MutationReceipt.objects.create(
+            principal=self.owner, operation="wiki_change", scope_key=f"wiki:{self.world}", request_key=legacy_key,
+            world_id=self.world, response_status=200, result={"record_id": somebody_else, "edit_counter": 1},
+            input_digest=digest_json({"expected_edit": 0, "command": legacy}),
+        )
+        self.assertEqual(self.post(legacy, expected=0, key=legacy_key).json()["receipt_id"], str(old_receipt.pk))
+
     def test_worldbuilding_records_keep_identity_across_same_time_events(self):
         hall = self.entry("Harbor Hall", initial_values=[{"field": "place_type", "value": "Building"}])
         landing = self.entry("Upper Landing", initial_values=[

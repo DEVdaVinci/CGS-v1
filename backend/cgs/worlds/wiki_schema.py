@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from decimal import Decimal
 
 from rest_framework import serializers
 
@@ -625,6 +626,7 @@ class RecordClaim(StateValue):
     op = serializers.ChoiceField(choices=("record_claim",))
     speaker_id = WikiRef(allow_null=True, required=False)
     citation_id = WikiRef(allow_null=True, required=False)
+    additional_citation_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     tick = ExactClock(allow_null=True)
     date_precision = serializers.ChoiceField(choices=WikiEvent.Precision.values, required=False)
     start_tick = ExactClock(allow_null=True, required=False)
@@ -637,6 +639,7 @@ class CorrectClaim(StrictSerializer):
     claim_id = WikiRef()
     value = serializers.JSONField()
     citation_id = WikiRef(allow_null=True, required=False)
+    additional_citation_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     source = TextField(max_length=500, allow_blank=True, required=False)
     author_only = serializers.BooleanField(required=False)
     tick = ExactClock(allow_null=True, required=False)
@@ -653,6 +656,8 @@ class RecordObservation(StrictSerializer):
     source_id = WikiRef()
     learned_at = ExactClock()
     about_tick = ExactClock(required=False)
+    learning_note = TextField(max_length=500, allow_blank=True, required=False)
+    author_only = serializers.BooleanField(required=False)
 
 
 class RecordEventReport(StrictSerializer):
@@ -682,7 +687,14 @@ class RecordProposition(StateValue):
     until_tick = ExactClock(allow_null=True, default=None)
     about_tick = ExactClock(allow_null=True, required=False)
     evidence_id = WikiRef(allow_null=True, required=False)
+    additional_evidence_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
+    confidence = serializers.DecimalField(
+        max_digits=10, decimal_places=9, min_value=Decimal(0), max_value=Decimal(1), allow_null=True, required=False,
+    )
     source = TextField(max_length=500, allow_blank=True, default="")
+
+    def validate_confidence(self, value):
+        return format(value.normalize(), "f") if value is not None else None
 
 
 class CorrectProposition(RecordProposition):

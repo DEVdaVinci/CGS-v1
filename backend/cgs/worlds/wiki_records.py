@@ -3,7 +3,7 @@ from graphlib import TopologicalSorter
 
 from django.db.models import Prefetch, Q
 
-from .models import WikiAssertion, WikiCausalAccount, WikiCausalTerm, WikiProposition
+from .models import WikiAssertion, WikiCausalAccount, WikiCausalTerm, WikiObservation, WikiProposition
 from .wiki import at_tick, contains_tick, date_window_bounds, value_slot, visible_unit
 from .wiki_schema import ACTORS, DATE_WINDOW_FIELDS, DEFINITIONS, FIELDS
 
@@ -228,7 +228,7 @@ def family_links(entry, facts, at):
 def observation_visible(observation, visible_ids):
     source = observation.assertion or observation.claim
     return (
-        not source.author_only
+        not observation.author_only and not source.author_only
         and str(source.entry_id) in visible_ids
         and (not observation.claim_id or not source.speaker_id or str(source.speaker_id) in visible_ids)
         and (not source.qualifier_id or str(source.qualifier_id) in visible_ids)
@@ -239,14 +239,16 @@ def observation_visible(observation, visible_ids):
 def _describe_proposition(record, observer, visible_ids):
     subject_id = str(record.subject_id)
     qualifier_id = str(record.qualifier_id) if record.qualifier_id else None
+    additional = list(record.additional_evidence.all())
     if observer is not None and (
         record.author_only or record.holder_id != observer.pk
         or subject_id not in visible_ids or (qualifier_id and qualifier_id not in visible_ids)
         or (FIELDS[record.field].target_kinds and record.value not in visible_ids)
         or (record.evidence and not observation_visible(record.evidence, visible_ids))
+        or any(not observation_visible(item, visible_ids) for item in additional)
     ):
         return None
-    return {
+    data = {
         "id": str(record.id), "holder_id": str(record.holder_id), "subject_id": subject_id,
         "kind": "desired_state" if record.holder.kind in ("goal", "milestone") else "belief", "field": record.field,
         "value": record.value, "qualifier_id": qualifier_id,
@@ -255,12 +257,23 @@ def _describe_proposition(record, observer, visible_ids):
         "evidence_id": str(record.evidence_id) if record.evidence_id else None,
         "source": record.source, "author_only": record.author_only,
     }
+    if additional:
+        data["additional_evidence_ids"] = [str(item.pk) for item in additional]
+    if record.confidence is not None:
+        data["confidence"] = format(record.confidence.normalize(), "f")
+    return data
+
+
+def _supporting_observations():
+    return WikiObservation.objects.select_related("assertion", "claim").order_by("learned_at", "id")
 
 
 def propositions_for(entry, at, observer=None, visible_ids=None):
     records = at_tick(WikiProposition.objects.filter(
         Q(holder=entry) | Q(subject=entry), holder__wiki_id=entry.wiki_id,
-    ), at).select_related("holder", "evidence__assertion", "evidence__claim", "unit_source")
+    ), at).select_related("holder", "evidence__assertion", "evidence__claim", "unit_source").prefetch_related(Prefetch(
+        "additional_evidence", queryset=_supporting_observations(),
+    ))
     if observer is not None:
         records = records.filter(holder=observer, author_only=False)
     return [
@@ -277,7 +290,7 @@ def causal_accounts_for(entry, at, observer=None, visible_ids=None):
         accounts = accounts.filter(author_only=False)
     terms = WikiCausalTerm.objects.select_related(
         "belief__holder", "belief__evidence__assertion", "belief__evidence__claim", "belief__unit_source",
-    ).order_by("position")
+    ).prefetch_related(Prefetch("belief__additional_evidence", queryset=_supporting_observations())).order_by("position")
     result = []
     for account in accounts.prefetch_related(Prefetch("terms", queryset=terms)).order_by("from_tick", "id"):
         citation = str(account.citation_id) if account.citation_id else None

@@ -503,6 +503,7 @@ class WikiClaim(CreatedRecord):
     end_tick = models.PositiveBigIntegerField(null=True)
     source = models.CharField(max_length=500, blank=True)
     citation = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, null=True, related_name="+")
+    additional_citations = models.ManyToManyField(WikiEntry, related_name="supported_claims", blank=True)
     author_only = models.BooleanField(default=False)
 
     class Meta:
@@ -533,6 +534,8 @@ class WikiObservation(CreatedRecord):
     unit_source = models.ForeignKey(WikiAssertion, on_delete=models.RESTRICT, null=True, related_name="+")
     about_tick = models.PositiveBigIntegerField(null=True)
     learned_at = models.PositiveBigIntegerField()
+    learning_note = models.CharField(max_length=500, blank=True, default="")
+    author_only = models.BooleanField(default=False)
 
     class Meta:
         indexes = [models.Index(fields=["observer", "learned_at"], name="wiki_observation_timeline")]
@@ -565,6 +568,8 @@ class WikiProposition(CreatedRecord):
     from_tick = models.PositiveBigIntegerField()
     until_tick = models.PositiveBigIntegerField(null=True)
     evidence = models.ForeignKey(WikiObservation, on_delete=models.RESTRICT, null=True)
+    additional_evidence = models.ManyToManyField(WikiObservation, related_name="supported_beliefs", blank=True)
+    confidence = models.DecimalField(max_digits=10, decimal_places=9, null=True)
     source = models.CharField(max_length=500, blank=True)
     author_only = models.BooleanField(default=False)
 
@@ -574,7 +579,11 @@ class WikiProposition(CreatedRecord):
             models.CheckConstraint(
                 condition=Q(until_tick__isnull=True) | Q(until_tick__gt=F("from_tick")),
                 name="wiki_proposition_interval",
-            )
+            ),
+            models.CheckConstraint(
+                condition=Q(confidence__isnull=True) | Q(confidence__gte=0, confidence__lte=1),
+                name="wiki_belief_confidence_range",
+            ),
         ]
 
 
