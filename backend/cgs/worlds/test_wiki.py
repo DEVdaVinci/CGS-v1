@@ -1155,6 +1155,71 @@ class WikiTests(TransactionTestCase):
         self.assertEqual(self.article(character)["findings"][0]["code"], "LIFESPAN_CONFLICT")
         self.assertNotIn("findings", self.article(character, 0, observer))
 
+    def test_lifecycle_windows_keep_sources_precision_and_effective_dates(self):
+        person = self.entry("Surveyor", "person")
+        source = self.entry("Birth register", "source")
+        self.apply({"op": "set_calendar", "days_per_year": 10})
+        window = self.fact(person, "birth_window", "4:8", 2, until_tick=20, citation_id=source)
+        unknown = self.fact(person, "death_window", "unknown", 2)
+        exact = self.fact(person, "birth_tick", 9, 5)
+        before = self.article(person, 1)
+        self.assertIsNone(before["age_years"])
+        self.assertEqual(next(item["state"] for item in before["values"] if item["field"] == "birth_window"), "unknown")
+        read = self.article(person, 15)
+        self.assertIsNone(read["age_years"])
+        finding = read["findings"][0]
+        self.assertEqual((finding["code"], finding["record_ids"], finding["from_tick"], finding["until_tick"]),
+                         ("DATE_OUTSIDE_WINDOW", [exact, window], 5, 20))
+        self.assertEqual(next(item["citation_id"] for item in read["assertions"] if item["id"] == window), source)
+        self.assertEqual(next(item["value"] for item in read["assertions"] if item["id"] == unknown), "unknown")
+
+        self.apply({"op": "correct_fact", "assertion_id": exact, "value": 6})
+        self.assertFalse(self.article(person, 16)["findings"])
+        self.assertEqual(self.article(person, 16)["age_years"], 1)
+        invalid = self.post({"op": "record_fact", "entry_id": person, "field": "death_window", "value": "10:9", "from_tick": 2})
+        self.assertEqual(invalid.json()["field_errors"][0]["code"], "INVALID_DATE_WINDOW")
+
+        for kind, ending in (("item", "destruction_window"), ("species", "extinction_window")):
+            subject = self.entry(kind + " record", kind)
+            start = self.fact(subject, "creation_window", "8:10", 2)
+            end = self.fact(subject, ending, "2:4", 2)
+            self.assertEqual(self.article(subject, 2)["findings"][0]["record_ids"], [start, end])
+            self.assertEqual(self.article(subject, 2)["findings"][0]["code"], "LIFESPAN_CONFLICT")
+            self.apply({"op": "correct_fact", "assertion_id": end, "value": "7:8"})
+            self.assertFalse(self.article(subject, 2)["findings"])
+
+    def test_latest_sightings_use_known_observations_and_keep_equal_time_reports(self):
+        subject = self.entry("Walker", "person")
+        witness = self.entry("Witness", "person")
+        bystander = self.entry("Bystander", "person")
+        pier = self.entry("North pier")
+        observatory = self.entry("Observatory")
+        other = self.entry("Market")
+        first_location = self.fact(subject, "located_in", pier, until_tick=5)
+        self.fact(subject, "located_in", observatory, 5)
+        self.discover(subject, bystander)
+        first = self.apply({
+            "op": "record_observation", "observer_id": witness, "source_kind": "assertion",
+            "source_id": first_location, "about_tick": 3, "learned_at": 8,
+        })
+        claim = self.apply({
+            "op": "record_claim", "entry_id": subject, "field": "located_in", "value": other,
+            "tick": 3, "speaker_id": bystander,
+        })
+        concurrent = self.apply({
+            "op": "record_observation", "observer_id": witness, "source_kind": "claim", "source_id": claim, "learned_at": 8,
+        })
+        self.apply({
+            "op": "record_observation", "observer_id": witness, "source_kind": "assertion",
+            "source_id": first_location, "about_tick": 1, "learned_at": 9,
+        })
+        self.assertFalse(self.article(subject, 7)["last_sightings"])
+        self.assertFalse(self.article(subject, 9, bystander)["last_sightings"])
+        for observer in (None, witness):
+            self.assertEqual({item["id"] for item in self.article(subject, 9, observer)["last_sightings"]},
+                             {first, concurrent})
+        self.assertEqual(self.values(subject, 9)["located_in"], observatory)
+
     def test_in_world_variants_have_independent_identity_events_and_scoped_reads(self):
         original = self.entry("Lina", "person", overview="Coastal archivist")
         variant = self.entry("Lina of the northern coast", "person", variant_of_id=original)
@@ -1259,6 +1324,66 @@ class WikiTests(TransactionTestCase):
             "op": "record_event", "name": "Invalid target", "tick": 8, "fulfillment_ids": [goal],
         })
         self.assertEqual(wrong_target.status_code, 422)
+
+    def test_shared_subgoal_uses_each_parents_order_and_rejects_mixed_cycles(self):
+        first_plan = self.entry("Prepare atlas", "goal")
+        second_plan = self.entry("Archive survey", "goal")
+        shared = self.entry("Verify elevations", "goal")
+        other = self.entry("Collect deposits", "goal")
+        self.fact(shared, "parent_goal", first_plan)
+        self.fact(shared, "goal_order", 7)
+        self.fact(shared, "shared_parent_goal", second_plan, 3)
+        self.fact(shared, "shared_goal_order", 3, 3, until_tick=6, qualifier_id=second_plan)
+        self.fact(shared, "shared_goal_order", 1, 6, qualifier_id=second_plan)
+        self.fact(other, "parent_goal", second_plan)
+        self.fact(other, "goal_order", 2)
+        self.fact(shared, "shared_parent_goal", first_plan)
+
+        def order(goal, at):
+            return [(item["entry_id"], item["order"]) for item in self.article(goal, at)["incoming_links"]]
+
+        self.assertEqual(order(first_plan, 6), [(shared, 7)])
+        self.assertEqual(order(second_plan, 2), [(other, 2)])
+        self.assertEqual(order(second_plan, 3), [(other, 2), (shared, 3)])
+        self.assertEqual(order(second_plan, 6), [(shared, 1), (other, 2)])
+        cycle = self.post({
+            "op": "record_fact", "entry_id": second_plan, "field": "parent_goal", "value": shared, "from_tick": 3,
+        })
+        self.assertEqual(cycle.json()["field_errors"][0]["code"], "RELATIONSHIP_CYCLE")
+        self.assertEqual(order(second_plan, 6), [(shared, 1), (other, 2)])
+
+    def test_motivations_link_authored_values_preferences_and_independent_desires(self):
+        actor = self.entry("Harbor custodian", "person")
+        bird = self.entry("Nesting seabird", "organism")
+        quiet = self.entry("Quiet", "value_def")
+        dusk = self.entry("Dusk pier")
+        preference = self.entry("Leave the nesting site undisturbed", "preference")
+        motive = self.entry("Guard the nesting site", "motivation")
+        self.fact(actor, "actor_value", quiet, 2)
+        self.fact(bird, "actor_value", quiet, 2)
+        self.fact(actor, "mood", "Frustrated", 3, until_tick=4)
+        self.fact(preference, "preference_holder", actor, 2)
+        self.fact(preference, "avoided_entry", dusk, 2)
+        self.fact(motive, "motivation_value", quiet, 2)
+        self.fact(motive, "motivation_preference", preference, 2)
+        self.assertEqual(self.values(actor, 4)["actor_value"], quiet)
+        self.assertNotEqual(self.values(actor, 4).get("mood"), "Frustrated")
+        self.assertEqual({value["entry_id"] for value in self.article(quiet, 4)["incoming_links"]
+                          if value["field"] == "actor_value"}, {actor, bird})
+        self.assertEqual(self.values(preference, 2)["avoided_entry"], dusk)
+        self.fact(dusk, "status", "Restricted")
+        for mode, desired in (("Achieve", "Open to research"), ("Maintain", "Restricted")):
+            goal = self.entry(desired, "goal")
+            self.fact(goal, "goal_owner", actor)
+            self.fact(goal, "goal_mode", mode)
+            self.fact(goal, "goal_motivation", motive, 2)
+            self.apply({
+                "op": "record_proposition", "holder_id": goal, "entry_id": dusk,
+                "field": "status", "value": desired, "from_tick": 2,
+            })
+        self.assertEqual(sum(item["field"] == "goal_motivation" for item in self.article(motive, 5)["incoming_links"]), 2)
+        self.assertEqual(self.values(dusk, 5)["status"], "Restricted")
+        self.assertFalse(self.article(dusk, 5)["findings"])
 
     def test_causal_accounts_keep_ordered_beliefs_independent_of_canon_and_knowledge_scope(self):
         investigator = self.entry("Investigator", "person")

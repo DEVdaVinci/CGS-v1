@@ -475,3 +475,28 @@ CGS p. 2 shows a common subgoal reused by multiple branches and a position withi
 | Motivation for a goal | Define **Motivation** with reusable text and explicit Value, Preference and subject links. A Goal or Goal milestone History can attach it at an authored date and reopen the same motivation. It records reasons without turning a desire into a canonical fact or measuring a person's response. | Link the same motivation to two goals, one aspiring to a state and another maintaining it. Reopen both goals and their cited rationale. Save opposing desired states without creating a canonical contradiction. |
 
 The new facts reuse the existing title, source, date and authorized history surfaces. Record authorable evaluation and goal progress as separate W2 and W3 acceptance.
+
+## Precision of lifecycle dates
+
+Wiki p. 2 names Birth Day and Death date on a character. The lifecycle and chronology design also identifies creation, destruction and extinction. W1 CORE-02, CORE-12 and CORE-14 and inventory items 3, 5–7 apply. A known exact date keeps its existing field. A separate named date window can express two inclusive bounds or an explicitly unknown date. Both records use the original entity's UUID, the world clock and the typed fact interval. The bounds answer when the birth or other event might have happened. The fact interval answers when that authored statement applies.
+
+From Character, Organism, Species and other applicable article Histories, save and read the lifecycle field with an explicit time window and source. Present the same record clearly in the article's identity section. Django validates the bounds and saves the normalized value and its assertion ID. An exact date outside its contemporaneous bounds, or an ending date range wholly before the possible beginning, creates a finding linked to the two authored facts. A valid correction leaves the other statement and older dates intact. Exact age uses uniquely recorded, consistent life dates. W3 calendar presentation can format the same chronological values.
+
+Verify an independently unknown birth or death, a bounded date with a followed Source, a compatible exact date, a contradictory date and its correction, and earlier and later historical reads. Reuse the same validation for a nonliving creation or destruction and a species extinction. Keep unrelated timeline events, author corrections and event date precision distinct.
+
+## Latest dated sightings
+
+Wiki pp. 1–2 connect entities, places and past activity. The owner distinguishes physical whereabouts from what a character heard or saw. For inventory item 50 and CORE-09/13/15, an entity's History or character-knowledge view can show the latest **recorded sightings** as of the selected date. A sighting comes from the existing observation snapshot of a Location assertion or claim and has a known time it describes. The read honors when the observation was learned, keeps the latest time for each authorized observer, and displays contemporaneous reports separately. It follows the saved observation and Place; the canonical Location, Residence and event links remain independently readable.
+
+Verify that a late report about an earlier location appears when it is learned and the character's already recorded move remains visible in canon. Test equal-time reports, another observer, an unavailable report and reload through the normal author and character views. No additional table or record mutation is needed.
+
+### Verification of goals, lifecycle dates and sightings
+
+| Scope | Verified result |
+| --- | --- |
+| Items 37, 41 and 42, shared plans and motivation | Chrome reopened the same goal ID from two parent plans, compared its dates and local positions, and followed a motivation to a saved value and preference. The rendered plan labels the date the link took effect separately from its position. Django checked duplicate suppression, mixed parent cycles, temporary mood, multiple actor types and conflicting desired states against independent canon. |
+| Items 3, 5–7, lifecycle precision | Chrome saved a bounded birth date and independently unknown death date from New entry, corrected a contradictory exact birth date, and followed the saved Source after reload. Django checked exact overlap, cleared findings after correction, derived age, an invalid reversed range, and impossible windows on an Item and Species. |
+| Item 50, latest sightings | Chrome read a report about an earlier place from Author and the observing character at the date it became available. It followed the same saved observation while canon retained the later location. Django checked simultaneous reports, observer isolation and a late report about an older time. |
+| Build and upgrade | The isolated `index-CUyiWAv4.js` build passed 71 Django tests, 34 Chrome scenarios and the pending migration check. Migration 0025 was rehearsed on a disposable PostgreSQL copy with all original fields preserved across 39 tables. Date windows and sightings use existing storage. The regression test for the draft editor now waits for the confirmed save before reloading. |
+
+W1 and complete Wiki acceptance remain open. The [coverage inventory](CGS_Wiki_Current_Coverage.md) lists the remaining field, workflow and release checks.

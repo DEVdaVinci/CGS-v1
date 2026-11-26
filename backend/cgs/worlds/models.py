@@ -203,6 +203,9 @@ class WikiEntry(CreatedRecord):
         METHOD_STEP = "method_step", "Method step"
         BODY_FUNCTION = "body_fn", "Body function"
         RESOURCE_MOVEMENT = "resource_mv", "Resource movement"
+        VALUE_DEFINITION = "value_def", "Value"
+        PREFERENCE = "preference", "Preference"
+        MOTIVATION = "motivation", "Motivation"
 
     class CatalogType(models.TextChoices):
         VEHICLE = "vehicle", "Vehicle"

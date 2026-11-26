@@ -159,6 +159,25 @@ def _serialize_observation(observation, *, author=False):
     return evidence
 
 
+def _last_sightings(entry, at, observations):
+    if at is None or entry.kind not in (*ACTORS, "item"):
+        return []
+    latest = {}
+    sightings = []
+    for observation in observations:
+        when = observation["about_tick"]
+        if (observation["field"] != "located_in" or observation["entry_id"] != str(entry.pk)
+                or when is None or when > at or observation["learned_at"] > at):
+            continue
+        observer = observation["observer_id"]
+        latest[observer] = max(when, latest.get(observer, when))
+        sightings.append(observation)
+    return sorted(
+        (item for item in sightings if item["about_tick"] == latest[item["observer_id"]]),
+        key=lambda item: (-item["about_tick"], item["observer_id"], item["id"]),
+    )
+
+
 def _event_outline(event):
     bounds = event_bounds(event)
     return {
@@ -294,6 +313,7 @@ def _author_article(entry, at, identity):
     claims = WikiClaim.objects.filter(entry=entry).order_by("tick", "id")
     events, event_ancestors = _article_events(entry)
     findings = WikiFinding.objects.filter(entry=entry, resolved_at_edit__isnull=True).order_by("from_tick", "id")
+    observations = [_serialize_observation(item, author=True) for item in _observations_about(entry)]
     article = {
         "entry": identity,
         "overview": entry.overview,
@@ -306,7 +326,8 @@ def _author_article(entry, at, identity):
         "claims": [_serialize_claim(claim) for claim in claims],
         "events": events,
         "event_ancestors": event_ancestors,
-        "observations": [_serialize_observation(o, author=True) for o in _observations_about(entry)],
+        "observations": observations,
+        "last_sightings": _last_sightings(entry, at, observations),
         "findings": [
             {
                 "id": str(finding.pk), "code": finding.code, "field": finding.field,
@@ -351,6 +372,7 @@ def _character_article(entry, observer, at, visible_ids):
     knowledge = [_serialize_observation(o) for o in observations if observation_visible(o, visible_ids)]
     return {
         "entry": _describe_entry(entry), "observations": knowledge,
+        "last_sightings": _last_sightings(entry, at, knowledge),
         "propositions": propositions_for(entry, at, observer, visible_ids),
         "causal_accounts": causal_accounts_for(entry, at, observer, visible_ids),
     }

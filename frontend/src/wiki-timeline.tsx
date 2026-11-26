@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { canPerformEvent, type WikiEntry, type WikiEvent, type WikiField, type WikiValue } from './wiki-api'
+import { canPerformEvent, formatTimeWindow, type WikiEntry, type WikiEvent, type WikiField, type WikiValue } from './wiki-api'
 import { formatDistribution } from './wiki-distribution'
 import { type ArticleEdit } from './wiki-forms'
 import { WorkspaceLink } from './home-masthead'
@@ -128,7 +128,8 @@ export function WikiTimeline({
     if (value === null) return 'No recorded value'
     const definition = definitions.get(field)
     if (definition?.target_kinds.length && typeof value === 'string') return linked(value, at)
-    const amount = definition?.value_kind === 'distribution' ? formatDistribution(value) : value
+    const amount = definition?.value_kind === 'distribution' ? formatDistribution(value)
+      : definition?.value_kind === 'time_window' ? formatTimeWindow(value) : value
     return unit ? amount + ' ' + unit : definition?.uses_unit ? amount + ' · Unit unspecified' : amount
   }
 

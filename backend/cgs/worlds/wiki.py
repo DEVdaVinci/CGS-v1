@@ -77,6 +77,13 @@ def _distribution(value, label):
     )
 
 
+def date_window_bounds(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9]{1,16}:[0-9]{1,16}", value):
+        return None
+    earliest, latest = map(int, value.split(":"))
+    return (earliest, latest) if earliest <= latest <= MAX_CLOCK else None
+
+
 def typed_value(entry, field, value):
     definition = FIELDS[field]
     if entry.kind not in definition.kinds:
@@ -104,6 +111,13 @@ def typed_value(entry, field, value):
         return _decimal_text(amount)
     elif definition.value_kind == "distribution":
         return _distribution(value, definition.label)
+    elif definition.value_kind == "time_window":
+        if value == "unknown":
+            return value
+        bounds = date_window_bounds(value)
+        if bounds is None:
+            reject("INVALID_DATE_WINDOW", f"{definition.label} needs an unknown date or two ordered dates.")
+        return f"{bounds[0]}:{bounds[1]}"
     elif not isinstance(value, str) or not value.strip() or len(value) > 500:
         reject("INVALID_VALUE", f"{definition.label} requires text of 1 to 500 characters.")
     if definition.choices and value not in definition.choices:
@@ -155,9 +169,11 @@ def check_hierarchies(wiki, affected):
     subjects = defaultdict(set)
     for entry_id, field in affected:
         if FIELDS[field].acyclic or field == "located_in":
-            subjects[field].add(str(entry_id))
+            hierarchy = "parent_goal" if field == "shared_parent_goal" else field
+            subjects[hierarchy].add(str(entry_id))
     for field, sources in subjects.items():
-        rows = WikiAssertion.objects.filter(entry__wiki=wiki, field=field)
+        fields = ("parent_goal", "shared_parent_goal") if field == "parent_goal" else (field,)
+        rows = WikiAssertion.objects.filter(entry__wiki=wiki, field__in=fields)
         if field == "located_in":
             rows = rows.filter(entry__kind=WikiEntry.Kind.PLACE)
         edges = defaultdict(list)

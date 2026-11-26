@@ -430,7 +430,10 @@ test('authors and reopens the reference dungeon using browser forms', async ({ p
   await select('Stimulus fact').selectOption(idMap.get(aliases.heard_cast)!)
   await select('Alarm point').selectOption(idMap.get(aliases.alarm)!)
   await select('Movement rule').selectOption(idMap.get(aliases.move)!)
+  const persisted = page.waitForResponse((response) =>
+    response.url().endsWith('/draft/edits') && response.request().method() === 'POST')
   await button('Save entry').click()
+  expect((await persisted).ok()).toBe(true)
   await expect(page.getByRole('region', { name: 'Entry details' })).toContainText('Move to alarm on a stimulus')
   await page.reload()
   expect((await readDraft(page)).source.entities[idMap.get(aliases.sentry)!].policy).toEqual({

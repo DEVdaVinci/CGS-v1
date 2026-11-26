@@ -2,7 +2,7 @@
 
 [Read the quick reference](CGS_Milestones_Quick_Reference.md)
 
-**Current position** — The working foundation and [redesigned W1 workspace](CGS_W1_Core_Worldbuilding.md#w1-workspace-revision-evidence) are delivered, including persisted article sections and improvements to date navigation and image maps. The remaining W1 batches cover core authored data, time, space and evidence. The complete Wiki, the event engine, and the first playable tabletop release each have their own finish lines.
+**Current position** — The working foundation and W1 workspace include saved article sections and maps, character variants, dated relationship and physical records, goal plans, scoped causal accounts, lifecycle precision and observed history. W1 remains open for the other authored data, time, space, evidence and field-level checks in the inventory. The complete Wiki, the event engine, and the first playable tabletop release have their own finish lines. [Verified and remaining work](CGS_Wiki_Current_Coverage.md)
 
 Before the next Wiki sprint, apply the [UI-first direction](CGS_Wiki_Reference_Design.md#design-authority) to the visible deliverable and reconcile it with the open W1 checks. The [approval rules](../AGENTS.md#user-instructions-and-approval) govern any proposed change to the owner's requested sequence, scope or design.
 

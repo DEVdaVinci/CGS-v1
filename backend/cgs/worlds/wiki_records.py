@@ -4,12 +4,13 @@ from graphlib import TopologicalSorter
 from django.db.models import Prefetch, Q
 
 from .models import WikiAssertion, WikiCausalAccount, WikiCausalTerm, WikiProposition
-from .wiki import at_tick, contains_tick, value_slot, visible_unit
-from .wiki_schema import ACTORS, DEFINITIONS, FIELDS
+from .wiki import at_tick, contains_tick, date_window_bounds, value_slot, visible_unit
+from .wiki_schema import ACTORS, DATE_WINDOW_FIELDS, DEFINITIONS, FIELDS
 
 
 PLAN_ORDERS = {
     "parent_goal": "goal_order",
+    "shared_parent_goal": "shared_goal_order",
     "milestone_goal": "milestone_order",
     "method_requirement": "method_order",
     "step_method": "step_order",
@@ -112,14 +113,27 @@ def derived_age(entry, values, at):
     start_key, end_key = ("birth_tick", "death_tick") if entry.kind in ACTORS else (
         "creation_tick", "extinction_tick" if entry.kind == "species" else "destruction_tick"
     )
-    dates = {item["field"]: item for item in values if item["field"] in (start_key, end_key)}
+    start_window, end_window = DATE_WINDOW_FIELDS[start_key], DATE_WINDOW_FIELDS[end_key]
+    dates = {item["field"]: item for item in values if item["field"] in (start_key, end_key, start_window, end_window)}
+    if any(item["state"] == "conflict" for item in dates.values()):
+        return None
     start = dates[start_key].get("value")
     end = dates[end_key].get("value")
-    if dates[end_key]["state"] == "conflict" or (end is not None and start is not None and end < start):
+    start_bounds = date_window_bounds(dates[start_window].get("value"))
+    end_bounds = date_window_bounds(dates[end_window].get("value"))
+    if start is None or (start_bounds and not start_bounds[0] <= start <= start_bounds[1]):
+        return None
+    if end is not None and (end < start or (end_bounds and not end_bounds[0] <= end <= end_bounds[1])):
+        return None
+    if end is None and end_bounds and (end_bounds[0] <= at or end_bounds[1] < start):
         return None
     year = entry.wiki.days_per_year
     age_at = min(at, end) if end is not None else at
-    return (age_at - start) // year if year and start is not None and age_at >= start else None
+    return (age_at - start) // year if year and age_at >= start else None
+
+
+def _link_group(field):
+    return "parent_goal" if field == "shared_parent_goal" else field
 
 
 def incoming_links(entry, at):
@@ -144,24 +158,27 @@ def incoming_links(entry, at):
         for fact in matches
         if FIELDS[fact.field].many or (fact.entry_id, fact.field, fact.qualifier_id) not in conflicts
     ]
+    primary_subgoals = {link["entry_id"] for link in links if link["field"] == "parent_goal"}
+    links = [link for link in links if link["field"] != "shared_parent_goal" or link["entry_id"] not in primary_subgoals]
     plan_entries = {link["entry_id"] for link in links if link["field"] in PLAN_ORDERS}
     positions = defaultdict(set)
     if plan_entries:
-        for entry_id, field, value in at_tick(WikiAssertion.objects.filter(
+        for entry_id, field, qualifier, value in at_tick(WikiAssertion.objects.filter(
             entry_id__in=plan_entries, field__in=PLAN_ORDERS.values(),
-        ), at).values_list("entry_id", "field", "value"):
-            positions[(str(entry_id), field)].add(value)
+        ), at).values_list("entry_id", "field", "qualifier_id", "value"):
+            positions[(str(entry_id), field, qualifier)].add(value)
     for link in links:
         if order_field := PLAN_ORDERS.get(link["field"]):
-            values = positions[(link["entry_id"], order_field)]
+            qualifier = entry.pk if order_field == "shared_goal_order" else None
+            values = positions[(link["entry_id"], order_field, qualifier)]
             link["order"] = next(iter(values)) if len(values) == 1 else None
             link["order_conflict"] = len(values) > 1
-    positions_in_group = Counter((link["field"], link["order"]) for link in links if link.get("order") is not None)
+    positions_in_group = Counter((_link_group(link["field"]), link["order"]) for link in links if link.get("order") is not None)
     for link in links:
-        if positions_in_group[(link["field"], link.get("order"))] > 1:
+        if positions_in_group[(_link_group(link["field"]), link.get("order"))] > 1:
             link["order_shared"] = True
     links.sort(key=lambda link: (
-        link["field"], link.get("order") is None, link.get("order") or 0,
+        _link_group(link["field"]), link.get("order") is None, link.get("order") or 0,
         link["entry_id"] if link.get("order_shared") else "",
     ))
     return links

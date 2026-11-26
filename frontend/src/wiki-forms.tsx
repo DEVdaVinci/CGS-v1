@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import {
-  canPerformEvent, causalPhases, getWiki, isWikiActor, type CausalPhase, type EventDatePrecision,
+  canPerformEvent, causalPhases, formatTimeWindow, getWiki, isWikiActor, type CausalPhase, type EventDatePrecision,
   type WikiArticleSection, type WikiAssertion, type WikiCausalAccount, type WikiClaim, type WikiCommand, type WikiDiscovery, type WikiEntry, type WikiEvent,
   type WikiEntryTemplate, type WikiField, type WikiKind, type WikiLearnedAbility, type WikiObservation, type WikiProposition, type WikiValue,
 } from './wiki-api'
@@ -17,6 +17,7 @@ export const kindLabel: Record<WikiKind, string> = {
   context: 'Capability context', relation_def: 'Relationship type', relation: 'Relationship',
   method_step: 'Method step',
   body_fn: 'Body function', resource_mv: 'Resource movement',
+  value_def: 'Value', preference: 'Preference', motivation: 'Motivation',
 }
 
 export type ArticleEdit =
@@ -50,13 +51,16 @@ export function Actions({ busy, onCancel, submit }: Pick<FormActions, 'busy' | '
 }
 
 const dimensions = ['height_cm', 'width_cm', 'length_cm', 'mass_kg']
-const biography = ['alias', 'birth_tick', 'death_tick', 'birthplace', 'origin', 'species', 'nationality', 'parent', 'sibling']
+const biography = [
+  'alias', 'birth_tick', 'birth_window', 'death_tick', 'death_window', 'birthplace', 'origin', 'species',
+  'nationality', 'parent', 'sibling',
+]
 const entryTemplates: WikiEntryTemplate[] = [...Object.keys(kindLabel) as WikiKind[], 'vehicle']
 const initialKeys: Partial<Record<WikiKind, string[]>> = {
   person: [...biography, 'character_class', 'appearance', 'background', ...dimensions],
   organism: [...biography, 'appearance', ...dimensions],
   place: ['place_type', 'located_in'],
-  item: ['item_type', 'creation_tick', 'destruction_tick', ...dimensions],
+  item: ['item_type', 'creation_tick', 'creation_window', 'destruction_tick', 'destruction_window', ...dimensions],
   group: ['group_type'],
   ability: ['ability_type'],
   territory: ['landscape'],
@@ -74,6 +78,8 @@ const initialKeys: Partial<Record<WikiKind, string[]>> = {
   method_step: ['step_method', 'step_order', 'step_subject', 'status'],
   resource_mv: ['movement_sender', 'movement_recipient'],
   body_part: ['part_parent', 'body_function'],
+  preference: ['preference_holder', 'preferred_entry', 'avoided_entry'],
+  motivation: ['motivation_subject', 'motivation_value', 'motivation_preference'],
   role: ['role_duty', 'declared_authority', 'declared_limitation'],
   status_def: ['role_duty', 'declared_authority', 'declared_limitation'],
   context: ['context_actor', 'context_capability', 'context_circumstance', 'context_probability'],
@@ -228,6 +234,9 @@ export function ValueInput({
   if (field.value_kind === 'distribution') {
     return <DistributionInput name={name} label={label} initial={initial} required={required} />
   }
+  if (field.value_kind === 'time_window') {
+    return <DateWindowInput name={name} label={label} initial={initial} required={required} />
+  }
   return (
     <label className="field">{label}
       {field.choices.length ? (
@@ -246,6 +255,31 @@ export function ValueInput({
       )}
     </label>
   )
+}
+
+function DateWindowInput({ name, label, initial, required }: {
+  name: string; label: string; initial?: WikiValue; required: boolean
+}) {
+  const [initialStart, initialEnd] = String(initial ?? '').split(':')
+  const [precision, setPrecision] = useState(initial === 'unknown' ? 'unknown' : initialEnd || required ? 'bounded' : '')
+  const [earliest, setEarliest] = useState(initialEnd ? initialStart : '')
+  const [latest, setLatest] = useState(initialEnd ?? '')
+  const value = precision === 'bounded' && earliest && latest ? earliest + ':' + latest : precision === 'unknown' ? 'unknown' : ''
+  return <fieldset className="wiki-change-fields">
+    <legend>{label}</legend>
+    <input type="hidden" name={name} value={value} />
+    <label className="field">Date precision<select value={precision} onChange={(event) => setPrecision(event.target.value)}>
+      {!required && <option value="">Unspecified</option>}
+      <option value="bounded">Bounded date</option>
+      <option value="unknown">Unknown date</option>
+    </select></label>
+    {precision === 'bounded' && <div className="wiki-form-row">
+      <label className="field">Earliest possible time<input type="number" min={0} max={Number.MAX_SAFE_INTEGER}
+        step={1} required value={earliest} onChange={(event) => setEarliest(event.target.value)} /></label>
+      <label className="field">Latest possible time<input type="number" min={0} max={Number.MAX_SAFE_INTEGER}
+        step={1} required value={latest} onChange={(event) => setLatest(event.target.value)} /></label>
+    </div>}
+  </fieldset>
 }
 
 function readValue(value: FormDataEntryValue | null, field: WikiField): WikiValue {
@@ -446,7 +480,8 @@ export function EventContextFields({ worldId, entries, fields, at, event, events
     const definition = fields.find((field) => field.key === fact.field)
     const name = entries.find((item) => item.id === fact.value)?.name
     const qualifier = entries.find((item) => item.id === fact.qualifier_id)?.name
-    const value = definition?.value_kind === 'distribution' ? formatDistribution(fact.value) : name ?? fact.value
+    const value = definition?.value_kind === 'distribution' ? formatDistribution(fact.value)
+      : definition?.value_kind === 'time_window' ? formatTimeWindow(fact.value) : name ?? fact.value
     return [definition?.label ?? fact.field, qualifier, value, 'from time ' + fact.from_tick].filter((part) => part != null).join(' · ')
   }
 

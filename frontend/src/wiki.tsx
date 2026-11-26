@@ -2,7 +2,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, type SignedInSession } from './api'
 import { WorkspaceLink } from './home-masthead'
 import {
-  causalPhases, getWiki, isWikiActor, readWikiAttempt, saveWikiChange, storeWikiAttempt, wikiHref,
+  causalPhases, formatTimeWindow, getWiki, isWikiActor, readWikiAttempt, saveWikiChange, storeWikiAttempt, wikiHref,
   type WikiArticle, type WikiAttempt, type WikiCommand, type WikiEntry, type WikiEntryTemplate, type WikiKind,
   type WikiLinkedFact, type WikiLocation, type WikiSection, type WikiValue, type WikiView,
 } from './wiki-api'
@@ -83,13 +83,33 @@ function EntryReference({ id, at, view, openEntry, entryHref, navigationLocked }
 function ValueText({ field, value, unit, ...display }: Display & { field: string; value: WikiValue; unit?: string | null }) {
   const definition = display.view.fields.find((item) => item.key === field)
   if (definition?.target_kinds.length && typeof value === 'string') return <EntryReference {...display} id={value} />
-  return <><span>{definition?.value_kind === 'distribution' ? formatDistribution(value) : value}</span>
+  const text = definition?.value_kind === 'distribution' ? formatDistribution(value)
+    : definition?.value_kind === 'time_window' ? formatTimeWindow(value) : value
+  return <><span>{text}</span>
     {unit ? ' ' + unit : definition?.uses_unit && <small className="muted"> · Unit unspecified</small>}
   </>
 }
 
 function times(from: number, until: number | null) {
   return until === null ? 'From time ' + from : 'From time ' + from + ' until time ' + until
+}
+
+function LastSightings({ article, display }: { article: WikiArticle; display: Display }) {
+  const sightings = article.last_sightings ?? []
+  if (!sightings.length) return null
+  return <section className="wiki-block" aria-label="Latest recorded sightings">
+    <h2>Latest recorded sightings</h2>
+    <ul className="wiki-records">{sightings.map((item) => <li className="wiki-record" key={item.id}>
+      <div>
+        <strong><ValueText {...display} field={item.field} value={item.value} /></strong>
+        <p className="muted">
+          <EntryReference {...display} id={item.observer_id} />
+          {' · About time ' + item.about_tick + ' · Learned at time ' + item.learned_at}
+        </p>
+        <a href={'#wiki-record-' + item.id}>View observation</a>
+      </div>
+    </li>)}</ul>
+  </section>
 }
 
 function Observations({ article, display }: { article: WikiArticle; display: Display }) {
@@ -236,7 +256,10 @@ function ArticleOverview({ article, display, onEditVariant }: {
   const { view } = display
   const sections = article.sections ?? []
   const variants = article.variant_ids ?? []
-  const identityFields = ['birth_tick', 'death_tick', 'birthplace', 'origin', 'creation_tick', 'destruction_tick']
+  const identityFields = [
+    'birth_tick', 'birth_window', 'death_tick', 'death_window', 'birthplace', 'origin',
+    'creation_tick', 'creation_window', 'destruction_tick', 'destruction_window', 'extinction_tick', 'extinction_window',
+  ]
   const identity = identityFields.flatMap((key) => {
     const records = article.assertions?.filter((fact) => fact.field === key) ?? []
     return records.length === 1 && records[0].until_tick === null ? records : []
@@ -403,7 +426,7 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
                       {link.order_conflict ? 'Conflicting order · ' : link.order === null ? 'Order unspecified · '
                         : link.order !== undefined ? 'Position ' + link.order + ' · ' : ''}
                       {link.order_shared && 'Shared with another entry · '}
-                      {times(link.from_tick, link.until_tick)}{link.source ? ' · ' + link.source : ''}
+                      {'Linked ' + times(link.from_tick, link.until_tick).toLowerCase()}{link.source ? ' · ' + link.source : ''}
                     </p>
                   </div>
                 </li>
@@ -467,6 +490,8 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
                       ? 'Conflicting canon values. ' + times(finding.from_tick, finding.until_tick) + '.'
                       : finding.code === 'LIFESPAN_CONFLICT'
                         ? 'The recorded end precedes the start. Both dates apply ' + times(finding.from_tick, finding.until_tick).toLowerCase() + '.'
+                        : finding.code === 'DATE_OUTSIDE_WINDOW'
+                          ? 'The exact date is outside the recorded date window. Both apply ' + times(finding.from_tick, finding.until_tick).toLowerCase() + '.'
                         : 'The source of a recorded observation changed. Review the recorded evidence.'}
                     {' '}
                     {finding.record_ids.map((id, index) => (
@@ -543,6 +568,7 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
       {(history || view.viewpoint) && <>
         <Propositions article={article} display={display} edit={edit} />
         <CausalAccounts article={article} display={display} edit={edit} />
+        <LastSightings article={article} display={display} />
         <Observations article={article} display={display} />
       </>}
       {!view.viewpoint && history && Boolean(article.discoveries?.length) && (

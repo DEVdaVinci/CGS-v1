@@ -13,7 +13,7 @@ from .models import (
 )
 from .services import digest_json
 from .wiki import (
-    at_tick, check_hierarchies, check_interval, contains_tick, entry_for, reject, typed_assertion,
+    at_tick, check_hierarchies, check_interval, contains_tick, date_window_bounds, entry_for, reject, typed_assertion,
     typed_value, unit_at, value_slot, wiki_access,
 )
 from .wiki_events import (
@@ -21,7 +21,9 @@ from .wiki_events import (
 )
 from .wiki_layouts import save_connection, save_layout, save_waypoint
 from .wiki_maps import attach_map_image, remove_map_pin, save_map_pin
-from .wiki_schema import ACTORS, ENTITY_KINDS, EVENT_PERFORMERS, FIELDS, LIFESPAN_START_FIELDS
+from .wiki_schema import (
+    ACTORS, DATE_WINDOW_FIELDS, ENTITY_KINDS, EVENT_PERFORMERS, EXACT_DATE_FIELDS, FIELDS, LIFESPAN_START_FIELDS,
+)
 
 
 def _in_world(query, record_id):
@@ -638,26 +640,50 @@ def _claim_findings(entry_id, field):
             )
 
 
+def _overlap_interval(first, second):
+    start = max(first.from_tick, second.from_tick)
+    end = min((tick for tick in (first.until_tick, second.until_tick) if tick is not None), default=None)
+    return (start, end) if end is None or start < end else None
+
+
+def _date_bounds(fact):
+    return (fact.value, fact.value) if type(fact.value) is int else date_window_bounds(fact.value)
+
+
 def _lifespan_findings(entry_id, field, endings):
-    starts = list(WikiAssertion.objects.filter(entry_id=entry_id, field=LIFESPAN_START_FIELDS[field]))
+    start_field = LIFESPAN_START_FIELDS[EXACT_DATE_FIELDS.get(field, field)]
+    starts = list(WikiAssertion.objects.filter(entry_id=entry_id, field__in=(start_field, DATE_WINDOW_FIELDS[start_field])))
     for start in starts:
+        start_bounds = _date_bounds(start)
+        if start_bounds is None:
+            continue
         for end in endings:
-            if end.value >= start.value:
-                continue
-            first = max(start.from_tick, end.from_tick)
-            last = min((tick for tick in (start.until_tick, end.until_tick) if tick is not None), default=None)
-            if last is None or first < last:
-                yield f"lifespan:{start.pk}:{end.pk}", "LIFESPAN_CONFLICT", [str(start.pk), str(end.pk)], first, last
+            end_bounds = _date_bounds(end)
+            if end_bounds and end_bounds[1] < start_bounds[0] and (interval := _overlap_interval(start, end)):
+                yield f"lifespan:{start.pk}:{end.pk}", "LIFESPAN_CONFLICT", [str(start.pk), str(end.pk)], *interval
+
+
+def _date_window_findings(entry_id, field, windows):
+    dates = list(WikiAssertion.objects.filter(entry_id=entry_id, field=EXACT_DATE_FIELDS[field]))
+    for window in windows:
+        bounds = date_window_bounds(window.value)
+        if bounds is None:
+            continue
+        for date in dates:
+            if not bounds[0] <= date.value <= bounds[1] and (interval := _overlap_interval(date, window)):
+                yield f"date-window:{date.pk}:{window.pk}", "DATE_OUTSIDE_WINDOW", [str(date.pk), str(window.pk)], *interval
 
 
 def _refresh_findings(affected, edit_counter):
-    lifespan_ends = {
+    related_lifespan_ends = {
         (entry_id, end)
         for entry_id, field in affected
-        for end, start in LIFESPAN_START_FIELDS.items()
-        if field == start
+        for exact_end, exact_start in LIFESPAN_START_FIELDS.items()
+        if field in (exact_start, DATE_WINDOW_FIELDS[exact_start])
+        for end in (exact_end, DATE_WINDOW_FIELDS[exact_end])
     }
-    for entry_id, field in sorted(affected | lifespan_ends):
+    date_windows = {(entry_id, DATE_WINDOW_FIELDS[field]) for entry_id, field in affected if field in DATE_WINDOW_FIELDS}
+    for entry_id, field in sorted(affected | related_lifespan_ends | date_windows):
         assertions = list(WikiAssertion.objects.filter(entry_id=entry_id, field=field).order_by("from_tick", "id"))
         open_keys = []
         slots = defaultdict(list)
@@ -666,7 +692,9 @@ def _refresh_findings(affected, edit_counter):
         findings = chain(
             (finding for group in slots.values() for finding in _active_findings(group)),
             _claim_findings(entry_id, field),
-            _lifespan_findings(entry_id, field, assertions) if field in LIFESPAN_START_FIELDS and assertions else (),
+            _lifespan_findings(entry_id, field, assertions)
+            if EXACT_DATE_FIELDS.get(field, field) in LIFESPAN_START_FIELDS and assertions else (),
+            _date_window_findings(entry_id, field, assertions) if field in EXACT_DATE_FIELDS and assertions else (),
         )
         for key, code, record_ids, start, end in findings:
             WikiFinding.objects.update_or_create(

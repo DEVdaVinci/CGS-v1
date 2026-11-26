@@ -5,7 +5,7 @@ export type WikiKind = 'person' | 'place' | 'group' | 'class' | 'ability' | 'ite
   | 'image' | 'model_3d' | 'texture' | 'animation' | 'map' | 'territory' | 'era'
   | 'source' | 'process' | 'skill' | 'milestone'
   | 'requirement' | 'method' | 'method_step' | 'status_def' | 'context' | 'relation_def' | 'relation'
-  | 'body_fn' | 'resource_mv'
+  | 'body_fn' | 'resource_mv' | 'value_def' | 'preference' | 'motivation'
 export type WikiEntry = {
   id: string; name: string; kind: WikiKind; author_only?: boolean
   catalog_type?: 'vehicle'; classification_needs_review?: boolean
@@ -15,7 +15,7 @@ export type WikiField = {
   key: string
   label: string
   kinds: WikiKind[]
-  value_kind: 'text' | 'integer' | 'decimal' | 'reference' | 'distribution'
+  value_kind: 'text' | 'integer' | 'decimal' | 'reference' | 'distribution' | 'time_window'
   target_kind: WikiKind | null
   choices: string[]
   section: string
@@ -28,6 +28,12 @@ export type WikiField = {
   maximum?: number | null
 }
 export type WikiValue = string | number
+
+export function formatTimeWindow(value: WikiValue) {
+  if (value === 'unknown') return 'Unknown date'
+  const [earliest, latest] = String(value).split(':')
+  return 'Between time ' + earliest + ' and ' + latest
+}
 export type WikiSection = 'overview' | 'all' | 'characters' | 'organisms' | 'places' | 'groups'
   | 'items' | 'vehicles' | 'maps' | 'library' | 'definitions' | 'media' | 'timeline' | 'sources'
 export type WikiLocation = {
@@ -78,7 +84,7 @@ export type WikiEvent = {
 
 export type WikiLearnedAbility = { id: string; ability_id: string; learned_at: number; source: string }
 export type WikiFinding = {
-  id: string; code: 'CANON_CONFLICT' | 'LIFESPAN_CONFLICT' | 'OBSERVATION_SOURCE_CHANGED'; field: string
+  id: string; code: 'CANON_CONFLICT' | 'LIFESPAN_CONFLICT' | 'DATE_OUTSIDE_WINDOW' | 'OBSERVATION_SOURCE_CHANGED'; field: string
   record_ids: string[]; from_tick: number; until_tick: number | null
 }
 export type WikiEffectiveValue = {
@@ -134,6 +140,7 @@ export type WikiArticle = {
   variant_of_id?: string | null
   variant_ids?: string[]
   causal_accounts?: WikiCausalAccount[]
+  last_sightings?: WikiObservation[]
   discoveries?: WikiDiscovery[]
   values?: WikiEffectiveValue[]
   assertions?: WikiAssertion[]
