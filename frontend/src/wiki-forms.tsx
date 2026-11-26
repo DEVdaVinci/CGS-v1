@@ -19,7 +19,7 @@ export const kindLabel: Record<WikiKind, string> = {
   method_step: 'Method step',
   body_fn: 'Body function', resource_mv: 'Resource movement',
   value_def: 'Value', preference: 'Preference', motivation: 'Motivation',
-  behavior: 'Behavior', rel_term: 'Term set',
+  behavior: 'Behavior', rel_term: 'Term set', health_case: 'Health record',
 }
 
 export function formatFieldValue(field: WikiField | undefined, value: WikiValue) {
@@ -114,6 +114,7 @@ const initialKeys: Partial<Record<WikiKind, string[]>> = {
   ],
   relation: ['relationship_type', 'first_party', 'second_party', 'first_party_role', 'second_party_role'],
   rel_term: ['term_for', 'term_party', 'acquire_requirement', 'retain_requirement', 'declared_capability', 'authority_scope'],
+  health_case: ['health_subject', 'health_part', 'health_course'],
   source: ['source_medium', 'source_tick', 'source_creator', 'source_custodian', 'source_person', 'source_locator', 'source_excerpt'],
 }
 
@@ -181,14 +182,15 @@ export function WikiEntryForm({ fixedTemplate, chooser, entries, fields, ownerId
       {template === 'map' && <p className="muted">Link an existing map through its asset location. Measured room layouts are edited from Places.</p>}
       {initialFields.length > 0 && <fieldset className="wiki-change-fields" key={template}>
         <legend>Initial facts</legend>
-        <TimeInput name="initial_at" label="Initial facts start at time" optional />
+        <TimeInput name="initial_at" label={kind === 'health_case' ? 'Condition start time' : 'Initial facts start at time'}
+          optional={kind !== 'health_case'} />
         {dateError && <p className="error-message" role="alert">Choose when the initial facts apply.</p>}
         {initialFields.filter((field) => !linkedFields.includes(field)).map((field) => (
           <ValueInput
             key={field.key} field={field} entries={entries} entryId="" name={field.key}
             label={initialLabel(field)}
-            initial={field.key === 'goal_owner' || field.key === 'term_for' ? ownerId : undefined}
-            required={false}
+            initial={['goal_owner', 'term_for', 'health_subject'].includes(field.key) ? ownerId : undefined}
+            required={field.key === 'health_subject'}
           />
         ))}
         {linkedFields.length > 0 && <details className="wiki-event-options">
@@ -348,7 +350,7 @@ function CanonicalForm({ mode, fact, claim, initialField, initialQualifier, entr
   const record = fact ?? claim
   const isStatement = mode === 'claim' || mode === 'correct-claim'
   const [precision, setPrecision] = useState<EventDatePrecision>(claim?.date_precision ?? 'exact')
-  const validFields = fields.filter((field) => field.kinds.includes(entry.kind))
+  const validFields = fields.filter((field) => field.kinds.includes(entry.kind) && (mode !== 'fact' || !field.initial_only))
   const [fieldKey, setFieldKey] = useState(record?.field ?? initialField ?? validFields[0].key)
   const field = validFields.find((item) => item.key === fieldKey)!
   const title = fact ? 'Correct value' : claim ? 'Correct claim' : isStatement ? 'Record claim' : 'Record fact'
@@ -393,6 +395,7 @@ function CanonicalForm({ mode, fact, claim, initialField, initialQualifier, entr
           </select>
         </label>
       )}
+      {fact && field.initial_only && <p className="muted">This correction applies from the record’s original start time.</p>}
       <ValueInput key={fieldKey} field={field} entries={entries} entryId={entry.id} name="value" initial={record?.value} />
       {!record && <QualifierInput key={'qualifier-' + fieldKey} field={field} entries={entries} name="qualifier_id"
         initial={fieldKey === initialField ? initialQualifier : undefined} />}
@@ -588,17 +591,19 @@ export function WikiEventForm({ worldId, entry, fields, entries, at, event, even
   worldId: string; events?: WikiEvent[]
   entry?: WikiEntry; event?: WikiEvent; parents?: WikiEvent[]; parentId?: string; action?: boolean
 }) {
-  const [rows, setRows] = useState(entry ? [{ id: 0, entryId: entry.id, field: 'status' }] : [])
+  const fieldsFor = (id: string) => fields.filter((field) => {
+    const kind = entries.find((item) => item.id === id)?.kind
+    return kind !== undefined && field.kinds.includes(kind) && !field.initial_only
+  })
+  const initialFields = entry ? fieldsFor(entry.id) : []
+  const preferredField = entry?.kind === 'health_case' ? 'health_course' : 'status'
+  const defaultField = initialFields.find((field) => field.key === preferredField)?.key ?? initialFields[0]?.key ?? ''
+  const [rows, setRows] = useState(entry && defaultField ? [{ id: 0, entryId: entry.id, field: defaultField }] : [])
   const [nextId, setNextId] = useState(1)
   const [ability, setAbility] = useState(event?.ability_use?.ability_id ?? '')
   const [precision, setPrecision] = useState<EventDatePrecision>(event?.date_precision ?? 'exact')
   const canChangePrecision = !entry && !event?.changes.length
   const title = event ? 'Edit event details' : entry ? 'Record dated change' : action ? 'Record action' : 'New event'
-  const fieldsFor = (id: string) => fields.filter((field) => {
-    const kind = entries.find((item) => item.id === id)?.kind
-    return kind !== undefined && field.kinds.includes(kind)
-  })
-
   function submit(submission: FormEvent<HTMLFormElement>) {
     submission.preventDefault()
     const values = new FormData(submission.currentTarget)
@@ -731,7 +736,7 @@ export function WikiEventForm({ worldId, entry, fields, entries, at, event, even
       {!event && precision === 'exact' && entries.length > 0 && rows.length < 40 && (
         <button className="button secondary wiki-add-change" type="button" onClick={() => {
           const available = entry && fieldsFor(entry.id).find((field) => !rows.some((row) => row.field === field.key))
-          setRows([...rows, { id: nextId, entryId: entry?.id ?? '', field: available?.key ?? (entry ? 'status' : '') }])
+          setRows([...rows, { id: nextId, entryId: entry?.id ?? '', field: available?.key ?? defaultField }])
           setNextId(nextId + 1)
         }}>{rows.length ? 'Add another change' : 'Add a state change'}</button>
       )}

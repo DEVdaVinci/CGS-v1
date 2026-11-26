@@ -503,6 +503,157 @@ test('preserves the authored unit when a world changes scales', async ({ page })
   await expect(page.getByRole('region', { name: 'Fact history' })).toContainText('5.25 records/min')
 })
 
+test('reopens individual health records and applies a dated recovery atomically', async ({ page }, info) => {
+  test.setTimeout(150_000)
+  await openWiki(page)
+  page.setDefaultTimeout(8_000)
+  await createEntry(page, 'Left ankle', 'Body part')
+  await createEntry(page, 'Field severity', 'Trait')
+  await fact(page, 'Unit', 'marks')
+  await createEntry(page, 'Inspection register', 'Source')
+  await createEntry(page, 'Mottled tern', 'Organism')
+  const ternUrl = page.url()
+  await createEntry(page, 'Dock mechanic', 'Character')
+  const mechanicUrl = page.url()
+  const mechanicId = new URL(mechanicUrl).searchParams.get('entry')!
+  const facts = page.getByRole('region', { name: 'Facts at the selected time' })
+  const physical = facts.getByRole('region', { name: 'Physical traits and condition' })
+  const physicalValue = (label: string) => physical.locator('dl > div')
+    .filter({ has: page.locator('dt').filter({ hasText: label }) }).locator('dd')
+  const health = page.getByRole('region', { name: 'Health records', exact: true })
+  await fact(page, 'Overall health (%)', '81.5')
+  await fact(page, 'Physical condition', 'Older strain', { qualifier: { label: 'Body part', entry: 'Left ankle' }, until: 3 })
+  await fact(page, 'Part damage (%)', '20', { qualifier: { label: 'Body part', entry: 'Left ankle' }, from: 4 })
+  await fact(page, 'Part functionality (%)', '70', { qualifier: { label: 'Body part', entry: 'Left ankle' }, from: 4 })
+
+  for (const name of ['Work strain', 'Tender swelling']) {
+    await page.goto(mechanicUrl)
+    const navigation = page.getByRole('navigation', { name: 'Article navigation' })
+    await navigation.getByRole('link', { name: 'Health records', exact: true }).click()
+    await expect(page.getByLabel('View state at time', { exact: true })).toBeFocused()
+    await showTime(page, 3)
+    await expect(health).toBeFocused()
+    await health.getByRole('button', { name: 'New health record' }).click()
+    const form = page.getByRole('form', { name: 'New health record' })
+    await expect(form.getByRole('combobox', { name: 'Affected individual', exact: true })).toHaveValue(mechanicId)
+    await form.getByLabel('Entry name').fill(name)
+    await form.getByLabel('Overview').fill('A separate case from the field assessment.')
+    await form.getByRole('combobox', { name: 'Affected body part', exact: true }).selectOption({ label: 'Left ankle' })
+    await form.getByLabel('Course status').selectOption('Ongoing')
+    await form.getByLabel('Condition start time').fill('3')
+    await form.getByRole('button', { name: 'Save entry' }).click()
+    await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
+    if (name === 'Work strain') await fact(page, 'Severity', '4.25', {
+      qualifier: { label: 'Trait', entry: 'Field severity' }, citation: 'Inspection register', from: 4,
+    })
+  }
+  await page.getByRole('button', { name: 'New entry' }).click()
+  const global = page.getByRole('form', { name: 'New entry' })
+  await global.getByLabel('Entry name').fill('Flight fatigue')
+  await global.getByLabel('Entry type').selectOption({ label: 'Health record' })
+  await global.getByRole('combobox', { name: 'Affected individual', exact: true }).selectOption({ label: 'Dock mechanic' })
+  await global.getByLabel('Condition start time').fill('4')
+  await global.getByLabel('Author only').check()
+  await global.getByRole('button', { name: 'Save entry' }).click()
+  await expect(page.getByRole('heading', { name: 'Flight fatigue', exact: true })).toBeVisible()
+  const fatigueUrl = page.url()
+  await showTime(page, 6)
+  const subject = page.getByRole('region', { name: 'Fact history', exact: true }).getByRole('listitem')
+    .filter({ hasText: 'Affected individual' })
+  await subject.getByRole('button', { name: 'Correct value', exact: true }).click()
+  const correction = page.getByRole('form', { name: 'Correct value', exact: true })
+  await correction.getByRole('combobox', { name: 'Value', exact: true }).selectOption({ label: 'Mottled tern' })
+  await correction.getByRole('button', { name: 'Save correction', exact: true }).click()
+  await expect(physical.getByRole('link', { name: 'Mottled tern', exact: true })).toBeVisible()
+  await expect(physical).not.toContainText('Affected body part')
+  expect(new URL(page.url()).searchParams.get('entry')).toBe(new URL(fatigueUrl).searchParams.get('entry'))
+
+  await page.getByRole('button', { name: 'Record dated change', exact: true }).click()
+  const datedChange = page.getByRole('form', { name: 'Record dated change', exact: true })
+  const selectableFields = datedChange.getByRole('combobox', { name: 'Field', exact: true })
+  await expect(selectableFields).toHaveValue('health_course')
+  await expect(selectableFields.getByRole('option', { name: 'Affected individual', exact: true })).toHaveCount(0)
+  await datedChange.getByLabel('Event name').fill('Premature checkup')
+  await datedChange.getByLabel('Event time').fill('3')
+  await datedChange.getByRole('combobox', { name: 'Value', exact: true }).selectOption('Resolved')
+  await datedChange.getByRole('button', { name: 'Save dated change', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Flight fatigue starts at time 4.')
+  await datedChange.getByRole('button', { name: 'Cancel', exact: true }).click()
+
+  const menu = page.getByRole('navigation', { name: 'Wiki sections' })
+  await menu.getByRole('link', { name: 'Timeline', exact: true }).click()
+  await page.getByRole('button', { name: 'New event', exact: true }).click()
+  const event = page.getByRole('form', { name: 'New event' })
+  await event.getByLabel('Event name').fill('Strength restored')
+  await event.getByLabel('Event time').fill('8')
+  await event.getByRole('combobox', { name: 'Source article', exact: true }).selectOption({ label: 'Inspection register' })
+  const changes = [
+    ['Work strain', 'Course status', 'Resolved'],
+    ['Dock mechanic', 'Part damage (%)', '105'],
+    ['Dock mechanic', 'Part functionality (%)', '90'],
+  ]
+  for (const [index, [entry, field, value]] of changes.entries()) {
+    await event.getByRole('button', { name: index ? 'Add another change' : 'Add a state change' }).click()
+    const change = event.getByRole('group', { name: 'Change ' + (index + 1), exact: true })
+    await change.getByRole('combobox', { name: 'Affected entry', exact: true }).selectOption({ label: entry })
+    await change.getByRole('combobox', { name: 'Field', exact: true }).selectOption({ label: field })
+    if (field === 'Course status') await change.getByRole('combobox', { name: 'Value', exact: true }).selectOption(value)
+    else {
+      await change.getByLabel('Value', { exact: true }).fill(value)
+      await change.getByRole('combobox', { name: 'Body part', exact: true }).selectOption({ label: 'Left ankle' })
+    }
+  }
+  await event.getByRole('button', { name: 'Save event' }).click()
+  await expect(page.getByRole('alert')).toContainText('Part damage (%) must be at most 100.')
+  await event.getByRole('group', { name: 'Change 2', exact: true }).getByLabel('Value', { exact: true }).fill('5')
+  await event.getByRole('button', { name: 'Save event' }).click()
+  const recovery = page.getByRole('region', { name: 'World timeline' }).getByRole('article', { name: 'Strength restored' })
+  await expect(recovery).toHaveCount(1)
+  await expect(recovery.getByRole('link', { name: 'Inspection register', exact: true })).toBeVisible()
+
+  await page.goto(mechanicUrl)
+  await showTime(page, 2)
+  await expect(physical).toContainText('Older strain')
+  await expect(health).toContainText('No health records at this time.')
+  await expect(health.getByRole('link')).toHaveCount(0)
+  await showTime(page, 7)
+  await expect(physicalValue('Part damage (%)')).toHaveText('20')
+  await expect(physicalValue('Part functionality (%)')).toHaveText('70')
+  await showTime(page, 8)
+  await page.reload()
+  await expect(physicalValue('Overall health (%)')).toHaveText('81.5')
+  await expect(physicalValue('Part damage (%)')).toHaveText('5')
+  await expect(physicalValue('Part functionality (%)')).toHaveText('90')
+  await expect(health.getByRole('link')).toHaveText(['Tender swelling', 'Work strain'])
+  if (process.env.CGS_E2E_CAPTURE === '1') await health.screenshot({ path: info.outputPath('actor-health-records.png') })
+  await health.getByRole('link', { name: 'Work strain', exact: true }).click()
+  const strainId = new URL(page.url()).searchParams.get('entry')
+  await expect(physicalValue('Course status')).toHaveText('Resolved')
+  await expect(physicalValue('Severity')).toHaveText('4.25 marks')
+  await expect(page.getByRole('region', { name: 'Fact history' }).getByRole('link', { name: 'Inspection register', exact: true })).toBeVisible()
+  if (process.env.CGS_E2E_CAPTURE === '1') await physical.screenshot({ path: info.outputPath('health-case-at-recovery.png') })
+  await showTime(page, 7)
+  await expect(physicalValue('Course status')).toHaveText('Ongoing')
+  expect(new URL(page.url()).searchParams.get('entry')).toBe(strainId)
+  await physical.getByRole('link', { name: 'Dock mechanic', exact: true }).click()
+  await showTime(page, 8)
+  await health.getByRole('link', { name: 'Tender swelling', exact: true }).click()
+  await expect(physicalValue('Course status')).toHaveText('Ongoing')
+
+  await page.goto(ternUrl)
+  await showTime(page, 6)
+  await expect(health.getByRole('link', { name: 'Flight fatigue', exact: true })).toBeVisible()
+  await showAs(page, 'Mottled tern', 6)
+  await expect(page.getByRole('heading', { name: 'Mottled tern', exact: true })).toBeVisible()
+  await expect(health).toHaveCount(0)
+  const restricted = new URL(fatigueUrl)
+  restricted.searchParams.set('view_as', new URL(page.url()).searchParams.get('view_as')!)
+  restricted.searchParams.set('at', '6')
+  await page.goto(restricted.href)
+  await expect(page.getByRole('heading', { name: 'Flight fatigue', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('status')).toContainText('That article is unavailable in this character’s viewpoint.')
+})
+
 test('inspects inherited defaults and applies a dated override to one actor', async ({ page }, info) => {
   test.setTimeout(120_000)
   await openWiki(page)
@@ -1437,6 +1588,8 @@ test('authors distinct Lucidchart group relationships through the same Wiki work
       roles: ['Community', 'Household'] },
     { group: ['Transit authority', 'Government'], party: ['Ferry cooperative', 'Organization'], type: 'Operating oversight',
       name: 'Ferry management arrangement', roles: ['Regulator', 'Operator'] },
+    { group: ['Workshop collective', 'Organization'], party: ['Kade household', 'Family'], type: 'Sponsors a workshop',
+      name: 'Household workshop agreement', roles: ['Sponsor', 'Host household'], source: 'Workshop register' },
   ]
   for (const example of examples) {
     await openWiki(page)
@@ -1473,6 +1626,12 @@ test('authors distinct Lucidchart group relationships through the same Wiki work
     await link.getByLabel('Initial facts start at time').fill('3')
     await link.getByRole('button', { name: 'Save entry' }).click()
     await expect(page.getByRole('heading', { name: example.name, exact: true })).toBeVisible()
+    if (example.source) {
+      const relationshipUrl = page.url()
+      await createEntry(page, example.source, 'Source')
+      await page.goto(relationshipUrl)
+      await fact(page, 'Description', 'The agreement funds the household workshop.', { citation: example.source, from: 3 })
+    }
 
     await page.goto(partyUrl)
     await expect(page.getByRole('navigation', { name: 'Article views' })).toBeVisible()
@@ -1481,6 +1640,10 @@ test('authors distinct Lucidchart group relationships through the same Wiki work
     await expect(inverse).toHaveCount(0)
     await showTime(page, 3)
     await inverse.getByRole('link', { name: example.name, exact: true }).click()
+    if (example.source) {
+      await expect(page.getByRole('region', { name: 'Fact history', exact: true })
+        .getByRole('link', { name: example.source, exact: true })).toBeVisible()
+    }
     const facts = page.getByRole('region', { name: 'Facts at the selected time' })
     await facts.getByRole('link', { name: example.group[0], exact: true }).click()
     const forward = page.getByRole('region', { name: 'Relationships as first party', exact: true })

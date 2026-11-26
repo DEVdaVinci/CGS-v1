@@ -3,7 +3,7 @@ from decimal import Decimal
 import json
 import re
 
-from django.db.models import Q
+from django.db.models import Count, Min, Q
 
 from cgs.api import CgsError, parse_id, resource_unavailable
 
@@ -163,6 +163,26 @@ def value_slot(field, qualifier_id, value):
 def check_interval(start, end):
     if end is not None and end <= start:
         reject("INVALID_INTERVAL", "The ending time must be after the starting time.")
+
+
+def check_health_records(affected):
+    health_fields = {key for key, field in FIELDS.items() if field.kinds == (WikiEntry.Kind.HEALTH_CASE,)}
+    case_ids = {entry_id for entry_id, field in affected if field in health_fields}
+    if not case_ids:
+        return
+
+    subject = Q(field="health_subject")
+    records = WikiAssertion.objects.filter(entry_id__in=case_ids, field__in=health_fields).values("entry__name", "entry_id")
+    for record in records.annotate(
+        subjects=Count("id", filter=subject),
+        onset=Min("from_tick", filter=subject & Q(until_tick__isnull=True)),
+        first_fact=Min("from_tick"),
+    ):
+        if record["subjects"] != 1 or record["onset"] is None:
+            reject("HEALTH_SUBJECT_FIXED", "Correct the original affected individual in the health record's Fact history.")
+        if record["first_fact"] < record["onset"]:
+            reject("HEALTH_RECORD_START", f"{record['entry__name']} starts at time {record['onset']}. "
+                   "Set its health facts at or after that time.")
 
 
 def check_hierarchies(wiki, affected):

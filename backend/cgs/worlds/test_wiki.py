@@ -626,6 +626,134 @@ class WikiTests(TransactionTestCase):
         })
         self.assertEqual(foreign_link.json()["field_errors"][0]["code"], "INVALID_ENTRY")
 
+    def test_health_records_preserve_individual_conditions_and_atomic_recovery(self):
+        from .models import WikiAssertion
+
+        mechanic = self.entry("Dock mechanic", "person")
+        tern = self.entry("Mottled tern", "organism")
+        ankle = self.entry("Left ankle", "body_part")
+        register = self.entry("Inspection register", "source")
+        scale = self.entry("Field severity", "trait")
+        self.fact(scale, "unit", "marks")
+        self.fact(mechanic, "health_pct", "93.5")
+        self.fact(mechanic, "condition", "Older strain", qualifier_id=ankle, until_tick=3)
+
+        case = {"op": "create_entry", "kind": "health_case", "name": "Work strain", "initial_at": 3}
+        self.assertEqual(self.post(case).status_code, 400)
+        initial = [
+            {"field": "health_subject", "value": mechanic}, {"field": "health_part", "value": ankle},
+            {"field": "health_course", "value": "Ongoing"},
+        ]
+        self.assertEqual(self.post({**case, "initial_at": None, "initial_values": initial}).status_code, 400)
+        wrong_subject = self.post({**case, "initial_values": [{"field": "health_subject", "value": ankle}]})
+        self.assertEqual(wrong_subject.json()["field_errors"][0]["code"], "INVALID_REFERENCE")
+        _, outside = create_world(self.owner.pk, uuid4(), "Unrelated clinic")
+        external = WikiEntry.objects.create(wiki=WikiWorld.objects.create(world_id=outside["world"]["id"]),
+                                            name="Outside visitor", kind="person")
+        foreign_subject = self.post({**case, "initial_values": [{"field": "health_subject", "value": str(external.pk)}]})
+        self.assertEqual(foreign_subject.json()["field_errors"][0]["code"], "INVALID_ENTRY")
+        self.assertFalse(WikiEntry.objects.filter(wiki_id=self.world, kind="health_case").exists())
+
+        strain = self.apply({**case, "initial_values": initial})
+        swelling = self.apply({**case, "name": "Tender swelling", "initial_values": initial})
+        fatigue = self.entry("Flight fatigue", "health_case", initial_at=4, author_only=True, initial_values=[
+            {"field": "health_subject", "value": tern, "author_only": True},
+        ])
+        self.fact(strain, "health_severity", "4.25", 4, qualifier_id=scale, citation_id=register, source="Log entry 12")
+        first_check = self.apply({"op": "record_event", "name": "New dock injury", "tick": 4, "citation_id": register,
+                                  "changes": [
+            {"entry_id": mechanic, "field": "health_pct", "value": "81.5"},
+            {"entry_id": mechanic, "field": "part_damage_pct", "qualifier_id": ankle, "value": "20"},
+            {"entry_id": mechanic, "field": "part_function_pct", "qualifier_id": ankle, "value": "70"},
+        ]})
+        resolve = {"op": "record_event", "name": "Strength restored", "tick": 8, "citation_id": register, "changes": [
+            {"entry_id": strain, "field": "health_course", "value": "Resolved"},
+            {"entry_id": mechanic, "field": "part_damage_pct", "qualifier_id": ankle, "value": "105"},
+            {"entry_id": mechanic, "field": "part_function_pct", "qualifier_id": ankle, "value": "90"},
+        ]}
+        invalid = self.post(resolve)
+        self.assertEqual(invalid.json()["field_errors"][0]["code"], "INVALID_VALUE")
+        self.assertFalse(WikiEvent.objects.filter(wiki_id=self.world, name="Strength restored").exists())
+        self.assertEqual(self.values(strain, 8)["health_course"], "Ongoing")
+        self.assertEqual(self.values(mechanic, 8)["part_damage_pct"], "20")
+        resolve["changes"][1]["value"] = "5"
+        recovery = self.apply(resolve)
+
+        self.assertEqual(self.values(mechanic, 2)["condition"], "Older strain")
+        self.assertFalse(self.article(mechanic, 2)["incoming_links"])
+        self.assertEqual(self.values(mechanic, 2)["health_pct"], "93.5")
+        self.assertEqual(self.values(mechanic, 7)["part_function_pct"], "70")
+        self.assertEqual(self.values(mechanic, 8)["part_function_pct"], "90")
+        self.assertEqual(self.values(mechanic, 8)["part_damage_pct"], "5")
+        self.assertEqual(self.values(mechanic, 8)["health_pct"], "81.5")
+        self.assertEqual(self.values(swelling, 8)["health_course"], "Ongoing")
+        self.assertEqual(self.values(strain, 7)["health_course"], "Ongoing")
+        self.assertEqual(self.values(strain, 8)["health_course"], "Resolved")
+        links = self.article(mechanic, 8)["incoming_links"]
+        self.assertEqual({link["entry_id"] for link in links if link["field"] == "health_subject"}, {strain, swelling})
+        self.assertEqual(self.values(fatigue, 5)["health_subject"], tern)
+        self.assertEqual(self.values(fatigue, 5)["health_part"], "unknown")
+        damage = WikiAssertion.objects.get(entry_id=mechanic, field="part_damage_pct", opened_by_id=first_check)
+        self.assertEqual((damage.from_tick, damage.until_tick, str(damage.closed_by_id)), (4, 8, recovery))
+        self.assertEqual(WikiEvent.objects.get(pk=recovery).citation_id, WikiEvent.objects.get(pk=first_check).citation_id)
+        severity = WikiAssertion.objects.get(entry_id=strain, field="health_severity")
+        self.assertEqual((severity.value, severity.recorded_unit, severity.from_tick, str(severity.citation_id), severity.source),
+                         ("4.25", "marks", 4, register, "Log entry 12"))
+        self.discover(tern, mechanic, at=4)
+        self.assertNotIn("incoming_links", self.article(tern, 8, mechanic))
+        self.assertEqual(self.browser.get(self.path + "/entries/" + fatigue, {"at": 8, "view_as": mechanic}).status_code, 404)
+
+    def test_health_record_correction_preserves_onset_and_rejects_timeline_reassignment(self):
+        from .models import WikiAssertion
+
+        first = self.entry("Quay worker", "person")
+        second = self.entry("Relief worker", "person")
+        case = self.entry("Wrist stiffness", "health_case", initial_at=5, initial_values=[
+            {"field": "health_subject", "value": first},
+        ])
+        subject = WikiAssertion.objects.get(entry_id=case, field="health_subject")
+
+        def rejects(command, code):
+            request = uuid4()
+            response = self.post(command, key=request)
+            self.assertEqual(response.status_code, 422, response.json())
+            self.assertEqual(response.json()["field_errors"][0]["code"], code)
+            self.assertEqual(WikiWorld.objects.get(world_id=self.world).edit_counter, self.edit)
+            self.assertFalse(MutationReceipt.objects.filter(request_key=request).exists())
+
+        rejects({"op": "record_fact", "entry_id": case, "field": "health_subject", "value": second,
+                 "from_tick": 6}, "HEALTH_SUBJECT_FIXED")
+        rejects({"op": "record_event", "name": "Attempted reassignment", "tick": 6, "changes": [
+            {"entry_id": case, "field": "health_subject", "value": second},
+        ]}, "HEALTH_SUBJECT_FIXED")
+        rejects({"op": "record_event", "name": "Attempted end", "tick": 6, "changes": [
+            {"entry_id": case, "field": "health_subject", "value": first, "mode": "end"},
+        ]}, "HEALTH_SUBJECT_FIXED")
+        rejects({"op": "record_fact", "entry_id": case, "field": "health_course", "value": "Ongoing",
+                 "from_tick": 4}, "HEALTH_RECORD_START")
+        rejects({"op": "record_event", "name": "Premature recovery", "tick": 4, "changes": [
+            {"entry_id": first, "field": "health_pct", "value": "90"},
+            {"entry_id": case, "field": "health_course", "value": "Resolved"},
+        ]}, "HEALTH_RECORD_START")
+        self.assertFalse(WikiEvent.objects.filter(wiki_id=self.world).exists())
+        self.assertEqual(self.values(first, 4)["health_pct"], "unknown")
+
+        recovery = self.event("Wrist recovery", 8, (case, "health_course", "Resolved"))
+        rejects({"op": "correct_event_date", "event_id": recovery, "tick": 4}, "HEALTH_RECORD_START")
+        self.assertEqual(WikiEvent.objects.get(pk=recovery).tick, 8)
+        self.assertEqual(self.values(case, 4)["health_course"], "unknown")
+        self.assertEqual(self.values(case, 8)["health_course"], "Resolved")
+
+        corrected = self.apply({"op": "correct_fact", "assertion_id": str(subject.pk), "value": second})
+        self.assertEqual(corrected, str(subject.pk))
+        subject.refresh_from_db()
+        self.assertEqual((subject.value, subject.from_tick, subject.until_tick), (second, 5, None))
+        self.assertEqual(self.values(case, 4)["health_subject"], "unknown")
+        self.assertEqual(self.values(case, 5)["health_subject"], second)
+        self.assertEqual(self.values(case, 8)["health_course"], "Resolved")
+        self.assertFalse(any(link["entry_id"] == case for link in self.article(first, 8)["incoming_links"]))
+        self.assertTrue(any(link["entry_id"] == case for link in self.article(second, 8)["incoming_links"]))
+
     def test_world_calendar_and_conflicting_defaults_resolve_without_changing_other_characters(self):
         first = self.entry("Ridge folk", "species")
         second = self.entry("Valley folk", "species")

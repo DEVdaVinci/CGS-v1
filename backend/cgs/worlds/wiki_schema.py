@@ -40,7 +40,7 @@ MEASURED_FIELDS = (
     "resource_amount", "declared_reward", "declared_cost", "actual_rating", "physical_average", "physical_distribution",
     "power_average", "power_distribution", "physical_measure",
     "processing_speed", "mental_bandwidth", "processing_efficiency", "processing_cost",
-    "processing_overload", "emotional_stress", "weight_measure", "movement_amount",
+    "processing_overload", "emotional_stress", "weight_measure", "movement_amount", "health_severity",
 )
 IDENTITY = "Identity and classification"
 PHYSICAL = "Physical traits and condition"
@@ -70,6 +70,7 @@ class WikiField:
     acyclic: bool = False
     minimum: int | None = None
     maximum: int | None = None
+    initial_only: bool = False
 
     @property
     def target_kinds(self):
@@ -89,6 +90,7 @@ class WikiField:
             "qualifier_required": self.qualifier_required,
             "many": self.many,
             "uses_unit": self.key in MEASURED_FIELDS,
+            "initial_only": self.initial_only,
             "minimum": self.minimum,
             "maximum": self.maximum,
         }
@@ -161,6 +163,14 @@ FIELDS = {
                   qualifier_kind="body_part", qualifier_required=True, minimum=0, maximum=100),
         WikiField("part_function_pct", "Part functionality (%)", ACTORS, "decimal", section=PHYSICAL,
                   qualifier_kind="body_part", qualifier_required=True, minimum=0, maximum=100),
+        WikiField("health_subject", "Affected individual", ("health_case",), "reference", section=PHYSICAL,
+                  targets=ACTORS, inverse="Health records", initial_only=True),
+        WikiField("health_part", "Affected body part", ("health_case",), "reference", "body_part", section=PHYSICAL,
+                  inverse="Health records involving this part"),
+        WikiField("health_course", "Course status", ("health_case",), section=PHYSICAL,
+                  choices=("Ongoing", "Resolved")),
+        WikiField("health_severity", "Severity", ("health_case",), "decimal", section=PHYSICAL,
+                  qualifier_kind="trait", qualifier_required=True),
         WikiField("parent", "Parent", ACTORS, "reference", section=RELATIONSHIPS,
                   targets=ACTORS, many=True, inverse="Children", acyclic=True),
         WikiField("sibling", "Sibling", ACTORS, "reference", section=RELATIONSHIPS, targets=ACTORS, many=True),
@@ -456,8 +466,12 @@ class CreateEntry(StrictSerializer):
         if "catalog_type" in attrs and attrs["kind"] != WikiEntry.Kind.ITEM:
             raise serializers.ValidationError({"catalog_type": "This catalog type is supported on items."})
         # Legacy API clients can still replay the original create command.
-        workspace_entry = "overview" in attrs or "catalog_type" in attrs
-        if workspace_entry and attrs.get("initial_values") and "initial_at" not in attrs:
+        values = attrs.get("initial_values", ())
+        health_record = attrs["kind"] == WikiEntry.Kind.HEALTH_CASE
+        if health_record and not any(value["field"] == "health_subject" for value in values):
+            raise serializers.ValidationError({"initial_values": "Choose the character or organism affected by this condition."})
+        workspace_entry = health_record or "overview" in attrs or "catalog_type" in attrs
+        if workspace_entry and values and "initial_at" not in attrs:
             raise serializers.ValidationError({"initial_at": "Choose when the initial facts apply."})
         return attrs
 

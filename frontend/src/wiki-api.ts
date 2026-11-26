@@ -6,7 +6,7 @@ export type WikiKind = 'person' | 'place' | 'group' | 'class' | 'ability' | 'ite
   | 'source' | 'process' | 'skill' | 'milestone'
   | 'requirement' | 'method' | 'method_step' | 'status_def' | 'context' | 'relation_def' | 'relation'
   | 'body_fn' | 'resource_mv' | 'value_def' | 'preference' | 'motivation'
-  | 'behavior' | 'rel_term'
+  | 'behavior' | 'rel_term' | 'health_case'
 export type WikiEntry = {
   id: string; name: string; kind: WikiKind; author_only?: boolean
   catalog_type?: 'vehicle'; classification_needs_review?: boolean
@@ -25,6 +25,7 @@ export type WikiField = {
   qualifier_required: boolean
   many: boolean
   uses_unit?: boolean
+  initial_only?: boolean
   minimum?: number | null
   maximum?: number | null
 }
@@ -39,6 +40,7 @@ export type WikiSection = 'overview' | 'all' | 'characters' | 'organisms' | 'pla
   | 'items' | 'vehicles' | 'maps' | 'library' | 'definitions' | 'media' | 'timeline' | 'sources'
 export const wikiHistoryPanels = {
   facts: { label: 'Facts and state', needsDate: true, placeOnly: false },
+  health: { label: 'Health records', needsDate: true, placeOnly: false },
   relationships: { label: 'Relationships', needsDate: true, placeOnly: false },
   hierarchy: { label: 'Place hierarchy', needsDate: true, placeOnly: true },
   layout: { label: 'Layout and routes', needsDate: true, placeOnly: true },

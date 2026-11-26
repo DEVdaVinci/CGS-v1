@@ -67,6 +67,7 @@ const worldToolDetails: Partial<Record<WikiSection, string>> = {
 }
 
 export function sectionFor(entry: WikiEntry): WikiSection {
+  if (entry.kind === 'health_case') return 'all'
   if (entry.kind === 'person') return 'characters'
   if (entry.kind === 'organism' || entry.kind === 'species') return 'organisms'
   if (entry.kind === 'place' || entry.kind === 'territory') return 'places'

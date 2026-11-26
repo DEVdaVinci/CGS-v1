@@ -18,6 +18,12 @@ import {
 const validId = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/
 const panelKeys = Object.keys(wikiHistoryPanels) as WikiHistoryPanel[]
 const panelId = (panel: WikiHistoryPanel) => 'wiki-history-' + panel
+
+function supportsHistoryPanel(entry: WikiEntry, panel: WikiHistoryPanel) {
+  if (panel === 'health') return isWikiActor(entry)
+  return !wikiHistoryPanels[panel].placeOnly || entry.kind === 'place'
+}
+
 type WikiEdit = ArticleEdit | TimelineEdit | LayoutEdit
   | { kind: 'create'; fixedTemplate?: WikiEntryTemplate; ownerId?: string; chooser?: { label: string; types: WikiEntryTemplate[] } }
   | { kind: 'calendar' } | { kind: 'world-introduction' }
@@ -397,13 +403,14 @@ function Article({ article, display, breadcrumbs, history, historyPanel, history
 }) {
   const { view } = display
   const isPlace = article.entry.kind === 'place'
+  const isActor = isWikiActor(article.entry)
   const edit = display.navigationLocked ? undefined : onEdit
   const values = (article.values ?? []).filter((item) => item.state !== 'unknown' || item.field === 'death_tick')
   const summary = values.find((item) => item.field === 'description')
   const specificType = values.find((item) => ['place_type', 'group_type', 'item_type', 'ability_type', 'role_category'].includes(item.field))
   const articleKind = !article.entry.catalog_type && specificType?.state === 'value'
     ? specificType.value : entryLabel(article.entry)
-  const firstLocation = isWikiActor(article.entry) ? article.assertions?.find((fact) => fact.field === 'located_in') : undefined
+  const firstLocation = isActor ? article.assertions?.find((fact) => fact.field === 'located_in') : undefined
   const facts = values.filter((item) => item.state === 'conflict' || (
     item.field !== 'description' && item.field !== 'place_type' && item.field !== 'parent' && item.field !== 'sibling'
   ))
@@ -411,8 +418,13 @@ function Article({ article, display, breadcrumbs, history, historyPanel, history
     view.fields.filter((field) => field.kinds.includes(article.entry.kind)).map((field) => [field.section || 'Overview', field.key]),
   )
   const related = new Map<string, WikiLinkedFact[]>()
+  const healthRecords: WikiLinkedFact[] = []
   for (const item of article.incoming_links ?? []) {
     if (article.family && item.field === 'parent') continue
+    if (item.field === 'health_subject') {
+      healthRecords.push(item)
+      continue
+    }
     const list = related.get(item.label) ?? []
     list.push(item)
     related.set(item.label, list)
@@ -446,7 +458,7 @@ function Article({ article, display, breadcrumbs, history, historyPanel, history
         <button className="button secondary" type="button" aria-pressed={history} disabled={display.navigationLocked} onClick={() => onShowHistory()}>History</button>
       </nav>}
       {!view.viewpoint && <nav className="wiki-article-jumps" aria-label="Article navigation">
-        {panelKeys.filter((key) => isPlace || !wikiHistoryPanels[key].placeOnly).map((key) => (
+        {panelKeys.filter((key) => supportsHistoryPanel(article.entry, key)).map((key) => (
           <WorkspaceLink key={key} href={historyHref(key)} disabled={display.navigationLocked}
             aria-current={history && historyPanel === key ? 'location' : undefined}
             onFollow={() => onShowHistory(key)}>{wikiHistoryPanels[key].label}</WorkspaceLink>
@@ -466,6 +478,21 @@ function Article({ article, display, breadcrumbs, history, historyPanel, history
       </div>}
       {!view.viewpoint && history && (
         <>
+          {isActor && <section className="wiki-block wiki-history-target" id={panelId('health')} tabIndex={-1} aria-label="Health records">
+            <div className="wiki-card-heading">
+              <h2>Health records</h2>
+              {edit && <button type="button" className="button secondary"
+                onClick={() => onCreateRelated('health_case', article.entry.id)}>New health record</button>}
+            </div>
+            {view.at === null ? <p className="muted">Choose a time to see which records apply.</p>
+              : healthRecords.length ? <ul className="wiki-records">{healthRecords.map((link) => (
+                <li key={link.id} className="wiki-record">
+                  <div><EntryReference {...display} id={link.entry_id} />
+                    <p className="muted">Started at time {link.from_tick}</p>
+                  </div>
+                </li>
+              ))}</ul> : <p className="muted">No health records at this time.</p>}
+          </section>}
           {view.at !== null && <>
           {summary?.state === 'value' && <section className="wiki-block" aria-label="Description at the selected time">
             <h2>Description at time {view.at}</h2><p className="wiki-prose">{summary.value}</p>
@@ -476,7 +503,7 @@ function Article({ article, display, breadcrumbs, history, historyPanel, history
               const group = facts.filter((item) =>
                 (view.fields.find((field) => field.key === item.field)?.section || 'Overview') === section)
               const identity = section === 'Identity and classification' && article.age_years !== undefined
-              const showGoal = section === 'Mind and goals' && isWikiActor(article.entry)
+              const showGoal = section === 'Mind and goals' && isActor
               const locationHistory = section === 'Spatial relationships' ? firstLocation : undefined
               if (!group.length && !edit && !identity && !locationHistory) return null
               return <section className="wiki-fact-section" aria-label={section} key={section}>
@@ -871,7 +898,7 @@ export function Wiki({ account, worldId, onAuthError }: {
       return
     }
     const panel = location.historyPanel
-    if (!panel || view.viewpoint || !activeArticle || (wikiHistoryPanels[panel].placeOnly && activeArticle.entry.kind !== 'place')) return
+    if (!panel || view.viewpoint || !activeArticle || !supportsHistoryPanel(activeArticle.entry, panel)) return
     const target = wikiHistoryPanels[panel].needsDate && at === null
       ? content.current?.querySelector<HTMLInputElement>('.wiki-history-start input[name="at"]')
       : document.getElementById(panelId(panel))

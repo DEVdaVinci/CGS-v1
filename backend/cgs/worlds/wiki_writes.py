@@ -13,7 +13,7 @@ from .models import (
 )
 from .services import digest_json
 from .wiki import (
-    at_tick, check_hierarchies, check_interval, contains_tick, date_window_bounds, entry_for, reject, typed_assertion,
+    at_tick, check_health_records, check_hierarchies, check_interval, contains_tick, date_window_bounds, entry_for, reject, typed_assertion,
     typed_value, unit_at, value_slot, wiki_access,
 )
 from .wiki_events import (
@@ -790,6 +790,7 @@ def save_wiki_change(world_id, account_id, request_key, payload):
                 record_id, affected = _save_map_image(wiki, command, account_id)
             else:
                 record_id, affected = OPERATIONS[command["op"]](wiki, command)
+            check_health_records(affected)
             check_hierarchies(wiki, affected)
             wiki.edit_counter += 1
             _refresh_findings(affected, wiki.edit_counter)

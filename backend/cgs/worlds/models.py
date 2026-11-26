@@ -208,6 +208,7 @@ class WikiEntry(CreatedRecord):
         MOTIVATION = "motivation", "Motivation"
         BEHAVIOR = "behavior", "Behavior"
         RELATIONSHIP_TERM = "rel_term", "Term set"
+        HEALTH_CASE = "health_case", "Health record"
 
     class CatalogType(models.TextChoices):
         VEHICLE = "vehicle", "Vehicle"
