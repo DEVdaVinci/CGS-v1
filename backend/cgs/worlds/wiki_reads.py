@@ -14,7 +14,9 @@ from .wiki import at_tick, can_edit, value_slot, visible_unit, wiki_access
 from .wiki_events import event_bounds
 from .wiki_layouts import place_layout
 from .wiki_maps import describe_image_map
-from .wiki_records import derived_age, effective_values, family_links, incoming_links, observation_visible, propositions_for
+from .wiki_records import (
+    causal_accounts_for, derived_age, effective_values, family_links, incoming_links, observation_visible, propositions_for,
+)
 from .wiki_schema import ACTORS, FIELDS, NONLIVING
 
 
@@ -332,6 +334,7 @@ def _author_article(entry, at, identity):
     if entry.kind in ACTORS:
         article["learned_abilities"] = _learned_abilities(entry, at)
         article["family"] = family_links(entry, facts, at)
+        article["causal_accounts"] = causal_accounts_for(entry, at)
     if entry.kind in (*ACTORS, *NONLIVING, "species"):
         article["age_years"] = derived_age(entry, values, at)
     if entry.kind == WikiEntry.Kind.PLACE:
@@ -349,6 +352,7 @@ def _character_article(entry, observer, at, visible_ids):
     return {
         "entry": _describe_entry(entry), "observations": knowledge,
         "propositions": propositions_for(entry, at, observer, visible_ids),
+        "causal_accounts": causal_accounts_for(entry, at, observer, visible_ids),
     }
 
 

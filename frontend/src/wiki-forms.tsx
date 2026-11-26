@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import {
-  canPerformEvent, getWiki, isWikiActor, type EventDatePrecision,
-  type WikiArticleSection, type WikiAssertion, type WikiClaim, type WikiCommand, type WikiDiscovery, type WikiEntry, type WikiEvent,
+  canPerformEvent, causalPhases, getWiki, isWikiActor, type CausalPhase, type EventDatePrecision,
+  type WikiArticleSection, type WikiAssertion, type WikiCausalAccount, type WikiClaim, type WikiCommand, type WikiDiscovery, type WikiEntry, type WikiEvent,
   type WikiEntryTemplate, type WikiField, type WikiKind, type WikiLearnedAbility, type WikiObservation, type WikiProposition, type WikiValue,
 } from './wiki-api'
 import { DistributionInput, formatDistribution } from './wiki-distribution'
@@ -15,6 +15,7 @@ export const kindLabel: Record<WikiKind, string> = {
   source: 'Source', process: 'Mental process', skill: 'Skill', milestone: 'Goal milestone',
   requirement: 'Requirement', method: 'Method', status_def: 'Status definition',
   context: 'Capability context', relation_def: 'Relationship type', relation: 'Relationship',
+  method_step: 'Method step',
 }
 
 export type ArticleEdit =
@@ -30,6 +31,7 @@ export type ArticleEdit =
   | { kind: 'correct-date'; event: WikiEvent }
   | { kind: 'observe'; source: WikiAssertion | WikiClaim; sourceKind: 'assertion' | 'claim' }
   | { kind: 'proposition'; record?: WikiProposition }
+  | { kind: 'causal-account'; account?: WikiCausalAccount }
 
 export type FormActions = { onSave: (command: WikiCommand) => void; onCancel: () => void; busy: boolean }
 type EntryFormProps = FormActions & {
@@ -65,9 +67,10 @@ const initialKeys: Partial<Record<WikiKind, string[]>> = {
   map: ['asset_location'],
   resource: ['unit'],
   trait: ['unit'],
-  goal: ['goal_owner', 'parent_goal', 'goal_subject', 'goal_mode', 'goal_order', 'priority', 'status'],
-  milestone: ['milestone_goal', 'goal_mode', 'milestone_order', 'status'],
+  goal: ['goal_owner', 'parent_goal', 'goal_subject', 'goal_mode', 'goal_order', 'priority', 'requirement_mode', 'status'],
+  milestone: ['milestone_goal', 'goal_mode', 'milestone_order', 'requirement_mode', 'status'],
   method: ['method_requirement', 'method_order', 'status'],
+  method_step: ['step_method', 'step_order', 'step_subject', 'status'],
   role: ['role_duty', 'declared_authority', 'declared_limitation'],
   status_def: ['role_duty', 'declared_authority', 'declared_limitation'],
   context: ['context_actor', 'context_capability', 'context_circumstance', 'context_probability'],
@@ -386,6 +389,7 @@ export function readEventContext(values: FormData) {
     cause_event_ids: values.getAll('cause_events').map(String),
     cause_assertion_ids: values.getAll('cause_assertions').map(String),
     purpose_ids: values.getAll('purposes').map(String), backstory_ids: values.getAll('backstories').map(String),
+    fulfillment_ids: values.getAll('fulfillments').map(String),
     era_ids: values.getAll('eras').map(String),
   }
 }
@@ -430,10 +434,10 @@ export function EventContextFields({ worldId, entries, fields, at, event, events
   const sourceOptions = source?.subject === subject
     ? source.facts.filter((fact) => fact.event_id !== event?.id && !causes.some((item) => item.id === fact.id)) : []
   const causeCandidate = sourceOptions.find((fact) => fact.id === candidate)
-  const linked = (role: 'purpose' | 'backstory' | 'era') =>
+  const linked = (role: 'purpose' | 'backstory' | 'era' | 'fulfillment') =>
     event?.links.filter((link) => link.role === role).map((link) => link.entry_id) ?? []
   const hasContext = Boolean(storedCauseEvents.length || causes.length || linked('purpose').length
-    || linked('backstory').length || linked('era').length)
+    || linked('backstory').length || linked('era').length || linked('fulfillment').length)
 
   function factLabel(fact: WikiAssertion) {
     const definition = fields.find((field) => field.key === fact.field)
@@ -484,6 +488,8 @@ export function EventContextFields({ worldId, entries, fields, at, event, events
         </fieldset>
         <div className="wiki-event-links">
           <EntryChoices label="Purpose goals" name="purposes" entries={entries.filter((entry) => entry.kind === 'goal')} initial={linked('purpose')} />
+          <EntryChoices label="Fulfillment evidence" name="fulfillments" initial={linked('fulfillment')}
+            entries={entries.filter((entry) => entry.kind === 'requirement' || entry.kind === 'method_step')} />
           <EntryChoices label="Backstory of" name="backstories" entries={entries} initial={linked('backstory')} />
           <EntryChoices label="Eras" name="eras" entries={entries.filter((entry) => entry.kind === 'era')} initial={linked('era')} />
         </div>
@@ -683,8 +689,8 @@ export function WikiEvidenceForm({ edit, entries, at, ...actions }: FormActions 
   )
 }
 
-export function WikiEditForm({ edit, overview, sections, ...props }: EntryFormProps & {
-  edit: ArticleEdit; worldId: string; overview?: string; sections?: WikiArticleSection[]
+export function WikiEditForm({ edit, overview, sections, propositions, ...props }: EntryFormProps & {
+  edit: ArticleEdit; worldId: string; overview?: string; sections?: WikiArticleSection[]; propositions?: WikiProposition[]
 }) {
   if (edit.kind === 'event') return <WikiEventForm {...props} />
   if (edit.kind === 'edit-event') return <WikiEventForm {...props} entry={undefined} event={edit.event} />
@@ -698,6 +704,7 @@ export function WikiEditForm({ edit, overview, sections, ...props }: EntryFormPr
   if (edit.kind === 'correct') return <CanonicalForm {...props} mode="correct" fact={edit.fact} />
   if (edit.kind === 'correct-claim') return <CanonicalForm {...props} mode="correct-claim" claim={edit.claim} />
   if (edit.kind === 'proposition') return <PropositionForm {...props} record={edit.record} />
+  if (edit.kind === 'causal-account') return <CausalAccountForm {...props} account={edit.account} propositions={propositions ?? []} />
   return <CanonicalForm {...props} mode={edit.kind} initialField={edit.kind === 'fact' ? edit.field : undefined} />
 }
 
@@ -791,6 +798,91 @@ function PropositionForm({ entry, entries, fields, observations = [], record, at
       <Actions {...actions} submit={'Save ' + noun} />
     </form>
   )
+}
+
+function CausalAccountForm({ entry, entries, fields, at, account, propositions, ...actions }: EntryFormProps & {
+  account?: WikiCausalAccount; propositions: WikiProposition[]
+}) {
+  const title = account ? 'Correct causal account' : 'Record causal account'
+  const choices = new Map([
+    ...propositions.filter((belief) => belief.kind === 'belief' && belief.holder_id === entry.id),
+    ...(account?.terms.map((term) => term.belief) ?? []),
+  ].map((belief) => [belief.id, belief]))
+  const [terms, setTerms] = useState(() => (account?.terms ?? []).map((term) => ({
+    phase: term.phase, belief_id: term.belief.id,
+  })))
+  const [phase, setPhase] = useState<CausalPhase>('cause')
+  const [candidate, setCandidate] = useState('')
+  const [missingTerms, setMissingTerms] = useState(false)
+  const canAdd = candidate && terms.length < 40 && !terms.some((term) => term.phase === phase && term.belief_id === candidate)
+
+  function label(belief: WikiProposition) {
+    const entryName = (id: string) => entries.find((item) => item.id === id)?.name ?? id
+    const field = fields.find((item) => item.key === belief.field)
+    const value = field?.target_kinds.length ? entryName(String(belief.value)) : belief.value
+    return [entryName(belief.subject_id), field?.label ?? belief.field, value, 'from time ' + belief.from_tick].join(' · ')
+  }
+
+  function move(index: number, offset: number) {
+    setTerms((current) => {
+      const updated = [...current]
+      const [term] = updated.splice(index, 1)
+      updated.splice(index + offset, 0, term)
+      return updated
+    })
+  }
+
+  return <form className="wiki-form" aria-label={title} onSubmit={(event) => {
+    event.preventDefault()
+    if (!terms.length) { setMissingTerms(true); return }
+    const data = new FormData(event.currentTarget)
+    const details = {
+      holder_id: entry.id, title: String(data.get('title')), applicability: String(data.get('applicability') ?? ''),
+      citation_id: String(data.get('citation_id') ?? '') || null, from_tick: Number(data.get('from_tick')),
+      until_tick: optionalTime(data, 'until_tick'), author_only: data.has('author_only'), terms,
+    }
+    actions.onSave(account
+      ? { ...details, op: 'correct_causal_account', account_id: account.id }
+      : { ...details, op: 'record_causal_account' })
+  }}>
+    <h2>{title}</h2>
+    <label className="field">Account title<input name="title" maxLength={100} defaultValue={account?.title} required /></label>
+    <label className="field">Applicability<textarea name="applicability" rows={2} maxLength={500} defaultValue={account?.applicability} /></label>
+    <div className="wiki-form-row">
+      <TimeInput name="from_tick" label="Held from time" day={account?.from_tick ?? at} />
+      <TimeInput name="until_tick" label="Held until time (optional)" day={account?.until_tick} optional />
+    </div>
+    <EntryPicker name="citation_id" label="Source article" entries={entries.filter((candidate) => candidate.kind === 'source')}
+      initial={account?.citation_id ?? undefined} required={false} />
+    <fieldset className="wiki-change-fields">
+      <legend>Beliefs in this account</legend>
+      <p className="muted">Use beliefs already recorded for {entry.name}.</p>
+      <div className="wiki-form-row">
+        <label className="field">Phase<select value={phase} onChange={(event) => setPhase(event.target.value as CausalPhase)}>
+          {Object.entries(causalPhases).map(([value, text]) => <option value={value} key={value}>{text}</option>)}
+        </select></label>
+        <EntryPicker label="Belief" entries={Array.from(choices.values(), (belief) => ({ id: belief.id, name: label(belief) }))}
+          required={false} onChange={setCandidate} />
+        <button type="button" className="button secondary" disabled={!canAdd} onClick={() => {
+          setTerms((current) => [...current, { phase, belief_id: candidate }])
+          setMissingTerms(false)
+        }}>Add belief</button>
+      </div>
+      {missingTerms && <p role="alert" className="error-message">Add at least one belief.</p>}
+      <ol className="wiki-records">{terms.map((term, index) => (
+        <li className="wiki-record" key={term.phase + term.belief_id}>
+          <span>{causalPhases[term.phase]} · {choices.has(term.belief_id) ? label(choices.get(term.belief_id)!) : 'Unavailable belief'}</span>
+          <div className="form-actions">
+            <button type="button" className="button secondary" disabled={index === 0} onClick={() => move(index, -1)}>Move up</button>
+            <button type="button" className="button secondary" disabled={index === terms.length - 1} onClick={() => move(index, 1)}>Move down</button>
+            <button type="button" className="button secondary" onClick={() => setTerms((current) => current.filter((_, i) => i !== index))}>Remove belief</button>
+          </div>
+        </li>
+      ))}</ol>
+    </fieldset>
+    <label className="wiki-checkbox"><input type="checkbox" name="author_only" defaultChecked={account?.author_only} /> Author only</label>
+    <Actions {...actions} submit="Save causal account" />
+  </form>
 }
 
 export function WikiCalendarForm({ daysPerYear, ...actions }: FormActions & { daysPerYear: number | null }) {

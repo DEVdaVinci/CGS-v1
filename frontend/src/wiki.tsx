@@ -2,7 +2,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, type SignedInSession } from './api'
 import { WorkspaceLink } from './home-masthead'
 import {
-  getWiki, isWikiActor, readWikiAttempt, saveWikiChange, storeWikiAttempt, wikiHref,
+  causalPhases, getWiki, isWikiActor, readWikiAttempt, saveWikiChange, storeWikiAttempt, wikiHref,
   type WikiArticle, type WikiAttempt, type WikiCommand, type WikiEntry, type WikiEntryTemplate, type WikiKind,
   type WikiLinkedFact, type WikiLocation, type WikiSection, type WikiValue, type WikiView,
 } from './wiki-api'
@@ -156,6 +156,45 @@ function Propositions({ article, display, edit }: { article: WikiArticle; displa
       ))}</ul>}
     </section>
   )
+}
+
+function CausalAccounts({ article, display, edit }: {
+  article: WikiArticle; display: Display; edit?: (value: ArticleEdit) => void
+}) {
+  const accounts = article.causal_accounts ?? []
+  const canRecord = edit && isWikiActor(article.entry) && display.view.at !== null
+  if (!canRecord && !accounts.length) return null
+  return <section className="wiki-block" aria-label="Causal accounts">
+    <div className="wiki-card-heading">
+      <h2>Causal accounts</h2>
+      {canRecord && <button type="button" className="button secondary" onClick={() => edit({ kind: 'causal-account' })}>
+        Record causal account
+      </button>}
+    </div>
+    {!accounts.length && <p className="muted">No causal accounts recorded for this time.</p>}
+    {accounts.map((account) => <article className="wiki-fact-section" key={account.id} aria-label={account.title}>
+      <div className="wiki-card-heading">
+        <h3>{account.title}</h3>
+        {edit && <button type="button" className="button secondary" onClick={() => edit({ kind: 'causal-account', account })}>
+          Correct causal account
+        </button>}
+      </div>
+      <p className="muted">{times(account.from_tick, account.until_tick)}{account.author_only ? ' · Author only' : ''}</p>
+      {account.applicability && <p className="wiki-prose">{account.applicability}</p>}
+      {account.citation_id && <p>Source <EntryReference {...display} id={account.citation_id} /></p>}
+      <ol className="wiki-records">{account.terms.map(({ phase, belief }) => (
+        <li key={phase + belief.id} className="wiki-record">
+          <div>
+            <strong>{causalPhases[phase]}</strong>
+            <p><EntryReference {...display} id={belief.subject_id} /> · {fieldLabel(display.view, belief.field)}
+              {belief.qualifier_id && <> · <EntryReference {...display} id={belief.qualifier_id} /></>}
+              {' · '}<ValueText {...display} field={belief.field} value={belief.value} unit={belief.unit} /></p>
+            <small className="muted">Belief {times(belief.from_tick, belief.until_tick).toLowerCase()}</small>
+          </div>
+        </li>
+      ))}</ol>
+    </article>)}
+  </section>
 }
 
 function Family({ family, display, onEdit }: {
@@ -503,6 +542,7 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
       )}
       {(history || view.viewpoint) && <>
         <Propositions article={article} display={display} edit={edit} />
+        <CausalAccounts article={article} display={display} edit={edit} />
         <Observations article={article} display={display} />
       </>}
       {!view.viewpoint && history && Boolean(article.discoveries?.length) && (
@@ -525,6 +565,7 @@ function timeOfChange(command: WikiCommand) {
   switch (command.op) {
     case 'record_fact':
     case 'record_proposition':
+    case 'record_causal_account':
     case 'save_layout':
     case 'save_waypoint':
     case 'save_connection':
@@ -942,7 +983,7 @@ export function Wiki({ account, worldId, onAuthError }: {
                         && editing.kind !== 'organize' && editing.kind !== 'calendar' && activeArticle && (
                         <WikiEditForm edit={editing} {...actions} worldId={worldId} entry={activeArticle.entry} fields={view.fields}
                           entries={view.entries} at={view.at} overview={activeArticle.overview} sections={activeArticle.sections}
-                          observations={activeArticle.observations} />
+                          observations={activeArticle.observations} propositions={activeArticle.propositions} />
                       )}
                       {!editing && activeArticle && (
                         <Article article={activeArticle} onEdit={canBuild ? beginEdit : undefined}

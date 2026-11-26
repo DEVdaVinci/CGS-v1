@@ -34,7 +34,7 @@ const navigation: { title: string; destinations: Destination[] }[] = [
     { key: 'timeline', label: 'Timeline' },
     { key: 'definitions', label: 'Definitions', chooser: {
       label: 'New definition', types: ['class', 'role', 'status_def', 'ability', 'resource', 'body_part', 'trait',
-        'goal', 'milestone', 'requirement', 'method', 'process', 'skill', 'context', 'relation_def', 'relation', 'era'],
+        'goal', 'milestone', 'requirement', 'method', 'method_step', 'process', 'skill', 'context', 'relation_def', 'relation', 'era'],
     } },
     { key: 'sources', label: 'Sources', create: [{ type: 'source', label: 'New source' }] },
     { key: 'media', label: 'Media', chooser: {

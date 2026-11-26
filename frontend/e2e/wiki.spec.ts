@@ -354,6 +354,113 @@ test('reads ordered goals and follows a job into its declared authority', async 
   await expect(page.getByRole('region', { name: 'Facts at the selected time' })).toContainText('Approve survey routes')
 })
 
+test('reopens ordered method steps and their timeline evidence from both directions', async ({ page }, info) => {
+  test.setTimeout(60_000)
+  await openWiki(page)
+  await createEntry(page, 'Verify the account', 'Requirement')
+  await createEntry(page, 'Compare sources', 'Method')
+  const methodUrl = page.url()
+  const nav = page.getByRole('navigation', { name: 'Wiki sections' })
+  for (const [name, position, date] of [['Archive notes', '2', '2'], ['Verify the date', '1', '5']]) {
+    await nav.getByRole('link', { name: 'Definitions', exact: true }).click()
+    await page.getByRole('button', { name: 'New definition', exact: true }).click()
+    const form = page.getByRole('form', { name: 'New definition' })
+    await form.getByLabel('Entry type').selectOption({ label: 'Method step' })
+    await form.getByLabel('Entry name').fill(name)
+    await form.getByRole('combobox', { name: 'Method', exact: true }).selectOption({ label: 'Compare sources' })
+    await form.getByLabel('Position within the method').fill(position)
+    await form.getByLabel('Initial facts start at time').fill(date)
+    await form.getByRole('button', { name: 'Save entry' }).click()
+    await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
+  }
+  await page.goto(methodUrl)
+  await expect(page.getByRole('navigation', { name: 'Article views' })).toBeVisible()
+  await showTime(page, 4)
+  const steps = page.getByRole('region', { name: 'Steps', exact: true })
+  await expect(steps.getByRole('link')).toHaveText(['Archive notes'])
+  await showTime(page, 5)
+  await expect(steps.getByRole('link')).toHaveText(['Verify the date', 'Archive notes'])
+  if (process.env.CGS_E2E_CAPTURE === '1') {
+    await steps.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: info.outputPath('method-steps.png') })
+  }
+
+  await nav.getByRole('link', { name: 'Timeline', exact: true }).click()
+  await page.getByRole('button', { name: 'New event', exact: true }).click()
+  const event = page.getByRole('form', { name: 'New event' })
+  await event.getByLabel('Event name').fill('Logbook corroborated')
+  await event.getByLabel('Event time').fill('8')
+  await event.getByText('Cause, purpose, and context', { exact: true }).click()
+  const evidence = event.getByRole('group', { name: 'Fulfillment evidence' })
+  await evidence.getByRole('checkbox', { name: 'Verify the account', exact: true }).check()
+  await evidence.getByRole('checkbox', { name: 'Verify the date', exact: true }).check()
+  await event.getByRole('button', { name: 'Save event' }).click()
+  const occurrence = page.getByRole('article', { name: 'Logbook corroborated', exact: true })
+  await expect(occurrence.getByRole('region', { name: 'State changes' })).toHaveCount(0)
+  await occurrence.getByRole('link', { name: 'Verify the date', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Verify the date', exact: true })).toBeVisible()
+  await expect(occurrence).toBeVisible()
+  await page.reload()
+  await occurrence.getByRole('button', { name: 'View in world timeline' }).click()
+  await expect(occurrence.getByRole('link', { name: 'Verify the account', exact: true })).toBeVisible()
+})
+
+test('authors a scoped causal account from typed beliefs and reloads its terms', async ({ page }, info) => {
+  test.setTimeout(75_000)
+  await openWiki(page)
+  await createEntry(page, 'Investigator', 'Character')
+  const actorUrl = page.url()
+  await createEntry(page, 'Harbor signal', 'Item')
+  await fact(page, 'Status', 'Operational')
+  await discover(page, 'Investigator', 1)
+  await createEntry(page, 'Dispatch register', 'Source')
+  await discover(page, 'Investigator', 5)
+
+  await page.goto(actorUrl)
+  await expect(page.getByRole('navigation', { name: 'Article views' })).toBeVisible()
+  await showTime(page, 4)
+  const beliefs = page.getByRole('region', { name: 'Beliefs', exact: true })
+  for (const value of ['Unpowered', 'Signal dimmed', 'Signal missed']) {
+    await beliefs.getByRole('button', { name: 'Record belief' }).click()
+    const belief = page.getByRole('form', { name: 'Record belief' })
+    await belief.getByRole('combobox', { name: 'Subject', exact: true }).selectOption({ label: 'Harbor signal' })
+    await belief.getByLabel('Value', { exact: true }).fill(value)
+    await belief.getByLabel('Effective from').fill('2')
+    await belief.getByRole('button', { name: 'Save belief' }).click()
+    await expect(beliefs).toContainText(value)
+  }
+  const accounts = page.getByRole('region', { name: 'Causal accounts', exact: true })
+  await accounts.getByRole('button', { name: 'Record causal account' }).click()
+  const form = page.getByRole('form', { name: 'Record causal account' })
+  await form.getByLabel('Account title').fill('Loss of illumination')
+  await form.getByLabel('Applicability').fill('When the backup power is unavailable.')
+  await form.getByLabel('Held until time (optional)').fill('8')
+  await form.getByRole('combobox', { name: 'Source article', exact: true }).selectOption({ label: 'Dispatch register' })
+  for (const [role, value] of [['cause', 'Unpowered'], ['intermediary', 'Signal dimmed'], ['outcome', 'Signal missed']]) {
+    await form.getByRole('combobox', { name: 'Phase', exact: true }).selectOption(role)
+    await form.getByRole('combobox', { name: 'Belief', exact: true }).selectOption({
+      label: 'Harbor signal · Status · ' + value + ' · from time 2',
+    })
+    await form.getByRole('button', { name: 'Add belief' }).click()
+  }
+  await form.getByRole('button', { name: 'Save causal account' }).click()
+  const account = accounts.getByRole('article', { name: 'Loss of illumination' })
+  await expect(account.getByRole('listitem')).toHaveText([/Cause.*Unpowered/, /Intermediary.*Signal dimmed/, /Outcome.*Signal missed/])
+  await page.reload()
+  await expect(account.getByRole('link', { name: 'Dispatch register' })).toBeVisible()
+  if (process.env.CGS_E2E_CAPTURE === '1') {
+    await account.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: info.outputPath('causal-account.png') })
+  }
+  await showAs(page, 'Investigator', 4)
+  await expect(account).toHaveCount(0)
+  await showAs(page, 'Investigator', 5)
+  await expect(account).toContainText('Signal missed')
+  await expect(account.getByRole('button', { name: 'Correct causal account' })).toHaveCount(0)
+  await showAs(page, 'Investigator', 8)
+  await expect(account).toHaveCount(0)
+})
+
 test('reports contradictory lifespan facts and clears the finding after correction', async ({ page }) => {
   await openWiki(page)
   await createEntry(page, 'Harbor archivist', 'Character')
@@ -432,6 +539,68 @@ test('opens dated capability contexts and relationships from their linked articl
   await expect(measured).toContainText('Hull inspection')
   await expect(measured).toContainText('0.9')
   if (process.env.CGS_E2E_CAPTURE === '1') await page.screenshot({ path: info.outputPath('capability-context.png') })
+})
+
+test('authors distinct Lucidchart group relationships through the same Wiki workflow', async ({ page }) => {
+  test.setTimeout(90_000)
+  const examples = [
+    { group: ['Riverside', 'Community'], party: ['Ito household', 'Family'], type: 'Includes a household', name: 'Riverside household',
+      roles: ['Community', 'Household'] },
+    { group: ['Transit authority', 'Government'], party: ['Ferry cooperative', 'Organization'], type: 'Operating oversight',
+      name: 'Ferry management arrangement', roles: ['Regulator', 'Operator'] },
+  ]
+  for (const example of examples) {
+    await openWiki(page)
+    const nav = page.getByRole('navigation', { name: 'Wiki sections' })
+    for (const [name, type] of [example.group, example.party]) {
+      await nav.getByRole('link', { name: 'Groups & cultures' }).click()
+      await page.getByRole('button', { name: 'New group', exact: true }).click()
+      const form = page.getByRole('form', { name: 'New group', exact: true })
+      await form.getByLabel('Entry name').fill(name)
+      await form.getByRole('combobox', { name: 'Group type', exact: true }).selectOption(type)
+      await form.getByLabel('Initial facts start at time').fill('0')
+      await form.getByRole('button', { name: 'Save entry' }).click()
+      await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
+    }
+    const partyUrl = page.url()
+    await nav.getByRole('link', { name: 'Definitions' }).click()
+    await page.getByRole('button', { name: 'New definition' }).click()
+    const type = page.getByRole('form', { name: 'New definition' })
+    await type.getByLabel('Entry type').selectOption({ label: 'Relationship type' })
+    await type.getByLabel('Entry name').fill(example.type)
+    await type.getByLabel("First party's role", { exact: true }).fill(example.roles[0])
+    await type.getByLabel("Second party's role", { exact: true }).fill(example.roles[1])
+    await type.getByLabel('Initial facts start at time').fill('0')
+    await type.getByRole('button', { name: 'Save entry' }).click()
+    await expect(page.getByRole('heading', { name: example.type, exact: true })).toBeVisible()
+
+    await page.getByRole('button', { name: 'New entry', exact: true }).click()
+    const link = page.getByRole('form', { name: 'New entry' })
+    await link.getByLabel('Entry type').selectOption({ label: 'Relationship' })
+    await link.getByLabel('Entry name').fill(example.name)
+    await link.getByRole('combobox', { name: 'Relationship type', exact: true }).selectOption({ label: example.type })
+    await link.getByRole('combobox', { name: 'First party', exact: true }).selectOption({ label: example.group[0] })
+    await link.getByRole('combobox', { name: 'Second party', exact: true }).selectOption({ label: example.party[0] })
+    await link.getByLabel('Initial facts start at time').fill('3')
+    await link.getByRole('button', { name: 'Save entry' }).click()
+    await expect(page.getByRole('heading', { name: example.name, exact: true })).toBeVisible()
+
+    await page.goto(partyUrl)
+    await expect(page.getByRole('navigation', { name: 'Article views' })).toBeVisible()
+    await showTime(page, 2)
+    const inverse = page.getByRole('region', { name: 'Relationships as second party', exact: true })
+    await expect(inverse).toHaveCount(0)
+    await showTime(page, 3)
+    await inverse.getByRole('link', { name: example.name, exact: true }).click()
+    const facts = page.getByRole('region', { name: 'Facts at the selected time' })
+    await facts.getByRole('link', { name: example.group[0], exact: true }).click()
+    const forward = page.getByRole('region', { name: 'Relationships as first party', exact: true })
+    await forward.getByRole('link', { name: example.name, exact: true }).click()
+    await facts.getByRole('link', { name: example.type, exact: true }).click()
+    await expect(facts.getByText(example.roles[1], { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Sign out', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible()
+  }
 })
 
 test('follows independently linkable character variants from articles and events', async ({ page }, info) => {

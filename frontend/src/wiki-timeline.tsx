@@ -23,7 +23,7 @@ type TimelineProps = {
 
 const linkLabels = {
   performer: 'Performed by', participant: 'Participants', target: 'Targets', place: 'Places', item: 'Items', purpose: 'Purpose goals',
-  backstory: 'Backstory of', era: 'Eras',
+  backstory: 'Backstory of', era: 'Eras', fulfillment: 'Fulfillment evidence',
 } as const
 
 function ancestors(event: WikiEvent, index: Map<string, WikiEvent>) {

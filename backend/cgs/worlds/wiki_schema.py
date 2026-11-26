@@ -5,7 +5,7 @@ from rest_framework import serializers
 from cgs.api import StrictSerializer, TextField
 
 from .draft_validation import canonical_input
-from .models import WikiEntry, WikiEvent
+from .models import WikiCausalTerm, WikiEntry, WikiEvent
 
 
 MAX_CLOCK = 9_007_199_254_740_991
@@ -278,9 +278,16 @@ FIELDS = {
         WikiField("milestone_order", "Order within goal", ("milestone",), "integer", section=MIND),
         WikiField("plan_requirement", "Requirement", ("goal", "milestone"), "reference", "requirement",
                   section=MIND, many=True, inverse="Needed for"),
+        WikiField("requirement_mode", "Requirements needed", ("goal", "milestone"), section=MIND,
+                  choices=("All listed", "Any listed")),
         WikiField("method_requirement", "Requirement", ("method",), "reference", "requirement",
                   section=MIND, inverse="Methods"),
         WikiField("method_order", "Order within the requirement", ("method",), "integer", section=MIND),
+        WikiField("alternative_method", "Alternative method", ("requirement",), "reference", "method",
+                  section=MIND, many=True, inverse="Alternative for"),
+        WikiField("step_method", "Method", ("method_step",), "reference", "method", section=MIND, inverse="Steps"),
+        WikiField("step_order", "Position within the method", ("method_step",), "integer", section=MIND, minimum=0),
+        WikiField("step_subject", "Related entry", ("method_step",), "reference", section=MIND, targets=ENTITY_KINDS),
         WikiField("source_medium", "Medium", ("source",), section="Source details",
                   choices=("Document", "Artifact", "Recording", "Person", "Other")),
         WikiField("source_locator", "Locator", ("source",), section="Source details"),
@@ -459,6 +466,7 @@ class EventDetails(StrictSerializer):
     place_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     item_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     purpose_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
+    fulfillment_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     backstory_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     era_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     cause_event_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
@@ -573,6 +581,28 @@ class CorrectProposition(RecordProposition):
     proposition_id = WikiRef()
 
 
+class CausalTermInput(StrictSerializer):
+    phase = serializers.ChoiceField(choices=WikiCausalTerm.Phase.values)
+    belief_id = WikiRef()
+
+
+class RecordCausalAccount(StrictSerializer):
+    op = serializers.ChoiceField(choices=("record_causal_account",))
+    holder_id = WikiRef()
+    title = TextField(max_length=100)
+    applicability = TextField(max_length=500, allow_blank=True, default="")
+    citation_id = WikiRef(allow_null=True, required=False)
+    from_tick = ExactClock()
+    until_tick = ExactClock(allow_null=True, default=None)
+    author_only = serializers.BooleanField(default=False)
+    terms = CausalTermInput(many=True, allow_empty=False, max_length=40)
+
+
+class CorrectCausalAccount(RecordCausalAccount):
+    op = serializers.ChoiceField(choices=("correct_causal_account",))
+    account_id = WikiRef()
+
+
 class SetCalendar(StrictSerializer):
     op = serializers.ChoiceField(choices=("set_calendar",))
     days_per_year = serializers.IntegerField(allow_null=True, min_value=1, max_value=1_000_000)
@@ -674,6 +704,8 @@ COMMANDS = {
     "record_observation": RecordObservation,
     "record_proposition": RecordProposition,
     "correct_proposition": CorrectProposition,
+    "record_causal_account": RecordCausalAccount,
+    "correct_causal_account": CorrectCausalAccount,
     "set_calendar": SetCalendar,
     "save_layout": SaveLayout,
     "save_waypoint": SaveWaypoint,

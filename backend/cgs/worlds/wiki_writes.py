@@ -8,7 +8,7 @@ from cgs.api import CgsError, resource_unavailable
 
 from .drafts import _scoped_read
 from .models import (
-    MutationReceipt, WikiAssertion, WikiClaim, WikiDiscovery, WikiEntry, WikiEvent, WikiEventLink,
+    MutationReceipt, WikiAssertion, WikiCausalAccount, WikiCausalTerm, WikiClaim, WikiDiscovery, WikiEntry, WikiEvent, WikiEventLink,
     WikiFinding, WikiLearnedAbility, WikiMapImage, WikiObservation, WikiProposition, WikiWorld, World,
 )
 from .services import digest_json
@@ -235,6 +235,7 @@ EVENT_LINKS = (
     ("place_ids", WikiEventLink.Role.PLACE, (WikiEntry.Kind.PLACE,)),
     ("item_ids", WikiEventLink.Role.ITEM, (WikiEntry.Kind.ITEM,)),
     ("purpose_ids", WikiEventLink.Role.PURPOSE, (WikiEntry.Kind.GOAL,)),
+    ("fulfillment_ids", WikiEventLink.Role.FULFILLMENT, (WikiEntry.Kind.REQUIREMENT, WikiEntry.Kind.METHOD_STEP)),
     ("backstory_ids", WikiEventLink.Role.BACKSTORY, ENTITY_KINDS),
     ("era_ids", WikiEventLink.Role.ERA, (WikiEntry.Kind.ERA,)),
 )
@@ -472,6 +473,8 @@ def _save_proposition(wiki, command):
         reject("INVALID_HOLDER", "Choose a character, organism, goal, or milestone.")
     existing = command.get("proposition_id")
     proposition = _in_world(WikiProposition.objects.filter(holder__wiki=wiki), existing) if existing else WikiProposition()
+    if existing and proposition.holder_id != holder.pk and proposition.causal_uses.exists():
+        reject("BELIEF_IN_CAUSAL_ACCOUNT", "Update the linked causal accounts before changing this belief’s holder.")
     subject = entry_for(wiki, command["entry_id"])
     start, end = command["from_tick"], command["until_tick"]
     about = command.get("about_tick")
@@ -507,6 +510,38 @@ def _save_proposition(wiki, command):
     proposition.evidence, proposition.source, proposition.author_only = evidence, command["source"], command["author_only"]
     proposition.save()
     return proposition.pk, set()
+
+
+def _save_causal_account(wiki, command):
+    holder = _actor_for(wiki, command["holder_id"])
+    existing = command.get("account_id")
+    account = _in_world(WikiCausalAccount.objects.filter(holder=holder), existing) if existing else WikiCausalAccount()
+    start, end = command["from_tick"], command["until_tick"]
+    check_interval(start, end)
+    terms = command["terms"]
+    keys = {(term["belief_id"], term["phase"]) for term in terms}
+    if len(keys) != len(terms):
+        reject("DUPLICATE_CAUSAL_TERM", "Use a belief at most once in each causal phase.")
+    ids = {belief_id for belief_id, _ in keys}
+    known = {str(pk) for pk in WikiProposition.objects.filter(holder=holder, pk__in=ids, from_tick__lte=start)
+             .values_list("pk", flat=True)}
+    if known != ids:
+        reject("INVALID_CAUSAL_TERM", "Choose beliefs this actor had recorded by the start of the account.")
+
+    account.holder = holder
+    account.title = _named(command["title"])
+    account.applicability = command["applicability"]
+    account.citation = _citation(wiki, command.get("citation_id"))
+    account.from_tick, account.until_tick = start, end
+    account.author_only = command["author_only"]
+    account.save()
+    if existing:
+        account.terms.all().delete()
+    WikiCausalTerm.objects.bulk_create([
+        WikiCausalTerm(account=account, belief_id=term["belief_id"], phase=term["phase"], position=position)
+        for position, term in enumerate(terms)
+    ])
+    return account.pk, set()
 
 
 def _set_calendar(wiki, command):
@@ -558,6 +593,8 @@ OPERATIONS = {
     "record_observation": _record_observation,
     "record_proposition": _save_proposition,
     "correct_proposition": _save_proposition,
+    "record_causal_account": _save_causal_account,
+    "correct_causal_account": _save_causal_account,
     "set_calendar": _set_calendar,
     "save_layout": save_layout,
     "save_waypoint": save_waypoint,

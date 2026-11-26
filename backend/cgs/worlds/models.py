@@ -200,6 +200,7 @@ class WikiEntry(CreatedRecord):
         CONTEXT = "context", "Capability context"
         RELATION_DEF = "relation_def", "Relationship type"
         RELATION = "relation", "Relationship"
+        METHOD_STEP = "method_step", "Method step"
 
     class CatalogType(models.TextChoices):
         VEHICLE = "vehicle", "Vehicle"
@@ -396,6 +397,7 @@ class WikiEventLink(models.Model):
         PURPOSE = "purpose", "Purpose"
         BACKSTORY = "backstory", "Backstory"
         ERA = "era", "Era"
+        FULFILLMENT = "fulfillment", "Fulfillment evidence"
 
     event = models.ForeignKey(WikiEvent, on_delete=models.CASCADE, related_name="links")
     entry = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, related_name="wiki_event_links")
@@ -540,6 +542,44 @@ class WikiProposition(CreatedRecord):
                 condition=Q(until_tick__isnull=True) | Q(until_tick__gt=F("from_tick")),
                 name="wiki_proposition_interval",
             )
+        ]
+
+
+class WikiCausalAccount(CreatedRecord):
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    holder = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, related_name="causal_accounts")
+    title = models.CharField(max_length=100)
+    applicability = models.CharField(max_length=500, blank=True)
+    citation = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, null=True, related_name="+")
+    from_tick = models.PositiveBigIntegerField()
+    until_tick = models.PositiveBigIntegerField(null=True)
+    author_only = models.BooleanField(default=False)
+
+    class Meta:
+        indexes = [models.Index(fields=["holder", "from_tick"], name="wiki_causal_account_timeline")]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(until_tick__isnull=True) | Q(until_tick__gt=F("from_tick")),
+                name="wiki_causal_account_interval",
+            ),
+        ]
+
+
+class WikiCausalTerm(models.Model):
+    class Phase(models.TextChoices):
+        CAUSE = "cause", "Cause"
+        INTERMEDIARY = "intermediary", "Intermediary"
+        OUTCOME = "outcome", "Outcome"
+
+    account = models.ForeignKey(WikiCausalAccount, on_delete=models.CASCADE, related_name="terms")
+    belief = models.ForeignKey(WikiProposition, on_delete=models.RESTRICT, related_name="causal_uses")
+    phase = models.CharField(max_length=12, choices=Phase)
+    position = models.PositiveSmallIntegerField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["account", "position"], name="wiki_causal_term_position"),
+            models.UniqueConstraint(fields=["account", "phase", "belief"], name="wiki_causal_term_once_per_phase"),
         ]
 
 

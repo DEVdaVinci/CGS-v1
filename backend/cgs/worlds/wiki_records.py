@@ -1,9 +1,9 @@
 from collections import Counter, defaultdict
 from graphlib import TopologicalSorter
 
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 
-from .models import WikiAssertion, WikiProposition
+from .models import WikiAssertion, WikiCausalAccount, WikiCausalTerm, WikiProposition
 from .wiki import at_tick, contains_tick, value_slot, visible_unit
 from .wiki_schema import ACTORS, DEFINITIONS, FIELDS
 
@@ -12,6 +12,7 @@ PLAN_ORDERS = {
     "parent_goal": "goal_order",
     "milestone_goal": "milestone_order",
     "method_requirement": "method_order",
+    "step_method": "step_order",
 }
 
 
@@ -200,30 +201,63 @@ def observation_visible(observation, visible_ids):
     )
 
 
+def _describe_proposition(record, observer, visible_ids):
+    subject_id = str(record.subject_id)
+    qualifier_id = str(record.qualifier_id) if record.qualifier_id else None
+    if observer is not None and (
+        record.author_only or record.holder_id != observer.pk
+        or subject_id not in visible_ids or (qualifier_id and qualifier_id not in visible_ids)
+        or (FIELDS[record.field].target_kinds and record.value not in visible_ids)
+        or (record.evidence and not observation_visible(record.evidence, visible_ids))
+    ):
+        return None
+    return {
+        "id": str(record.id), "holder_id": str(record.holder_id), "subject_id": subject_id,
+        "kind": "desired_state" if record.holder.kind in ("goal", "milestone") else "belief", "field": record.field,
+        "value": record.value, "qualifier_id": qualifier_id,
+        "unit": record.recorded_unit if observer is None else visible_unit(record),
+        "from_tick": record.from_tick, "until_tick": record.until_tick, "about_tick": record.about_tick,
+        "evidence_id": str(record.evidence_id) if record.evidence_id else None,
+        "source": record.source, "author_only": record.author_only,
+    }
+
+
 def propositions_for(entry, at, observer=None, visible_ids=None):
     records = at_tick(WikiProposition.objects.filter(
         Q(holder=entry) | Q(subject=entry), holder__wiki_id=entry.wiki_id,
     ), at).select_related("holder", "evidence__assertion", "evidence__claim", "unit_source")
     if observer is not None:
         records = records.filter(holder=observer, author_only=False)
+    return [
+        data for record in records.order_by("from_tick", "id")
+        if (data := _describe_proposition(record, observer, visible_ids)) is not None
+    ]
 
-    data = []
-    for record in records.order_by("from_tick", "id"):
-        subject_id = str(record.subject_id)
-        qualifier_id = str(record.qualifier_id) if record.qualifier_id else None
-        if observer is not None and (
-            subject_id not in visible_ids or (qualifier_id and qualifier_id not in visible_ids)
-            or (FIELDS[record.field].target_kinds and record.value not in visible_ids)
-            or (record.evidence and not observation_visible(record.evidence, visible_ids))
-        ):
+
+def causal_accounts_for(entry, at, observer=None, visible_ids=None):
+    if entry.kind not in ACTORS or (observer is not None and entry.pk != observer.pk):
+        return []
+    accounts = at_tick(WikiCausalAccount.objects.filter(holder=entry), at)
+    if observer is not None:
+        accounts = accounts.filter(author_only=False)
+    terms = WikiCausalTerm.objects.select_related(
+        "belief__holder", "belief__evidence__assertion", "belief__evidence__claim", "belief__unit_source",
+    ).order_by("position")
+    result = []
+    for account in accounts.prefetch_related(Prefetch("terms", queryset=terms)).order_by("from_tick", "id"):
+        citation = str(account.citation_id) if account.citation_id else None
+        if observer is not None and citation and citation not in visible_ids:
             continue
-        data.append({
-            "id": str(record.id), "holder_id": str(record.holder_id), "subject_id": subject_id,
-            "kind": "desired_state" if record.holder.kind in ("goal", "milestone") else "belief", "field": record.field,
-            "value": record.value, "qualifier_id": qualifier_id,
-            "unit": record.recorded_unit if observer is None else visible_unit(record),
-            "from_tick": record.from_tick, "until_tick": record.until_tick, "about_tick": record.about_tick,
-            "evidence_id": str(record.evidence_id) if record.evidence_id else None,
-            "source": record.source, "author_only": record.author_only,
-        })
-    return data
+        statements = []
+        for term in account.terms.all():
+            belief = _describe_proposition(term.belief, observer, visible_ids)
+            if belief is None or (observer is not None and term.belief.from_tick > at):
+                break
+            statements.append({"phase": term.phase, "belief": belief})
+        else:
+            result.append({
+                "id": str(account.pk), "title": account.title, "applicability": account.applicability,
+                "citation_id": citation, "from_tick": account.from_tick, "until_tick": account.until_tick,
+                "author_only": account.author_only, "terms": statements,
+            })
+    return result

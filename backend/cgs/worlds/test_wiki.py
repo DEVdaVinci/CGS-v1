@@ -1214,6 +1214,107 @@ class WikiTests(TransactionTestCase):
         self.assertEqual([(link["entry_id"], link["order"]) for link in after], [(milestones[1], 1), (milestones[0], 2)])
         self.assertFalse(any(link.get("order_shared") for link in after))
 
+    def test_terminal_requirements_reuse_methods_and_reopen_explicit_fulfillment(self):
+        goal = self.entry("Publish a history", "goal")
+        first_requirement = self.entry("Verify the account", "requirement")
+        second_requirement = self.entry("Confirm the archive", "requirement")
+        method = self.entry("Check the source records", "method")
+        source = self.entry("Catalog register", "source")
+        self.fact(goal, "plan_requirement", first_requirement)
+        self.fact(goal, "plan_requirement", second_requirement)
+        self.fact(goal, "requirement_mode", "All listed")
+        self.fact(method, "method_requirement", first_requirement)
+        self.fact(second_requirement, "alternative_method", method, 2, citation_id=source)
+        self.assertEqual(self.values(goal, 0)["requirement_mode"], "All listed")
+        self.assertNotIn("alternative_method", self.values(second_requirement, 1))
+        self.assertEqual(self.values(second_requirement, 2)["alternative_method"], method)
+        self.assertEqual(self.values(method, 2)["method_requirement"], first_requirement)
+
+        final_step = self.entry("Archive the note", "method_step")
+        first_step = self.entry("Verify the date", "method_step")
+        self.fact(final_step, "step_method", method, 2)
+        self.fact(first_step, "step_method", method, 3)
+        self.fact(final_step, "step_order", 2, 2)
+        position = self.fact(first_step, "step_order", 1, 3, citation_id=source)
+        steps = [link for link in self.article(method, 3)["incoming_links"] if link["field"] == "step_method"]
+        self.assertEqual([(link["entry_id"], link["order"]) for link in steps], [(first_step, 1), (final_step, 2)])
+        self.assertEqual(
+            next(item["citation_id"] for item in self.article(first_step, 3)["assertions"] if item["id"] == position),
+            source,
+        )
+
+        event = self.apply({
+            "op": "record_event", "name": "Logbook corroborated", "tick": 8,
+            "fulfillment_ids": [first_requirement, first_step], "citation_id": source,
+        })
+        linked = self.article(first_step, 8)["events"][0]
+        self.assertEqual(linked["id"], event)
+        self.assertEqual({link["entry_id"] for link in linked["links"] if link["role"] == "fulfillment"},
+                         {first_requirement, first_step})
+        self.assertFalse(linked["changes"])
+        self.assertEqual(self.article(first_requirement, 8)["events"][0]["id"], event)
+        self.assertFalse(self.article(second_requirement, 8)["events"])
+        self.assertEqual(self.values(goal, 8)["requirement_mode"], "All listed")
+        wrong_target = self.post({
+            "op": "record_event", "name": "Invalid target", "tick": 8, "fulfillment_ids": [goal],
+        })
+        self.assertEqual(wrong_target.status_code, 422)
+
+    def test_causal_accounts_keep_ordered_beliefs_independent_of_canon_and_knowledge_scope(self):
+        investigator = self.entry("Investigator", "person")
+        witness = self.entry("Witness", "person")
+        signal = self.entry("Harbor signal", "item")
+        log = self.entry("Dispatch register", "source")
+        self.fact(signal, "status", "Operational")
+        self.discover(investigator, witness)
+        self.discover(signal, investigator)
+        self.discover(log, investigator, at=5)
+
+        def belief(value, *, holder=investigator, start=2, private=False):
+            return self.apply({
+                "op": "record_proposition", "holder_id": holder, "entry_id": signal,
+                "field": "status", "value": value, "from_tick": start, "author_only": private,
+            })
+
+        cause, intermediary, outcome = [belief(value) for value in ("Unpowered", "Signal dimmed", "Signal missed")]
+        terms = [{"phase": phase, "belief_id": statement} for phase, statement in (
+            ("cause", cause), ("intermediary", intermediary), ("outcome", outcome),
+        )]
+        command = {
+            "op": "record_causal_account", "holder_id": investigator, "title": "Loss of illumination",
+            "from_tick": 4, "until_tick": 8, "citation_id": log, "terms": terms,
+        }
+        account = self.apply(command)
+        self.assertFalse(self.article(investigator, 3)["causal_accounts"])
+        read = self.article(investigator, 4)["causal_accounts"][0]
+        self.assertEqual((read["id"], read["citation_id"]), (account, log))
+        self.assertEqual([term["belief"]["id"] for term in read["terms"]], [cause, intermediary, outcome])
+        self.assertEqual(self.values(signal, 5)["status"], "Operational")
+        self.assertFalse(self.article(investigator, 4, investigator)["causal_accounts"])
+        self.assertEqual(self.article(investigator, 5, investigator)["causal_accounts"][0]["id"], account)
+        self.assertFalse(self.article(investigator, 5, witness)["causal_accounts"])
+        self.assertFalse(self.article(investigator, 8, investigator)["causal_accounts"])
+
+        wrong_holder = belief("No reason given", holder=witness)
+        future_belief = belief("Replacement planned", start=9)
+        for invalid in (wrong_holder, future_belief, str(uuid4())):
+            error = self.post({**command, "terms": [{"phase": "cause", "belief_id": invalid}]})
+            self.assertEqual(error.status_code, 422)
+            self.assertEqual(error.json()["field_errors"][0]["code"], "INVALID_CAUSAL_TERM")
+
+        restricted = belief("Unlisted mechanism", private=True)
+        private_account = self.apply({**command, "title": "Restricted account",
+                                     "terms": [{"phase": "cause", "belief_id": restricted}]})
+        self.assertEqual({record["id"] for record in self.article(investigator, 5)["causal_accounts"]},
+                         {account, private_account})
+        self.assertEqual([record["id"] for record in self.article(investigator, 5, investigator)["causal_accounts"]],
+                         [account])
+        self.assertEqual(self.apply({**command, "op": "correct_causal_account", "account_id": account,
+                                     "title": "Corrected illumination account", "terms": terms[:2]}), account)
+        corrected = self.article(investigator, 5, investigator)["causal_accounts"][0]
+        self.assertEqual(corrected["title"], "Corrected illumination account")
+        self.assertEqual([term["belief"]["id"] for term in corrected["terms"]], [cause, intermediary])
+
     def test_contextual_measurements_and_relationship_declarations_keep_dated_references(self):
         actor = self.entry("Inspector", "person")
         capability = self.entry("Safety inspection", "skill")
