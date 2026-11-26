@@ -1,5 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { canPerformEvent, type WikiEntry, type WikiEvent, type WikiEventReport, type WikiField, type WikiValue } from './wiki-api'
+import {
+  canPerformEvent, eventSignificances, type EventSignificance, type WikiEntry, type WikiEvent,
+  type WikiEventReport, type WikiField, type WikiValue,
+} from './wiki-api'
 import { formatFieldValue, type ArticleEdit } from './wiki-forms'
 import { WorkspaceLink } from './home-masthead'
 
@@ -110,6 +113,7 @@ export function WikiTimeline({
   const [person, setPerson] = useState('')
   const [place, setPlace] = useState('')
   const [era, setEra] = useState('')
+  const [significance, setSignificance] = useState<EventSignificance | ''>('')
   const displayMode = mode ?? (allEvents.some((event) => event.node_kind === 'group') ? 'outline' : 'chronology')
   const index = new Map(allEvents.map((event) => [event.id, event]))
   const directory = new Map(entries.map((entry) => [entry.id, entry]))
@@ -123,13 +127,14 @@ export function WikiTimeline({
   }
   const selected = currentEvent ? index.get(currentEvent) : undefined
   const activePath = selected ? new Set(ancestors(selected, index).map((group) => group.id)) : new Set<string>()
-  const filtered = Boolean(person || place || era || eventTime !== '')
+  const filtered = Boolean(person || place || era || significance || eventTime !== '')
   const matches = events.filter((event) => {
     if (person && event.ability_use?.actor_id !== person && !event.links.some(
       (link) => (link.role === 'participant' || link.role === 'performer' || link.role === 'target') && link.entry_id === person,
     )) return false
     if (place && !event.links.some((link) => link.role === 'place' && link.entry_id === place)) return false
     if (era && !event.links.some((link) => link.role === 'era' && link.entry_id === era)) return false
+    if (significance && event.significance !== significance) return false
     return eventTime === '' || (event.display_start !== null && event.display_end !== null
       && event.display_start <= Number(eventTime) && event.display_end >= Number(eventTime))
   })
@@ -171,6 +176,7 @@ export function WikiTimeline({
   const approximate = matches.filter((event) => event.date_precision === 'bounded')
     .sort((a, b) => a.start_tick! - b.start_tick! || a.end_tick! - b.end_tick! || a.id.localeCompare(b.id))
   const undated = matches.filter((event) => event.date_precision === 'unknown')
+  const classifiedGroups = significance ? matches.filter((event) => event.node_kind === 'group') : []
 
   useEffect(() => {
     if (currentEvent) document.getElementById('wiki-event-' + currentEvent)?.scrollIntoView({ block: 'nearest' })
@@ -195,6 +201,7 @@ export function WikiTimeline({
     setPerson('')
     setPlace('')
     setEra('')
+    setSignificance('')
     onEventTimeChange?.('')
     if (index.get(id)?.node_kind === 'group') setMode('outline')
     onFocus(id)
@@ -225,8 +232,11 @@ export function WikiTimeline({
             <h4>{enclosing ? event.name : (
               <button className="wiki-reference" type="button" onClick={() => focus(event.id)}>{event.name}</button>
             )}</h4>
-            {(displayMode === 'outline' || event.date_precision !== 'exact' || event.display_start !== event.display_end)
-              && <small className="muted">{dateLabel(event)} · {group ? 'Event group' : event.node_kind === 'action' ? 'Recorded action' : 'Occurrence'}</small>}
+            {(event.significance || displayMode === 'outline' || event.date_precision !== 'exact' || event.display_start !== event.display_end)
+              && <small className="muted">
+                {event.significance && eventSignificances[event.significance] + ' · '}
+                {dateLabel(event)} · {group ? 'Event group' : event.node_kind === 'action' ? 'Recorded action' : 'Occurrence'}
+              </small>}
             {context.has(event.id) && <p className="muted">Enclosing event</p>}
           </div>
           <div className="form-actions">
@@ -318,7 +328,7 @@ export function WikiTimeline({
       </div>
       {!enclosing && events.length > 0 && <div className="wiki-timeline-filters">
         <label className="field">Filter by involvement<select value={person} onChange={(event) => setPerson(event.target.value)}>
-          <option value="">All performers and participants</option>{entries.filter(canPerformEvent).map((entry) => (
+          <option value="">Any involvement</option>{entries.filter(canPerformEvent).map((entry) => (
             <option key={entry.id} value={entry.id}>{entry.name}</option>
           ))}
         </select></label>
@@ -334,6 +344,12 @@ export function WikiTimeline({
             ))}
           </select></label>
         )}
+        {events.some((event) => event.significance) && <label className="field">Filter by significance
+          <select value={significance} onChange={(event) => setSignificance(event.target.value as EventSignificance | '')}>
+            <option value="">All events</option>
+            {Object.entries(eventSignificances).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>}
         {onEventTimeChange && <label className="field">Filter events by time
           <input type="number" min={0} max={Number.MAX_SAFE_INTEGER} step={1}
             value={eventTime} onChange={(event) => onEventTimeChange(event.target.value)} />
@@ -341,6 +357,9 @@ export function WikiTimeline({
       </div>}
       {events.length === 0 && <p className="muted">No events recorded in this view.</p>}
       {displayMode === 'outline' ? visibleRows.map(({ event, depth }) => card(event, depth)) : <>
+        {classifiedGroups.length > 0 && <section className="wiki-time-group" aria-label="Event groups">
+          <h3>Event groups</h3>{classifiedGroups.map((event) => card(event))}
+        </section>}
         {[...byTime].map(([time, group]) => (
         <section key={time} className="wiki-time-group" aria-label={'Time ' + time}>
           <h3>Time {time}</h3>
@@ -354,7 +373,8 @@ export function WikiTimeline({
           <h3>Unknown dates</h3>{undated.map((event) => card(event))}
         </section>}
       </>}
-      {events.length > 0 && (displayMode === 'chronology' ? !byTime.size && !approximate.length && !undated.length : !visibleRows.length)
+      {events.length > 0 && (displayMode === 'chronology'
+        ? !byTime.size && !approximate.length && !undated.length && !classifiedGroups.length : !visibleRows.length)
         && <p className="muted">No events match this view.</p>}
     </section>
   )

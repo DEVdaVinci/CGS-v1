@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { isWikiActor, type WikiEvent } from './wiki-api'
 import {
-  Actions, CitationInput, EntryChoices, EntryPicker, EventContextFields, optionalTime, readEventContext, TimeInput,
+  Actions, CitationInput, EntryChoices, EntryPicker, EventContextFields, EventSignificanceField, optionalTime, readEventContext, TimeInput,
   type EventContextProps, type FormActions,
 } from './wiki-forms'
 
@@ -29,7 +29,10 @@ export function WikiGroupForm({ events, entries, event, parentId, worldId, field
         : { ...details, op: 'record_event_group', ...(parent ? { parent_id: parent } : {}) })
     }}>
       <h2>{title}</h2>
-      <label className="field">Group name<input name="name" maxLength={120} defaultValue={event?.name} required /></label>
+      <div className="wiki-form-row">
+        <label className="field">Group name<input name="name" maxLength={120} defaultValue={event?.name} required /></label>
+        <EventSignificanceField initial={event?.significance} />
+      </div>
       {!event && groups.length > 0 && <EntryPicker name="parent_id" label="Parent event (optional)"
         initial={parentId} entries={groups} required={false} />}
       <label className="field">What happened<textarea name="description" maxLength={1500} rows={3} defaultValue={event?.description} /></label>

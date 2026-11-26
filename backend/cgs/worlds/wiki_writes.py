@@ -247,6 +247,7 @@ EVENT_LINKS = (
 
 def _save_event_details(wiki, event, command):
     event.name = _named(command["name"])
+    event.significance = command.get("significance", event.significance)
     event.source = command.get("source", event.source)
     if "citation_id" in command:
         event.citation = _citation(wiki, command["citation_id"])

@@ -65,12 +65,15 @@ export type WikiObservation = {
 }
 type AbilityUse = { ability_id: string; actor_id: string }
 export type EventDatePrecision = 'exact' | 'bounded' | 'unknown'
+export const eventSignificances = { major: 'Major', minor: 'Minor' } as const
+export type EventSignificance = keyof typeof eventSignificances
 
 export type WikiEvent = {
   id: string; name: string; tick: number | null; source: string; description: string
   summary: string; method: string
   citation_id: string | null
   date_precision: EventDatePrecision
+  significance?: EventSignificance
   node_kind: 'group' | 'occurrence' | 'action'; parent_id: string | null; sort_order: number
   start_tick: number | null; end_tick: number | null; display_start: number | null; display_end: number | null
   cross_reference_ids: string[]
@@ -208,6 +211,7 @@ type EventChange = FieldChange & { mode?: 'set' | 'add' | 'end'; source?: string
 type EventDetails = {
   name: string; source: string; description: string; ability_use: AbilityUse | null
   citation_id?: string | null
+  significance?: EventSignificance | ''
   participant_ids: string[]; place_ids: string[]; item_ids: string[]
   performer_ids?: string[]
   target_ids?: string[]

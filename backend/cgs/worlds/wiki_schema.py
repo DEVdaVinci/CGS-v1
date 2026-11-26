@@ -556,6 +556,7 @@ class AbilityUse(StrictSerializer):
 
 class EventDetails(StrictSerializer):
     name = TextField(max_length=120)
+    significance = serializers.ChoiceField(choices=WikiEvent.Significance.values, allow_blank=True, required=False)
     source = TextField(max_length=500, allow_blank=True, required=False)
     citation_id = WikiRef(allow_null=True, required=False)
     description = TextField(max_length=1500, allow_blank=True, required=False)

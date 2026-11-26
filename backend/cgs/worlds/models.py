@@ -343,10 +343,15 @@ class WikiEvent(CreatedRecord):
         BOUNDED = "bounded", "Approximate range"
         UNKNOWN = "unknown", "Unknown"
 
+    class Significance(models.TextChoices):
+        MAJOR = "major", "Major"
+        MINOR = "minor", "Minor"
+
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     wiki = models.ForeignKey(WikiWorld, on_delete=models.RESTRICT)
     name = models.CharField(max_length=120)
     tick = models.PositiveBigIntegerField(null=True)
+    significance = models.CharField(max_length=5, choices=Significance, blank=True, default="")
     node_kind = models.CharField(max_length=12, choices=Kind, default=Kind.OCCURRENCE)
     date_precision = models.CharField(max_length=7, choices=Precision, default=Precision.EXACT, db_default="exact")
     parent = models.ForeignKey("self", on_delete=models.RESTRICT, null=True, related_name="children")
@@ -391,6 +396,7 @@ class WikiEvent(CreatedRecord):
                 name="wiki_event_kind_clock",
             ),
             models.CheckConstraint(condition=~Q(id=F("parent")), name="wiki_event_no_self_parent"),
+            models.CheckConstraint(condition=Q(significance__in=("", "major", "minor")), name="wiki_event_significance"),
         ]
 
 

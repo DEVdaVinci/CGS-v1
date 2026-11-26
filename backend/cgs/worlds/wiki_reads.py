@@ -235,6 +235,7 @@ def _serialize_events(query, outline=None):
         records.append({
             **(_event_outline(event) if outline is None else outline[str(event.pk)]),
             "name": event.name,
+            **({"significance": event.significance} if event.significance else {}),
             "source": event.source, "citation_id": _id(event.citation_id),
             "description": event.description, "summary": event.summary, "method": event.method,
             "cross_reference_ids": [str(target.pk) for target in event.cross_references.all()],

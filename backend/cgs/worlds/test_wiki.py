@@ -953,6 +953,97 @@ class WikiTests(TransactionTestCase):
         restricted = self.browser.get(self.path + "/timeline", {"at": 12, "view_as": mira}).json()
         self.assertEqual(restricted["timeline"], [])
 
+    def test_event_significance_and_retiming_preserve_parallel_branches_and_evidence(self):
+        from .models import WikiAssertion, WikiObservation
+
+        worker = self.entry("Station operator", "person")
+        observer = self.entry("Visiting engineer", "person")
+        east = self.entry("East pump house")
+        west = self.entry("West intake")
+        pump = self.entry("Circulation pump", "item")
+        tray = self.entry("Sample tray", "item")
+        register = self.entry("Project register", "source")
+        self.fact(worker, "status", "Traveling")
+        self.fact(pump, "status", "Idle")
+        project = self.apply({
+            "op": "record_event_group", "name": "Waterworks renewal", "start_tick": 0, "end_tick": 16,
+            "significance": "major", "citation_id": register,
+        })
+        east_crew = self.apply({"op": "record_event_group", "name": "East crew", "parent_id": project})
+        west_crew = self.apply({"op": "record_event_group", "name": "West crew", "parent_id": project})
+        activation = self.apply({
+            "op": "record_event", "name": "Start circulation", "node_kind": "action", "tick": 7, "parent_id": east_crew,
+            "start_tick": 6, "end_tick": 9, "significance": "minor", "place_ids": [east], "citation_id": register,
+            "performer_ids": [worker], "participant_ids": [observer], "target_ids": [pump, tray], "changes": [
+                {"entry_id": worker, "field": "status", "value": "On station"},
+                {"entry_id": pump, "field": "status", "value": "Active"},
+                {"entry_id": east, "field": "status", "value": "Operating"},
+            ],
+        })
+        concurrent = self.apply({
+            "op": "record_event", "name": "Sample at intake", "tick": 7, "node_kind": "action",
+            "parent_id": west_crew, "place_ids": [west], "significance": "major",
+        })
+        self.apply({"op": "edit_event", "event_id": west_crew, "name": "West crew", "cross_reference_ids": [activation]})
+        estimate_a = self.apply({
+            "op": "record_event", "name": "Reports arrive", "tick": None, "date_precision": "bounded",
+            "start_tick": 8, "end_tick": 12, "parent_id": east_crew,
+        })
+        estimate_b = self.apply({
+            "op": "record_event", "name": "Council discussion", "tick": None, "date_precision": "bounded",
+            "start_tick": 10, "end_tick": 14, "parent_id": west_crew,
+        })
+        undated = self.apply({
+            "op": "record_event", "name": "Unrecorded inspection date", "tick": None, "date_precision": "unknown",
+            "parent_id": west_crew,
+        })
+
+        def events():
+            return {event["id"]: event for event in self.browser.get(self.path + "/timeline").json()["timeline"]}
+
+        tree = events()
+        self.assertEqual((tree[project]["significance"], tree[activation]["significance"], tree[concurrent]["significance"]),
+                         ("major", "minor", "major"))
+        self.assertEqual((tree[activation]["parent_id"], tree[concurrent]["parent_id"]), (east_crew, west_crew))
+        self.assertEqual(tree[west_crew]["cross_reference_ids"], [activation])
+        self.assertEqual({event["id"] for event in tree.values() if event["tick"] == 7}, {activation, concurrent})
+        self.assertEqual((tree[estimate_a]["display_start"], tree[estimate_b]["display_end"]), (8, 14))
+        self.assertIsNone(tree[undated]["display_start"])
+        self.assertEqual({(link["entry_id"], link["role"]) for link in tree[activation]["links"]}, {
+            (worker, "performer"), (observer, "participant"), (east, "place"), (pump, "target"), (tray, "target"),
+        })
+        self.assertEqual(self.values(east, 6)["status"], "unknown")
+        self.assertEqual(self.values(east, 7)["status"], "Operating")
+        self.assertEqual(self.values(tray, 7)["status"], "unknown")
+        reading = WikiAssertion.objects.get(entry_id=pump, opened_by_id=activation)
+        observation = self.apply({
+            "op": "record_observation", "observer_id": observer, "source_kind": "assertion",
+            "source_id": str(reading.pk), "learned_at": 7, "learning_note": "Read the control display.",
+        })
+
+        self.assertEqual(self.apply({"op": "correct_event_date", "event_id": activation, "tick": 8}), activation)
+        after = events()[activation]
+        self.assertEqual((after["tick"], after["start_tick"], after["end_tick"], after["citation_id"], after["significance"]),
+                         (8, 7, 10, register, "minor"))
+        self.assertEqual({change["id"] for change in after["changes"]}, {change["id"] for change in tree[activation]["changes"]})
+        for entry_id, before, changed in ((worker, "Traveling", "On station"), (pump, "Idle", "Active"),
+                                          (east, "unknown", "Operating")):
+            self.assertEqual(self.values(entry_id, 7)["status"], before)
+            self.assertEqual(self.values(entry_id, 8)["status"], changed)
+        known = WikiObservation.objects.get(pk=observation)
+        self.assertEqual((known.value, known.about_tick, known.learned_at), ("Active", 7, 7))
+        self.assertEqual(self.article(pump, 8)["findings"][0]["record_ids"], [str(reading.pk), observation])
+
+        outside = self.post({"op": "correct_event_date", "event_id": activation, "tick": 15})
+        self.assertEqual(outside.json()["field_errors"][0]["code"], "EVENT_OUTSIDE_PARENT")
+        self.assertEqual(events()[activation], after)
+        self.event("Stop circulation", 12, (pump, "status", "Off"))
+        intervening = self.post({"op": "correct_event_date", "event_id": activation, "tick": 13})
+        self.assertEqual(intervening.json()["field_errors"][0]["code"], "INTERVENING_BOUNDARY")
+        self.assertEqual(events()[activation]["tick"], 8)
+        self.assertEqual(self.values(pump, 12)["status"], "Off")
+        self.assertEqual(self.values(worker, 8)["status"], "On station")
+
     def test_event_reports_scope_references_and_dates_independently_of_canonical_history(self):
         observer = self.entry("Harbor witness", "person")
         other = self.entry("Second witness", "organism")

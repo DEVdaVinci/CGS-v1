@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import {
-  canPerformEvent, causalPhases, formatTimeWindow, getWiki, isWikiActor, type CausalPhase, type EventDatePrecision,
+  canPerformEvent, causalPhases, eventSignificances, formatTimeWindow, getWiki, isWikiActor,
+  type CausalPhase, type EventDatePrecision, type EventSignificance,
   type WikiArticleSection, type WikiAssertion, type WikiCausalAccount, type WikiClaim, type WikiCommand, type WikiDiscovery, type WikiEntry, type WikiEvent,
   type WikiEntryTemplate, type WikiEventReport, type WikiField, type WikiKind, type WikiLearnedAbility, type WikiObservation, type WikiProposition, type WikiValue,
 } from './wiki-api'
@@ -458,6 +459,7 @@ export function EntryChoices({ label, name, entries, initial }: {
 export function readEventContext(values: FormData) {
   return {
     summary: String(values.get('summary') ?? ''), method: String(values.get('method') ?? ''),
+    significance: (values.get('significance') ?? '') as EventSignificance | '',
     cause_event_ids: values.getAll('cause_events').map(String),
     cause_assertion_ids: values.getAll('cause_assertions').map(String),
     purpose_ids: values.getAll('purposes').map(String), backstory_ids: values.getAll('backstories').map(String),
@@ -465,6 +467,15 @@ export function readEventContext(values: FormData) {
     behavior_ids: values.getAll('behaviors').map(String),
     era_ids: values.getAll('eras').map(String),
   }
+}
+
+export function EventSignificanceField({ initial }: { initial?: EventSignificance }) {
+  return <label className="field">Significance
+    <select name="significance" defaultValue={initial ?? ''}>
+      <option value="">Unclassified</option>
+      {Object.entries(eventSignificances).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+    </select>
+  </label>
 }
 
 export type EventContextProps = {
@@ -628,6 +639,7 @@ export function WikiEventForm({ worldId, entry, fields, entries, at, event, even
       <h2>{title}</h2>
       <div className="wiki-form-row">
         <label className="field">Event name<input name="name" maxLength={120} defaultValue={event?.name} required /></label>
+        <EventSignificanceField initial={event?.significance} />
         {canChangePrecision && <label className="field">Date precision
           <select value={precision} disabled={rows.length > 0} onChange={(change) => setPrecision(change.target.value as EventDatePrecision)}>
             <option value="exact">Exact time</option><option value="bounded">Approximate range</option><option value="unknown">Unknown</option>
