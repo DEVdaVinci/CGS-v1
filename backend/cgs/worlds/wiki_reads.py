@@ -158,7 +158,7 @@ def _observations_about(entry):
     ).select_related("assertion", "claim", "claim__speaker", "unit_source").order_by("learned_at", "id")
 
 
-def _serialize_observation(observation, *, author=False):
+def _serialize_observation(observation, *, author=False, visible_ids=()):
     source = observation.assertion or observation.claim
     evidence = {
         "id": str(observation.pk), "field": source.field, "value": observation.value,
@@ -172,6 +172,9 @@ def _serialize_observation(observation, *, author=False):
         evidence["speaker_id"] = str(observation.claim.speaker_id)
     if observation.learning_note:
         evidence["learning_note"] = observation.learning_note
+    learning_source = _id(observation.learning_source_id)
+    if learning_source and (author or learning_source in visible_ids):
+        evidence["learning_source_id"] = learning_source
     if author:
         evidence["source_id"] = str(source.pk)
         if observation.author_only:
@@ -453,7 +456,7 @@ def _author_article(entry, at, identity):
 
 def _character_article(entry, observer, at, visible_ids):
     observations = _observations_about(entry).filter(observer=observer, learned_at__lte=at)
-    knowledge = [_serialize_observation(o) for o in observations if observation_visible(o, visible_ids)]
+    knowledge = [_serialize_observation(o, visible_ids=visible_ids) for o in observations if observation_visible(o, visible_ids)]
     return {
         "entry": _describe_entry(entry), "observations": knowledge,
         "last_sightings": _last_sightings(entry, at, knowledge),

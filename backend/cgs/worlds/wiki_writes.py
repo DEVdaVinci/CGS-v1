@@ -1,4 +1,5 @@
 from collections import defaultdict
+from decimal import Decimal
 from itertools import chain
 
 from django.db import transaction
@@ -14,7 +15,7 @@ from .models import (
 from .services import digest_json
 from .wiki import (
     at_tick, check_health_records, check_hierarchies, check_interval, contains_tick, date_window_bounds, entry_for, reject, typed_assertion,
-    typed_value, unit_at, value_slot, wiki_access,
+    probability_range_bounds, typed_value, unit_at, value_slot, wiki_access,
 )
 from .wiki_events import (
     attach_event, check_event_tree, event_bounds, organize_event, update_event_causes, update_event_references,
@@ -190,6 +191,13 @@ def _record_fact(wiki, command):
 
 def _correct_fact(wiki, command):
     fact = _in_world(WikiAssertion.objects.filter(entry__wiki=wiki).select_related("entry"), command["assertion_id"])
+    if "from_tick" in command:
+        if fact.opened_by_id is not None:
+            reject("EVENT_OWNS_FACT_START", "Use Correct event date to move this event and its changes together.")
+        if FIELDS[fact.field].kinds != (WikiEntry.Kind.HEALTH_CASE,):
+            reject("FACT_START_UNAVAILABLE", "This correction can change the start of a standalone health fact.")
+        check_interval(command["from_tick"], fact.until_tick)
+        fact.from_tick = command["from_tick"]
     fact.value = typed_value(fact.entry, fact.field, command["value"])
     fact.source = command.get("source", fact.source)
     if "citation_id" in command:
@@ -199,7 +207,7 @@ def _correct_fact(wiki, command):
         fact.recorded_unit, fact.unit_source_id = unit_at(fact.field, fact.qualifier_id, fact.from_tick)
         if fact.recorded_unit is None:
             reject("UNIT_UNAVAILABLE", "Define one applicable unit on the measurement's Resource or Trait before rebinding it.")
-    fact.save(update_fields=["value", "source", "citation", "author_only", "recorded_unit", "unit_source"])
+    fact.save(update_fields=["from_tick", "value", "source", "citation", "author_only", "recorded_unit", "unit_source"])
     return fact.pk, {_field_of(fact)}
 
 
@@ -479,10 +487,12 @@ def _record_observation(wiki, command):
     compatible = contains_tick(source, about_tick) if is_assertion else _compatible_claim_time(source, about_tick, learned)
     if not compatible or (about_tick is not None and learned < about_tick):
         reject("INVALID_LEARNING_TIME", "Choose an observation time consistent with the source and before learning.")
+    learning_source = _citation(wiki, command.get("learning_source_id"))
     observation = WikiObservation.objects.create(
         observer=observer, assertion=source if is_assertion else None, claim=source if not is_assertion else None,
         value=source.value, recorded_unit=source.recorded_unit, unit_source_id=source.unit_source_id,
-        about_tick=about_tick, learned_at=learned, learning_note=command.get("learning_note", ""), author_only=author_only,
+        about_tick=about_tick, learned_at=learned, learning_note=command.get("learning_note", ""),
+        learning_source=learning_source, author_only=author_only,
     )
     return observation.pk, set()
 
@@ -734,6 +744,18 @@ def _date_window_findings(entry_id, field, windows):
                 yield f"date-window:{date.pk}:{window.pk}", "DATE_OUTSIDE_WINDOW", [str(date.pk), str(window.pk)], *interval
 
 
+def _probability_range_findings(entry_id, ranges):
+    estimates = list(WikiAssertion.objects.filter(entry_id=entry_id, field="context_probability"))
+    for limits in ranges:
+        lower, upper = probability_range_bounds(limits.value)
+        for estimate in estimates:
+            if not lower <= Decimal(estimate.value) <= upper and (interval := _overlap_interval(estimate, limits)):
+                yield (
+                    f"probability-range:{estimate.pk}:{limits.pk}", "PROBABILITY_OUTSIDE_RANGE",
+                    [str(estimate.pk), str(limits.pk)], *interval,
+                )
+
+
 def _refresh_findings(affected, edit_counter):
     related_lifespan_ends = {
         (entry_id, end)
@@ -743,7 +765,9 @@ def _refresh_findings(affected, edit_counter):
         for end in (exact_end, DATE_WINDOW_FIELDS[exact_end])
     }
     date_windows = {(entry_id, DATE_WINDOW_FIELDS[field]) for entry_id, field in affected if field in DATE_WINDOW_FIELDS}
-    for entry_id, field in sorted(affected | related_lifespan_ends | date_windows):
+    probability_ranges = {(entry_id, "context_probability_range") for entry_id, field in affected
+                          if field == "context_probability"}
+    for entry_id, field in sorted(affected | related_lifespan_ends | date_windows | probability_ranges):
         assertions = list(WikiAssertion.objects.filter(entry_id=entry_id, field=field).order_by("from_tick", "id"))
         open_keys = []
         slots = defaultdict(list)
@@ -755,6 +779,7 @@ def _refresh_findings(affected, edit_counter):
             _lifespan_findings(entry_id, field, assertions)
             if EXACT_DATE_FIELDS.get(field, field) in LIFESPAN_START_FIELDS and assertions else (),
             _date_window_findings(entry_id, field, assertions) if field in EXACT_DATE_FIELDS and assertions else (),
+            _probability_range_findings(entry_id, assertions) if field == "context_probability_range" and assertions else (),
         )
         for key, code, record_ids, start, end in findings:
             WikiFinding.objects.update_or_create(

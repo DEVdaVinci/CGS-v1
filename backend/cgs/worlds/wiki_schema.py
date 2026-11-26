@@ -40,7 +40,7 @@ MEASURED_FIELDS = (
     "resource_amount", "declared_reward", "declared_cost", "actual_rating", "physical_average", "physical_distribution",
     "power_average", "power_distribution", "physical_measure",
     "processing_speed", "mental_bandwidth", "processing_efficiency", "processing_cost",
-    "processing_overload", "emotional_stress", "weight_measure", "movement_amount", "health_severity",
+    "processing_overload", "emotional_stress", "weight_measure", "movement_amount", "health_severity", "context_difficulty",
 )
 IDENTITY = "Identity and classification"
 PHYSICAL = "Physical traits and condition"
@@ -355,6 +355,10 @@ FIELDS = {
                   targets=ENTITY_KINDS),
         WikiField("context_probability", "Success probability (0–1)", ("context",), "decimal", section=MIND,
                   minimum=0, maximum=1),
+        WikiField("context_probability_range", "Success probability range (0–1)", ("context",),
+                  "probability_range", section=MIND),
+        WikiField("context_difficulty", "Difficulty", ("context",), "decimal", section=MIND,
+                  qualifier_kind="trait", qualifier_required=True),
         WikiField("processing_speed", "Processing speed", (*ACTORS, "process", "skill", "context"), "decimal", section=MIND,
                   qualifier_kind="trait", qualifier_required=True, minimum=0),
         WikiField("mental_bandwidth", "Mental bandwidth", (*ACTORS, "context"), "decimal", section=MIND,
@@ -558,6 +562,7 @@ class CorrectFact(StrictSerializer):
     op = serializers.ChoiceField(choices=("correct_fact",))
     assertion_id = WikiRef()
     value = serializers.JSONField()
+    from_tick = ExactClock(required=False)
     source = TextField(max_length=500, allow_blank=True, required=False)
     citation_id = WikiRef(allow_null=True, required=False)
     bind_unit = serializers.BooleanField(required=False)
@@ -679,6 +684,7 @@ class CorrectClaim(StrictSerializer):
 
 class RecordObservation(StrictSerializer):
     op = serializers.ChoiceField(choices=("record_observation",))
+    learning_source_id = WikiRef(required=False, allow_null=True)
     observer_id = WikiRef()
     source_kind = serializers.ChoiceField(choices=("assertion", "claim"))
     source_id = WikiRef()

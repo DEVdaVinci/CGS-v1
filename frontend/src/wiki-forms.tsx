@@ -26,6 +26,7 @@ export function formatFieldValue(field: WikiField | undefined, value: WikiValue)
   switch (field?.value_kind) {
     case 'distribution': return formatDistribution(value)
     case 'time_window': return formatTimeWindow(value)
+    case 'probability_range': return String(value).replace(':', ' to ')
     case 'entry_kind': return kindLabel[value as WikiKind] ?? value
     default: return value
   }
@@ -55,7 +56,7 @@ export type ArticleEdit =
 export type FormActions = { onSave: (command: WikiCommand) => void; onCancel: () => void; busy: boolean }
 type EntryFormProps = FormActions & {
   entry: WikiEntry; fields: WikiField[]; entries: WikiEntry[]; at: number | null
-  observations?: WikiObservation[]
+  observations?: WikiObservation[]; relatedEvents?: WikiEvent[]
 }
 
 export function Actions({ busy, onCancel, submit }: Pick<FormActions, 'busy' | 'onCancel'> & { submit: string }) {
@@ -270,6 +271,9 @@ export function ValueInput({
   if (field.value_kind === 'time_window') {
     return <DateWindowInput name={name} label={label} initial={initial} required={required} />
   }
+  if (field.value_kind === 'probability_range') {
+    return <ProbabilityRangeInput name={name} label={label} initial={initial} required={required} />
+  }
   return (
     <label className="field">{label}
       {field.choices.length ? (
@@ -288,6 +292,24 @@ export function ValueInput({
       )}
     </label>
   )
+}
+
+function ProbabilityRangeInput({ name, label, initial, required }: {
+  name: string; label: string; initial?: WikiValue; required: boolean
+}) {
+  const [initialLower, initialUpper] = String(initial ?? '').split(':')
+  const [lower, setLower] = useState(initialLower)
+  const [upper, setUpper] = useState(initialUpper ?? '')
+  return <fieldset className="wiki-change-fields">
+    <legend>{label}</legend>
+    <input type="hidden" name={name} value={lower || upper ? lower + ':' + upper : ''} />
+    <div className="wiki-form-row">
+      <label className="field">Lower probability<input value={lower} type="number" min={0} max={1}
+        step="any" onChange={(event) => setLower(event.target.value)} required={required || Boolean(upper)} /></label>
+      <label className="field">Upper probability<input value={upper} type="number" min={0} max={1}
+        step="any" onChange={(event) => setUpper(event.target.value)} required={required || Boolean(lower)} /></label>
+    </div>
+  </fieldset>
 }
 
 function DateWindowInput({ name, label, initial, required }: {
@@ -324,8 +346,10 @@ function PersonSelect({ name, label, entries, optional = false }: { name: string
   return <EntryPicker name={name} label={label} entries={entries.filter(isWikiActor)} required={!optional} />
 }
 
-export function CitationInput({ entries, initial }: { entries: WikiEntry[]; initial?: string | null }) {
-  return <EntryPicker name="citation_id" label="Source article" entries={entries.filter((entry) => entry.kind === 'source')}
+export function CitationInput({ entries, initial, name = 'citation_id', label = 'Source article' }: {
+  entries: WikiEntry[]; initial?: string | null; name?: string; label?: string
+}) {
+  return <EntryPicker name={name} label={label} entries={entries.filter((entry) => entry.kind === 'source')}
     initial={initial ?? undefined} required={false} />
 }
 
@@ -343,7 +367,7 @@ export function optionalTime(values: FormData, name: string) {
   return value ? Number(value) : null
 }
 
-function CanonicalForm({ mode, fact, claim, initialField, initialQualifier, entry, fields, entries, at, ...actions }: EntryFormProps & {
+function CanonicalForm({ mode, fact, claim, initialField, initialQualifier, entry, fields, entries, at, relatedEvents, ...actions }: EntryFormProps & {
   mode: 'fact' | 'claim' | 'correct' | 'correct-claim'; fact?: WikiAssertion; claim?: WikiClaim; initialField?: string
   initialQualifier?: string
 }) {
@@ -354,6 +378,11 @@ function CanonicalForm({ mode, fact, claim, initialField, initialQualifier, entr
   const [fieldKey, setFieldKey] = useState(record?.field ?? initialField ?? validFields[0].key)
   const field = validFields.find((item) => item.key === fieldKey)!
   const title = fact ? 'Correct value' : claim ? 'Correct claim' : isStatement ? 'Record claim' : 'Record fact'
+  const standaloneHealthFact = fact && !fact.event_id && field.kinds.length === 1 && field.kinds[0] === 'health_case'
+  const subjectEvents = fact?.field === 'health_subject' ? relatedEvents?.filter((event) => (
+    event.changes.some((change) => change.entry_id === entry.id) &&
+    event.changes.some((change) => change.entry_id === fact.value)
+  )) ?? [] : []
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -364,7 +393,11 @@ function CanonicalForm({ mode, fact, claim, initialField, initialQualifier, entr
     const author_only = values.has('author_only')
     const details = { value, author_only, source, citation_id }
     const unit = values.has('bind_unit') ? { bind_unit: true } : {}
-    if (fact) return actions.onSave({ op: 'correct_fact', assertion_id: fact.id, ...details, ...unit })
+    if (fact) {
+      const start = standaloneHealthFact ? Number(values.get('corrected_start')) : fact.from_tick
+      return actions.onSave({ op: 'correct_fact', assertion_id: fact.id, ...details, ...unit,
+        ...(start !== fact.from_tick ? { from_tick: start } : {}) })
+    }
     const dates = {
       date_precision: precision, tick: optionalTime(values, 'tick'),
       start_tick: optionalTime(values, 'statement_start'), end_tick: optionalTime(values, 'statement_end'),
@@ -395,7 +428,12 @@ function CanonicalForm({ mode, fact, claim, initialField, initialQualifier, entr
           </select>
         </label>
       )}
-      {fact && field.initial_only && <p className="muted">This correction applies from the record’s original start time.</p>}
+      {fact?.field === 'health_subject' && <div className="notice">
+        <p>The affected individual applies from the condition start. Timeline effects keep their saved targets.</p>
+        {subjectEvents.length > 0 && <p>Review these events after changing the individual: {subjectEvents.map((item) => item.name).join(', ')}.</p>}
+      </div>}
+      {standaloneHealthFact && <TimeInput name="corrected_start"
+        label={field.initial_only ? 'Condition start time' : 'Effective from'} day={fact.from_tick} />}
       <ValueInput key={fieldKey} field={field} entries={entries} entryId={entry.id} name="value" initial={record?.value} />
       {!record && <QualifierInput key={'qualifier-' + fieldKey} field={field} entries={entries} name="qualifier_id"
         initial={fieldKey === initialField ? initialQualifier : undefined} />}
@@ -755,12 +793,14 @@ export function WikiEvidenceForm({ edit, entries, at, ...actions }: FormActions 
     event.preventDefault()
     const values = new FormData(event.currentTarget)
     const tick = Number(values.get('tick'))
+    const learningSource = String(values.get('learning_source_id') ?? '')
     actions.onSave(edit.kind === 'correct-date'
       ? { op: 'correct_event_date', event_id: edit.event.id, tick }
       : {
           op: 'record_observation', observer_id: String(values.get('observer_id')), source_id: edit.source.id,
           source_kind: edit.sourceKind, learned_at: tick, learning_note: String(values.get('learning_note') ?? ''),
           author_only: values.has('author_only'),
+          ...(learningSource ? { learning_source_id: learningSource } : {}),
           ...(optionalTime(values, 'about_tick') === null ? {} : { about_tick: Number(values.get('about_tick')) }),
         })
   }
@@ -779,6 +819,7 @@ export function WikiEvidenceForm({ edit, entries, at, ...actions }: FormActions 
       {edit.kind === 'observe' && <>
         <TimeInput name="about_tick" label="About time (optional)" optional />
         <label className="field">How they learned it (optional)<textarea name="learning_note" rows={3} maxLength={500} /></label>
+        <CitationInput entries={entries} name="learning_source_id" label="Learning source (optional)" />
         <label className="wiki-checkbox">
           <input type="checkbox" name="author_only" defaultChecked={edit.privateSource || edit.source.author_only} /> Author only
         </label>

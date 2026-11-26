@@ -84,6 +84,15 @@ def date_window_bounds(value):
     return (earliest, latest) if earliest <= latest <= MAX_CLOCK else None
 
 
+def probability_range_bounds(value):
+    parts = value.split(":") if isinstance(value, str) else []
+    if len(parts) == 2 and all(EXACT_DECIMAL.fullmatch(part) for part in parts):
+        lower, upper = map(Decimal, parts)
+        if 0 <= lower <= upper <= 1:
+            return lower, upper
+    return None
+
+
 def typed_value(entry, field, value):
     definition = FIELDS[field]
     if entry.kind not in definition.kinds:
@@ -111,6 +120,11 @@ def typed_value(entry, field, value):
         return _decimal_text(amount)
     elif definition.value_kind == "distribution":
         return _distribution(value, definition.label)
+    elif definition.value_kind == "probability_range":
+        bounds = probability_range_bounds(value)
+        if bounds is None:
+            reject("INVALID_PROBABILITY_RANGE", "Enter both probability bounds in order, from 0 to 1.")
+        return ":".join(map(_decimal_text, bounds))
     elif definition.value_kind == "time_window":
         if value == "unknown":
             return value

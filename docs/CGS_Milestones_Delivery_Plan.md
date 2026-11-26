@@ -46,7 +46,7 @@ Author-facing revision browsing, branching, and restoration are scheduled after 
 
 The [W1 implementation plan](CGS_W1_Core_Worldbuilding.md) contains the record and browser contracts, build order, and verification cases for this milestone. The [Lucidchart field trace](CGS_Wiki_Field_Trace.md) records each named source field, its prior coverage, and the reason for the representation or schedule.
 
-**Status and finish line** — Partial. The core follow-up verified saved unit meaning, ordered plans, declarations, dated waypoints and statement corrections. The remaining acceptance checks include field-level character, relationship, cognition, and evidence coverage against the general-purpose world model. [Verified follow-up](CGS_W1_Core_Worldbuilding.md#verification-of-the-core-follow-up) · [Current audit](CGS_Wiki_Current_Coverage.md#current-assessment)
+**Status and finish line** — Partial. The closeout pass verified a combined dated move and health change, separately sourced learning, capability probability range and difficulty, and the synthetic legacy upgrade workflow. Field-level source and evidence coverage still determines W1 readiness. [Verified cases and open checks](CGS_W1_Core_Worldbuilding.md#verification-of-the-w1-closeout-pass) · [Current audit](CGS_Wiki_Current_Coverage.md#current-assessment)
 
 **What you will see in the browser**
 
@@ -133,6 +133,7 @@ The original implementation passes established character records, places and tim
 - **W5-03 · Installation and durability.** Start a fresh Compose app and complete a save and reload. Upgrade a copied existing database and compare representative record IDs, facts, links, and dates. Restore from backup and repeat an author workflow against restored data. Capture database and browser test results and the build identity.
 - **W5-04 · Downstream read.** Run a consumer check that reads a named event, its actors, place, linked before-and-after facts and evidence at the requested time. Match the Wiki view's IDs and values. Repeat as a restricted audience and compare what it can see. Show that a downstream consumer can use the authoritative records without recreating them in its own content store.
 - **W5-05 · Workload evidence.** Run the same article, search, and affected-rule edit checks on the reference worlds and a larger generated history. Record dataset size, timings, and any queue or failure behavior. All checks must return correct scoped results without lost writes or indefinitely pending work. Establish any release latency target against the intended environment before using it to judge the release. Report actual measurements with their conditions.
+- **W5-06 · Bounded series comparison.** Build and review the scoped encyclopedia in the [series benchmark](CGS_Wiki_Series_Benchmark.md). Check every inventoried in-scope fact and link against the underlying sources, and compare the completed CGS pages and navigation with the corresponding spoiler-filtered Fandom pages. Verify the cutoff across entry points. Use this case alongside the existing non-adventure walkthrough and preserve the original W1–W5 sequence.
 
 ## P2 Shared event and decision engine
 

@@ -124,6 +124,7 @@ function findingExplanation(finding: WikiFinding) {
     case 'CANON_CONFLICT': return 'Conflicting canon values. ' + interval + '.'
     case 'LIFESPAN_CONFLICT': return 'The recorded end precedes the start. Both dates apply ' + interval.toLowerCase() + '.'
     case 'DATE_OUTSIDE_WINDOW': return 'The exact date is outside the recorded date window. Both apply ' + interval.toLowerCase() + '.'
+    case 'PROBABILITY_OUTSIDE_RANGE': return 'The success probability is outside the recorded range. Both apply ' + interval.toLowerCase() + '.'
     default: return 'The source of a recorded observation changed. Review the recorded evidence.'
   }
 }
@@ -169,6 +170,7 @@ function Observations({ article, display }: { article: WikiArticle; display: Dis
                   {item.author_only ? ' · Author only' : ''}
                 </p>
                 {item.learning_note && <p className="wiki-prose"><strong>How they learned it</strong> {item.learning_note}</p>}
+                {item.learning_source_id && <p>Learning source <EntryReference {...display} id={item.learning_source_id} at={null} /></p>}
                 {item.source_id && <a href={recordHref(display, article.entry.id, item.entry_id, item.source_id)}>
                   {item.source_kind === 'claim' ? 'Source claim' : 'Source fact'}
                 </a>}
@@ -1186,7 +1188,7 @@ export function Wiki({ account, worldId, onAuthError }: {
                         && editing.kind !== 'organize' && editing.kind !== 'calendar' && activeArticle && (
                         <WikiEditForm edit={editing} {...actions} worldId={worldId} entry={activeArticle.entry} fields={view.fields}
                           entries={view.entries} at={view.at} overview={activeArticle.overview} sections={activeArticle.sections}
-                          observations={activeArticle.observations} propositions={activeArticle.propositions} />
+                          observations={activeArticle.observations} propositions={activeArticle.propositions} relatedEvents={activeArticle.events} />
                       )}
                       {!editing && activeArticle && (
                         <Article article={activeArticle} onEdit={canBuild ? beginEdit : undefined}

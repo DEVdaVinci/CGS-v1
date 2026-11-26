@@ -754,6 +754,19 @@ class WikiTests(TransactionTestCase):
         self.assertFalse(any(link["entry_id"] == case for link in self.article(first, 8)["incoming_links"]))
         self.assertTrue(any(link["entry_id"] == case for link in self.article(second, 8)["incoming_links"]))
 
+        corrected_start = {"op": "correct_fact", "assertion_id": str(subject.pk), "value": second}
+        self.assertEqual(self.apply({**corrected_start, "from_tick": 3}), str(subject.pk))
+        self.assertEqual(self.values(case, 2)["health_subject"], "unknown")
+        self.assertEqual(self.values(case, 3)["health_subject"], second)
+        rejects({**corrected_start, "from_tick": 9}, "HEALTH_RECORD_START")
+        subject.refresh_from_db()
+        self.assertEqual(subject.from_tick, 3)
+        transition = WikiAssertion.objects.get(entry_id=case, field="health_course", opened_by_id=recovery)
+        rejects({"op": "correct_fact", "assertion_id": str(transition.pk), "value": "Resolved", "from_tick": 7},
+                "EVENT_OWNS_FACT_START")
+        self.assertEqual(self.values(case, 7)["health_course"], "unknown")
+        self.assertEqual(self.values(case, 8)["health_course"], "Resolved")
+
     def test_world_calendar_and_conflicting_defaults_resolve_without_changing_other_characters(self):
         first = self.entry("Ridge folk", "species")
         second = self.entry("Valley folk", "species")
@@ -1437,6 +1450,36 @@ class WikiTests(TransactionTestCase):
         self.assertEqual(self.browser.get(draft_path).json(), baseline)
         self.assertEqual(list(baseline["source"]["entities"]), [old_id])
         self.assertNotEqual(gate, old_id)
+
+    def test_observation_learning_source_preserves_the_existing_knowledge_boundary(self):
+        from .models import WikiObservation
+
+        observer = self.entry("Inspector", "person")
+        gate = self.entry("Freight gate", "place")
+        source = self.entry("Dispatch log", "source")
+        restricted = self.entry("Restricted index", "source", author_only=True)
+        fact_id = self.fact(gate, "status", "Open")
+        command = {"op": "record_observation", "source_id": fact_id, "source_kind": "assertion",
+                   "observer_id": observer, "learned_at": 5}
+        invalid = self.post({**command, "learning_source_id": gate})
+        self.assertEqual(invalid.status_code, 422, invalid.json())
+        self.assertFalse(WikiObservation.objects.filter(assertion_id=fact_id).exists())
+
+        saved = self.apply({**command, "learning_source_id": source})
+        private_link = self.apply({**command, "learning_source_id": restricted})
+        observation = WikiObservation.objects.get(pk=saved)
+        self.assertEqual((str(observation.learning_source_id), str(observation.assertion_id), observation.value),
+                         (source, fact_id, "Open"))
+        author = {item["id"]: item for item in self.article(gate, 5)["observations"]}
+        self.assertEqual(author[private_link]["learning_source_id"], restricted)
+        self.assertEqual(author[saved]["source_id"], fact_id)
+        self.assertTrue(all("learning_source_id" not in item for item in self.article(gate, 5, observer)["observations"]))
+        self.assertEqual(self.browser.get(self.path + "/entries/" + source, {"at": 5, "view_as": observer}).status_code, 404)
+
+        self.discover(source, observer, at=6)
+        visible = {item["id"]: item for item in self.article(gate, 6, observer)["observations"]}
+        self.assertEqual(visible[saved]["learning_source_id"], source)
+        self.assertNotIn("learning_source_id", visible[private_link])
 
     def test_claims_observations_and_beliefs_keep_separate_evidence_and_scope(self):
         from .models import WikiClaim, WikiObservation, WikiProposition
@@ -2248,6 +2291,39 @@ class WikiTests(TransactionTestCase):
         })
         self.assertEqual(invalid.status_code, 422)
         self.assertEqual(self.values(relationship, 4)["relationship_type"], definition)
+
+    def test_context_probability_range_and_difficulty_have_independent_evidence_and_dates(self):
+        from .models import WikiAssertion
+
+        context = self.entry("Sorting a disputed record", "context")
+        source = self.entry("Reviewer worksheet", "source")
+        scale = self.entry("Review complexity", "trait")
+        self.fact(scale, "unit", "review points")
+        probability = self.fact(context, "context_probability", "0.6", 2)
+        command = {"op": "record_fact", "entry_id": context, "field": "context_probability_range",
+                   "from_tick": 4, "until_tick": 7, "citation_id": source}
+        for invalid in ("0.8:0.2", "0.1:1.1", "0.2:", "-0.1:0.5"):
+            self.assertEqual(self.post({**command, "value": invalid}).status_code, 422)
+        limits = self.apply({**command, "value": "0.700:0.90"})
+        difficult = self.fact(context, "context_difficulty", "2.500", 5, qualifier_id=scale, citation_id=source)
+        self.assertEqual(self.values(context, 3)["context_probability_range"], "unknown")
+        self.assertEqual(self.values(context, 4).get("context_difficulty", "unknown"), "unknown")
+        finding = self.article(context, 5)["findings"][0]
+        self.assertEqual((finding["code"], set(finding["record_ids"])),
+                         ("PROBABILITY_OUTSIDE_RANGE", {probability, limits}))
+        measure = WikiAssertion.objects.get(pk=difficult)
+        self.assertEqual((measure.value, str(measure.qualifier_id), measure.recorded_unit, str(measure.citation_id)),
+                         ("2.5", scale, "review points", source))
+        self.assertEqual(WikiAssertion.objects.get(pk=limits).value, "0.7:0.9")
+        self.assertEqual((finding["from_tick"], finding["until_tick"]), (4, 7))
+        self.assertEqual(self.values(context, 7)["context_probability_range"], "unknown")
+        self.assertEqual(self.post({
+            "op": "record_fact", "entry_id": context, "field": "context_difficulty", "value": "4",
+            "from_tick": 7, "qualifier_id": source,
+        }).status_code, 422)
+        self.apply({"op": "correct_fact", "assertion_id": probability, "value": "0.75"})
+        self.assertFalse(self.article(context, 5)["findings"])
+        self.assertEqual(self.values(context, 5)["context_probability_range"], "0.7:0.9")
 
     def test_relationship_policies_keep_exact_overlaps_and_recheck_affected_assignments(self):
         office = self.entry("Survey office", "group")

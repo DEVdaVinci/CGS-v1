@@ -16,7 +16,7 @@ export type WikiField = {
   key: string
   label: string
   kinds: WikiKind[]
-  value_kind: 'text' | 'integer' | 'decimal' | 'reference' | 'distribution' | 'time_window' | 'entry_kind'
+  value_kind: 'text' | 'integer' | 'decimal' | 'reference' | 'distribution' | 'time_window' | 'probability_range' | 'entry_kind'
   target_kind: WikiKind | null
   choices: string[]
   section: string
@@ -70,6 +70,7 @@ export type WikiClaim = {
   unit?: string | null
 }
 export type WikiObservation = {
+  learning_source_id?: string
   id: string; field: string; value: WikiValue; about_tick: number | null; learned_at: number
   observer_id: string; source_kind: 'assertion' | 'claim'; source_id?: string; speaker_id?: string
   entry_id: string; qualifier_id?: string | null
@@ -105,7 +106,7 @@ export type WikiEvent = {
 export type WikiLearnedAbility = { id: string; ability_id: string; learned_at: number; source: string }
 export type WikiFinding = {
   id: string; field: string
-  code: 'CANON_CONFLICT' | 'LIFESPAN_CONFLICT' | 'DATE_OUTSIDE_WINDOW' | 'OBSERVATION_SOURCE_CHANGED'
+  code: 'CANON_CONFLICT' | 'LIFESPAN_CONFLICT' | 'DATE_OUTSIDE_WINDOW' | 'OBSERVATION_SOURCE_CHANGED' | 'PROBABILITY_OUTSIDE_RANGE'
     | 'RELATIONSHIP_PARTY_KIND' | 'RELATIONSHIP_PARTY_LIMIT'
   record_ids: string[]; from_tick: number; until_tick: number | null
   details?: { relationship_type_id: string } & (
@@ -253,7 +254,7 @@ export type WikiCommand =
   | (EventReportInput & ({ op: 'record_event_report' } | { op: 'correct_event_report'; report_id: string }))
   | { op: 'update_article_sections'; entry_id: string; sections: WikiArticleSection[] }
   | ({ op: 'record_fact'; from_tick: number; until_tick: number | null; source: string; citation_id?: string | null } & FieldChange)
-  | { op: 'correct_fact'; assertion_id: string; value: WikiValue; source?: string; citation_id?: string | null; author_only?: boolean; bind_unit?: boolean }
+  | { op: 'correct_fact'; assertion_id: string; value: WikiValue; from_tick?: number; source?: string; citation_id?: string | null; author_only?: boolean; bind_unit?: boolean }
   | ({
     op: 'record_event'; tick: number | null; date_precision?: EventDatePrecision
     changes: EventChange[]; parent_id?: string; node_kind?: 'action' | 'occurrence'
@@ -271,7 +272,7 @@ export type WikiCommand =
   } & ClaimDate)
   | {
     op: 'record_observation'; observer_id: string; source_id: string; source_kind: 'assertion' | 'claim'
-    learned_at: number; about_tick?: number; learning_note?: string; author_only?: boolean
+    learned_at: number; about_tick?: number; learning_note?: string; learning_source_id?: string; author_only?: boolean
   }
   | ({
     holder_id: string; from_tick: number; until_tick: number | null; about_tick: number | null

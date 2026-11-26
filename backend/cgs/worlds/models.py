@@ -542,6 +542,7 @@ class WikiObservation(CreatedRecord):
     about_tick = models.PositiveBigIntegerField(null=True)
     learned_at = models.PositiveBigIntegerField()
     learning_note = models.CharField(max_length=500, blank=True, default="")
+    learning_source = models.ForeignKey(WikiEntry, null=True, on_delete=models.RESTRICT, related_name="+")
     author_only = models.BooleanField(default=False)
 
     class Meta:
