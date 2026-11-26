@@ -239,6 +239,7 @@ EVENT_LINKS = (
     ("item_ids", WikiEventLink.Role.ITEM, (WikiEntry.Kind.ITEM,)),
     ("purpose_ids", WikiEventLink.Role.PURPOSE, (WikiEntry.Kind.GOAL,)),
     ("fulfillment_ids", WikiEventLink.Role.FULFILLMENT, (WikiEntry.Kind.REQUIREMENT, WikiEntry.Kind.METHOD_STEP)),
+    ("behavior_ids", WikiEventLink.Role.BEHAVIOR, (WikiEntry.Kind.BEHAVIOR,)),
     ("backstory_ids", WikiEventLink.Role.BACKSTORY, ENTITY_KINDS),
     ("era_ids", WikiEventLink.Role.ERA, (WikiEntry.Kind.ERA,)),
 )

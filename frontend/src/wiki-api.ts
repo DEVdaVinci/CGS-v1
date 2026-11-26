@@ -6,6 +6,7 @@ export type WikiKind = 'person' | 'place' | 'group' | 'class' | 'ability' | 'ite
   | 'source' | 'process' | 'skill' | 'milestone'
   | 'requirement' | 'method' | 'method_step' | 'status_def' | 'context' | 'relation_def' | 'relation'
   | 'body_fn' | 'resource_mv' | 'value_def' | 'preference' | 'motivation'
+  | 'behavior'
 export type WikiEntry = {
   id: string; name: string; kind: WikiKind; author_only?: boolean
   catalog_type?: 'vehicle'; classification_needs_review?: boolean
@@ -73,7 +74,8 @@ export type WikiEvent = {
   cross_reference_ids: string[]
   cause_event_ids: string[]
   cause_state: (WikiAssertion & { entry_id: string })[]
-  links: { entry_id: string; role: 'participant' | 'performer' | 'target' | 'place' | 'item' | 'purpose' | 'backstory' | 'era' | 'fulfillment' }[]
+  links: { entry_id: string; role: 'participant' | 'performer' | 'target' | 'place' | 'item'
+    | 'purpose' | 'backstory' | 'era' | 'fulfillment' | 'behavior' }[]
   ability_use: AbilityUse | null
   changes: {
     id: string; entry_id: string; field: string; value: WikiValue | null; previous_value: WikiValue | null
@@ -200,6 +202,7 @@ type EventDetails = {
   summary?: string; method?: string
   cause_event_ids?: string[]; cause_assertion_ids?: string[]
   purpose_ids?: string[]; backstory_ids?: string[]; era_ids?: string[]; fulfillment_ids?: string[]
+  behavior_ids?: string[]
   start_tick?: number | null; end_tick?: number | null
   cross_reference_ids?: string[]
 }

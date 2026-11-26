@@ -274,12 +274,14 @@ function ArticleOverview({ article, display, onEditVariant }: {
   const sections = article.sections ?? []
   const variants = article.variant_ids ?? []
   const identityFields = [
+    'alias', 'epithet', 'title', 'species', 'character_class', 'nationality', 'parent', 'sibling',
     'birth_tick', 'birth_window', 'death_tick', 'death_window', 'birthplace', 'origin',
     'creation_tick', 'creation_window', 'destruction_tick', 'destruction_window', 'extinction_tick', 'extinction_window',
   ]
   const identity = identityFields.flatMap((key) => {
-    const records = article.assertions?.filter((fact) => fact.field === key) ?? []
-    return records.length === 1 && records[0].until_tick === null ? records : []
+    const records = article.assertions?.filter((fact) => fact.field === key && fact.until_tick === null) ?? []
+    if (!view.fields.find((field) => field.key === key)?.many) return records.length === 1 ? records : []
+    return Array.from(new Map(records.map((fact) => [JSON.stringify([fact.qualifier_id, fact.value]), fact])).values())
   })
   const isMap = article.entry.kind === 'map'
   return (
@@ -292,7 +294,9 @@ function ArticleOverview({ article, display, onEditVariant }: {
             <dt>Variant of</dt><dd><EntryReference {...display} id={article.variant_of_id} at={null} /></dd>
           </div>}
           {identity.map((fact) => <div key={fact.id}>
-            <dt>{fieldLabel(view, fact.field, article.entry.kind)}</dt>
+            <dt>{fieldLabel(view, fact.field, article.entry.kind)}
+              {fact.qualifier_id && <> · <EntryReference {...display} id={fact.qualifier_id} /></>}
+            </dt>
             <dd><ValueText {...display} field={fact.field} value={fact.value} unit={fact.unit} />
               <small>Recorded from time {fact.from_tick}</small>
             </dd>

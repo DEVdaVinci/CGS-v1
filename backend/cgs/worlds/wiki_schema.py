@@ -114,6 +114,7 @@ FIELDS = {
         WikiField("place_type", "Place type", ("place",), section=SPATIAL,
                   choices=("Area", "Region", "Settlement", "Terrain", "Building", "Wing", "Floor", "Room", "Landmark")),
         WikiField("alias", "Alias", ENTITY_KINDS, section=IDENTITY, many=True),
+        WikiField("epithet", "Epithet", ENTITY_KINDS, section=IDENTITY, many=True),
         WikiField("birth_tick", "Birth time", ACTORS, "integer", section=IDENTITY),
         WikiField("death_tick", "Death time", ACTORS, "integer", section=IDENTITY),
         WikiField("creation_tick", "Creation time", (*NONLIVING, "species"), "integer", section=IDENTITY),
@@ -133,7 +134,7 @@ FIELDS = {
         WikiField("birthplace", "Birthplace", ACTORS, "reference", "place", section=IDENTITY),
         WikiField("origin", "Place of origin", ACTORS, "reference", "place", section=IDENTITY),
         WikiField("nationality", "Nationality or citizenship", ACTORS, "reference",
-                  section=IDENTITY, targets=("group", "place"), many=True),
+                  section=IDENTITY, targets=("group", "place"), many=True, inverse="Citizens and nationals"),
         WikiField("residence", "Residence", ACTORS, "reference", "place", section=SPATIAL),
         WikiField("destination", "Destination", ACTORS, "reference", "place", section=SPATIAL),
         WikiField("mass_kg", "Mass (kg)", PHYSICAL_ENTITIES, "decimal", section=PHYSICAL, inherited=True),
@@ -304,6 +305,18 @@ FIELDS = {
         WikiField("mental_state", "Mental state", ACTORS, section=MIND),
         WikiField("mental_process", "Mental process", ACTORS, "reference", "process", section=MIND, many=True),
         WikiField("skill", "Skill", ACTORS, "reference", "skill", section=MIND, many=True),
+        WikiField("available_behavior", "Available behavior", ENTITY_KINDS, "reference", "behavior",
+                  section=MIND, many=True, inverse="Holders of this behavior"),
+        WikiField("behavior_capability", "Capability used", ("behavior",), "reference", section=MIND,
+                  targets=("ability", "skill", "process", "body_fn"), many=True, inverse="Behaviors using this capability"),
+        WikiField("behavior_target", "Possible target", ("behavior",), "reference", section=MIND,
+                  targets=ENTITY_KINDS, many=True),
+        WikiField("behavior_context", "Applicable context", ("behavior",), "reference", section=MIND,
+                  targets=ENTITY_KINDS, many=True),
+        WikiField("behavior_grant", "Grant source", ("behavior",), "reference", section=MIND,
+                  targets=ENTITY_KINDS, many=True, inverse="Granted behaviors"),
+        WikiField("behavior_goal", "Intended goal", ("behavior",), "reference", "goal",
+                  section=MIND, many=True, inverse="Behaviors for this goal"),
         WikiField("success_probability", "Success probability (0–1)", ACTORS, "decimal", section=MIND,
                   qualifier_kind="skill", qualifier_required=True, minimum=0, maximum=1),
         WikiField("context_actor", "Measured actor", ("context",), "reference", section=MIND,
@@ -533,6 +546,7 @@ class EventDetails(StrictSerializer):
     item_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     purpose_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     fulfillment_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
+    behavior_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     backstory_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     era_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
     cause_event_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)

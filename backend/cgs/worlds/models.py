@@ -206,6 +206,7 @@ class WikiEntry(CreatedRecord):
         VALUE_DEFINITION = "value_def", "Value"
         PREFERENCE = "preference", "Preference"
         MOTIVATION = "motivation", "Motivation"
+        BEHAVIOR = "behavior", "Behavior"
 
     class CatalogType(models.TextChoices):
         VEHICLE = "vehicle", "Vehicle"
@@ -403,6 +404,7 @@ class WikiEventLink(models.Model):
         BACKSTORY = "backstory", "Backstory"
         ERA = "era", "Era"
         FULFILLMENT = "fulfillment", "Fulfillment evidence"
+        BEHAVIOR = "behavior", "Recorded behavior"
 
     event = models.ForeignKey(WikiEvent, on_delete=models.CASCADE, related_name="links")
     entry = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, related_name="wiki_event_links")

@@ -18,6 +18,7 @@ export const kindLabel: Record<WikiKind, string> = {
   method_step: 'Method step',
   body_fn: 'Body function', resource_mv: 'Resource movement',
   value_def: 'Value', preference: 'Preference', motivation: 'Motivation',
+  behavior: 'Behavior',
 }
 
 export function formatFieldValue(field: WikiField | undefined, value: WikiValue) {
@@ -61,13 +62,13 @@ export function Actions({ busy, onCancel, submit }: Pick<FormActions, 'busy' | '
 
 const dimensions = ['height_cm', 'width_cm', 'length_cm', 'mass_kg']
 const biography = [
-  'alias', 'birth_tick', 'birth_window', 'death_tick', 'death_window', 'birthplace', 'origin', 'species',
+  'alias', 'epithet', 'birth_tick', 'birth_window', 'death_tick', 'death_window', 'birthplace', 'origin', 'species',
   'nationality', 'parent', 'sibling',
 ]
 const entryTemplates: WikiEntryTemplate[] = [...Object.keys(kindLabel) as WikiKind[], 'vehicle']
 const initialKeys: Partial<Record<WikiKind, string[]>> = {
   person: [...biography, 'character_class', 'appearance', 'background', ...dimensions],
-  organism: [...biography, 'appearance', ...dimensions],
+  organism: [...biography, 'character_class', 'appearance', 'background', ...dimensions],
   place: ['place_type', 'located_in'],
   item: ['item_type', 'creation_tick', 'creation_window', 'destruction_tick', 'destruction_window', ...dimensions],
   group: ['group_type'],
@@ -89,6 +90,7 @@ const initialKeys: Partial<Record<WikiKind, string[]>> = {
   body_part: ['part_parent', 'body_function'],
   preference: ['preference_holder', 'preferred_entry', 'avoided_entry'],
   motivation: ['motivation_subject', 'motivation_value', 'motivation_preference'],
+  behavior: ['behavior_capability', 'behavior_target', 'behavior_context', 'behavior_grant', 'behavior_goal'],
   role: ['role_duty', 'declared_authority', 'declared_limitation'],
   status_def: ['role_duty', 'declared_authority', 'declared_limitation'],
   context: ['context_actor', 'context_capability', 'context_circumstance', 'context_probability'],
@@ -439,6 +441,7 @@ export function readEventContext(values: FormData) {
     cause_assertion_ids: values.getAll('cause_assertions').map(String),
     purpose_ids: values.getAll('purposes').map(String), backstory_ids: values.getAll('backstories').map(String),
     fulfillment_ids: values.getAll('fulfillments').map(String),
+    behavior_ids: values.getAll('behaviors').map(String),
     era_ids: values.getAll('eras').map(String),
   }
 }
@@ -483,10 +486,10 @@ export function EventContextFields({ worldId, entries, fields, at, event, events
   const sourceOptions = source?.subject === subject
     ? source.facts.filter((fact) => fact.event_id !== event?.id && !causes.some((item) => item.id === fact.id)) : []
   const causeCandidate = sourceOptions.find((fact) => fact.id === candidate)
-  const linked = (role: 'purpose' | 'backstory' | 'era' | 'fulfillment') =>
+  const linked = (role: 'purpose' | 'backstory' | 'era' | 'fulfillment' | 'behavior') =>
     event?.links.filter((link) => link.role === role).map((link) => link.entry_id) ?? []
   const hasContext = Boolean(storedCauseEvents.length || causes.length || linked('purpose').length
-    || linked('backstory').length || linked('era').length || linked('fulfillment').length)
+    || linked('backstory').length || linked('era').length || linked('fulfillment').length || linked('behavior').length)
 
   function factLabel(fact: WikiAssertion) {
     const definition = fields.find((field) => field.key === fact.field)
@@ -539,6 +542,8 @@ export function EventContextFields({ worldId, entries, fields, at, event, events
           <EntryChoices label="Purpose goals" name="purposes" entries={entries.filter((entry) => entry.kind === 'goal')} initial={linked('purpose')} />
           <EntryChoices label="Fulfillment evidence" name="fulfillments" initial={linked('fulfillment')}
             entries={entries.filter((entry) => entry.kind === 'requirement' || entry.kind === 'method_step')} />
+          <EntryChoices label="Recorded behaviors" name="behaviors" initial={linked('behavior')}
+            entries={entries.filter((entry) => entry.kind === 'behavior')} />
           <EntryChoices label="Backstory of" name="backstories" entries={entries} initial={linked('backstory')} />
           <EntryChoices label="Eras" name="eras" entries={entries.filter((entry) => entry.kind === 'era')} initial={linked('era')} />
         </div>

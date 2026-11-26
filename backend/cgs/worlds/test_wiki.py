@@ -1188,6 +1188,84 @@ class WikiTests(TransactionTestCase):
             self.apply({"op": "correct_fact", "assertion_id": end, "value": "7:8"})
             self.assertFalse(self.article(subject, 2)["findings"])
 
+    def test_profile_names_titles_and_nationality_preserve_date_and_identity(self):
+        actor = self.entry("Riley", "person")
+        organism = self.entry("Kelp glider", "organism")
+        place = self.entry("Reed hatchery")
+        origin = self.entry("Salt marsh")
+        shelter = self.entry("Dune bed")
+        citizenship = self.entry("Harbor federation", "group")
+        rank = self.entry("First works", "role")
+        self.fact(actor, "alias", "Archivist")
+        self.fact(actor, "epithet", "Keeper of the tides", 2)
+        self.fact(actor, "epithet", "Night navigator", 3, until_tick=6)
+        self.fact(actor, "nationality", citizenship, 2)
+        self.fact(actor, "nationality", origin, 3, until_tick=6)
+        self.fact(place, "title", rank, 2, qualifier_id=citizenship)
+        self.assertEqual(self.values(place, 2)["title"], rank)
+        self.assertTrue(any(link["entry_id"] == place for link in self.article(rank, 2)["incoming_links"]))
+        self.assertEqual({item["value"] for item in self.article(actor, 4)["values"] if item["field"] == "epithet"},
+                         {"Keeper of the tides", "Night navigator"})
+        self.assertEqual(self.values(actor, 6)["epithet"], "Keeper of the tides")
+        self.assertEqual([link["entry_id"] for link in self.article(origin, 4)["incoming_links"]], [actor])
+        self.assertFalse(self.article(origin, 6)["incoming_links"])
+        self.assertEqual(self.values(actor, 6)["nationality"], citizenship)
+
+        self.fact(organism, "birthplace", place)
+        self.fact(organism, "origin", origin)
+        self.fact(organism, "residence", shelter)
+        self.fact(organism, "located_in", place)
+        self.event("Return to the marsh", 7, (organism, "located_in", origin))
+        self.assertEqual(self.values(organism, 7)["birthplace"], place)
+        self.assertEqual(self.values(organism, 7)["origin"], origin)
+        self.assertEqual(self.values(organism, 7)["residence"], shelter)
+        self.assertEqual(self.values(organism, 7)["located_in"], origin)
+        event = self.apply({"op": "record_event", "name": "Record check", "tick": 7, "participant_ids": [actor]})
+        self.apply({"op": "rename_entry", "entry_id": actor, "name": "Riley Aster"})
+        self.assertEqual(self.article(actor, 7)["entry"]["name"], "Riley Aster")
+        self.assertEqual(self.article(actor, 7)["events"][0]["id"], event)
+
+    def test_reusable_behavior_links_capabilities_sources_and_authored_occurrences(self):
+        actor = self.entry("Surveyor", "person")
+        organism = self.entry("Coastal glider", "organism")
+        equipment = self.entry("Survey kit", "item")
+        site = self.entry("Shore station")
+        plan = self.entry("Check the records", "goal")
+        physical = self.entry("Handle a sample", "ability")
+        financial = self.entry("Reconcile entries", "ability")
+        self.fact(physical, "ability_domain", "Physical")
+        self.fact(financial, "ability_domain", "Financial")
+        behavior = self.entry("Survey a station", "behavior")
+        other = self.entry("Review the log", "behavior")
+        self.fact(behavior, "behavior_capability", physical)
+        self.fact(behavior, "behavior_capability", financial)
+        self.fact(behavior, "behavior_grant", equipment)
+        self.fact(behavior, "behavior_target", site)
+        self.fact(behavior, "behavior_context", site)
+        self.fact(behavior, "behavior_goal", plan)
+        self.fact(actor, "available_behavior", behavior, 4)
+        self.fact(actor, "available_behavior", other, 5)
+        self.fact(organism, "available_behavior", behavior, 4)
+        self.assertFalse(any(item["field"] == "available_behavior" for item in self.article(actor, 3)["values"]))
+        values = self.article(actor, 5)["values"]
+        self.assertEqual({item["value"] for item in values if item["field"] == "available_behavior"},
+                         {behavior, other})
+        self.assertEqual({item["entry_id"] for item in self.article(behavior, 4)["incoming_links"]}, {actor, organism})
+        self.assertEqual(self.article(equipment, 4)["incoming_links"][0]["entry_id"], behavior)
+        capabilities = {item["value"] for item in self.article(behavior, 4)["values"] if item["field"] == "behavior_capability"}
+        self.assertEqual(capabilities, {physical, financial})
+
+        occurrence = self.apply({
+            "op": "record_event", "name": "Site survey", "tick": 6, "behavior_ids": [behavior], "performer_ids": [actor],
+        })
+        recorded = self.article(behavior, 6)["events"][0]
+        self.assertEqual(recorded["id"], occurrence)
+        self.assertIn({"entry_id": behavior, "role": "behavior"}, recorded["links"])
+        self.assertFalse(recorded["changes"])
+        self.assertEqual(self.post({
+            "op": "record_event", "name": "Invalid behavior", "tick": 6, "behavior_ids": [financial],
+        }).status_code, 422)
+
     def test_latest_sightings_use_known_observations_and_keep_equal_time_reports(self):
         subject = self.entry("Walker", "person")
         witness = self.entry("Witness", "person")

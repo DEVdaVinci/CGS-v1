@@ -522,3 +522,23 @@ Wiki p. 2 names **Nick names / Epithets** and **Title(s)**. The owner also ident
 In an article **Overview**, the **At a glance** panel exposes recorded names, classification, title and biography links with their recorded start times. Multiple current open-ended names or affiliations can appear as separate rows. History remains the place for selecting a date and reading changed or ended statements. Nationality has an inverse on its referenced group or place. A dated end or correction reuses the original actor and its other links.
 
 Verify adding names from both creation paths, repeatable epithets, a non-person title, two nationalities and a later ended nationality, plus links from a subject event after an actor rename. Open an Organism and verify independently dated birth, origin, residence and physical whereabouts. Search by aliases remains W3 item 94.
+
+## Authored behavior and capability links
+
+Brainstorm p. 2 connects actions and behaviors to body functions and to physical, mental and financial abilities. It also names item and technology access, relationships and roles as ways to grant capability. Inventory item 40 and W1 CORE-11/16 apply. In **Definitions → New definition → Behavior**, create a reusable record for its description, named capabilities, possible target entries, relevant goals and grant sources. A holder records dated **Available behavior** links from History. Several can apply to the same actor or other entity. A Timeline occurrence can identify the behavior it records, even when it has no state changes.
+
+Store every relationship as a typed assertion or occurrence link using stable IDs. This makes the behavior usable by authors and downstream readers while W2 defines formulas, supported action types and arbitrary rules. P2 evaluates and executes supported actions. Verify reuse across character, organism or other holders, two kinds of capability and condition context, allowed grant links, date boundaries, event and definition navigation, and separation from actual state effects.
+
+### Verification of biographies and behavior
+
+- Chrome created a Character with named biography fields, reopened two epithets and a non-actor title, compared two nationalities as one ended, and reopened the original identity from a saved event after a rename. It saved a separate Organism with typed birth place, origin, class and species, then read distinct residence and location after reload.
+- Chrome created a Behavior with a capability and grant source, reopened it from a holder and a Timeline occurrence, and checked the occurrence after reload. Django checked shared behavior among two actor kinds, simultaneous available behaviors, physical and financial capability links, a wrong-kind event target and independent event effects.
+- The isolated `index-BtgGDgeY.js` candidate passed 74 Django tests, 38 Chrome scenarios and the migration-state check. Screenshots of both profile and behavior reads were inspected. Migration 0027 preserved original fields across 39 PostgreSQL tables on a disposable copy.
+
+## What a character knows about events
+
+The recovered Roadmap separates canonical truth, character knowledge and audience knowledge. Wiki pp. 1–2 and Brainstorm p. 2 connect actions, scenes and what actors know. W1 CORE-13/15 and inventory items 38 and 45 apply. From a saved Timeline record, **Record character report** names the recipient, when they learned it, their title and account of what happened, and an optional known time or range. The author can select specific known articles if they are part of the report. A saved report has its own ID and a link to the source occurrence in the author workspace.
+
+In **Timeline → State and viewpoint**, a selected character sees their reports learned by the chosen date, together with the identities explicitly disclosed in those reports. This view uses the author's specified account of the name, date and content. Withheld reports and protected references stay in author scope. A report can remain incomplete or conflict with the source event, and changing the event leaves the saved account intact. W3 audience presentation and scoped map delivery retain their separate rules.
+
+Verify author and character browser paths, dates before and after disclosure, an independent second observer, withholding and hidden references, attributed differences from canon, continued earlier read after source correction, and exact saved records. Keep existing event hierarchy and chronology readbacks in the regression run.
