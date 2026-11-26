@@ -4,7 +4,7 @@ export type WikiKind = 'person' | 'place' | 'group' | 'class' | 'ability' | 'ite
   | 'species' | 'organism' | 'culture' | 'role' | 'resource' | 'body_part' | 'trait' | 'goal'
   | 'image' | 'model_3d' | 'texture' | 'animation' | 'map' | 'territory' | 'era'
   | 'source' | 'process' | 'skill' | 'milestone'
-  | 'requirement' | 'method' | 'status_def'
+  | 'requirement' | 'method' | 'status_def' | 'context' | 'relation_def' | 'relation'
 export type WikiEntry = {
   id: string; name: string; kind: WikiKind; author_only?: boolean
   catalog_type?: 'vehicle'; classification_needs_review?: boolean
@@ -77,7 +77,7 @@ export type WikiEvent = {
 
 export type WikiLearnedAbility = { id: string; ability_id: string; learned_at: number; source: string }
 export type WikiFinding = {
-  id: string; code: 'CANON_CONFLICT' | 'OBSERVATION_SOURCE_CHANGED'; field: string
+  id: string; code: 'CANON_CONFLICT' | 'LIFESPAN_CONFLICT' | 'OBSERVATION_SOURCE_CHANGED'; field: string
   record_ids: string[]; from_tick: number; until_tick: number | null
 }
 export type WikiEffectiveValue = {
@@ -86,7 +86,7 @@ export type WikiEffectiveValue = {
 export type WikiLinkedFact = {
   id: string; entry_id: string; field: string; label: string; qualifier_id: string | null
   from_tick: number; until_tick: number | null; source: string
-  order?: number | null; order_conflict?: boolean
+  order?: number | null; order_conflict?: boolean; order_shared?: boolean
 }
 export type WikiProposition = {
   id: string; holder_id: string; subject_id: string; kind: 'belief' | 'desired_state'

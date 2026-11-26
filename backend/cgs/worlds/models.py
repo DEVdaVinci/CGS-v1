@@ -197,6 +197,9 @@ class WikiEntry(CreatedRecord):
         REQUIREMENT = "requirement", "Requirement"
         METHOD = "method", "Method"
         STATUS_DEF = "status_def", "Status definition"
+        CONTEXT = "context", "Capability context"
+        RELATION_DEF = "relation_def", "Relationship type"
+        RELATION = "relation", "Relationship"
 
     class CatalogType(models.TextChoices):
         VEHICLE = "vehicle", "Vehicle"

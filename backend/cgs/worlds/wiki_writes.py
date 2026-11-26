@@ -21,7 +21,7 @@ from .wiki_events import (
 )
 from .wiki_layouts import save_connection, save_layout, save_waypoint
 from .wiki_maps import attach_map_image, remove_map_pin, save_map_pin
-from .wiki_schema import ACTORS, ENTITY_KINDS, EVENT_PERFORMERS, FIELDS
+from .wiki_schema import ACTORS, ENTITY_KINDS, EVENT_PERFORMERS, FIELDS, LIFESPAN_START_FIELDS
 
 
 def _in_world(query, record_id):
@@ -570,8 +570,26 @@ def _claim_findings(entry_id, field):
             )
 
 
+def _lifespan_findings(entry_id, field, endings):
+    starts = list(WikiAssertion.objects.filter(entry_id=entry_id, field=LIFESPAN_START_FIELDS[field]))
+    for start in starts:
+        for end in endings:
+            if end.value >= start.value:
+                continue
+            first = max(start.from_tick, end.from_tick)
+            last = min((tick for tick in (start.until_tick, end.until_tick) if tick is not None), default=None)
+            if last is None or first < last:
+                yield f"lifespan:{start.pk}:{end.pk}", "LIFESPAN_CONFLICT", [str(start.pk), str(end.pk)], first, last
+
+
 def _refresh_findings(affected, edit_counter):
-    for entry_id, field in sorted(affected):
+    lifespan_ends = {
+        (entry_id, end)
+        for entry_id, field in affected
+        for end, start in LIFESPAN_START_FIELDS.items()
+        if field == start
+    }
+    for entry_id, field in sorted(affected | lifespan_ends):
         assertions = list(WikiAssertion.objects.filter(entry_id=entry_id, field=field).order_by("from_tick", "id"))
         open_keys = []
         slots = defaultdict(list)
@@ -580,6 +598,7 @@ def _refresh_findings(affected, edit_counter):
         findings = chain(
             (finding for group in slots.values() for finding in _active_findings(group)),
             _claim_findings(entry_id, field),
+            _lifespan_findings(entry_id, field, assertions) if field in LIFESPAN_START_FIELDS and assertions else (),
         )
         for key, code, record_ids, start, end in findings:
             WikiFinding.objects.update_or_create(

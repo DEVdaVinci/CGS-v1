@@ -1124,6 +1124,112 @@ class WikiTests(TransactionTestCase):
         self.assertEqual([(link["entry_id"], link["order"]) for link in before], [(zeta, 1), (alpha, 2)])
         self.assertEqual([(link["entry_id"], link["order"]) for link in after], [(alpha, 0), (zeta, 1)])
 
+    def test_reported_lifespan_conflict_keeps_both_records_and_resolves_after_correction(self):
+        for kind, start_field, end_field in (
+            ("person", "birth_tick", "death_tick"),
+            ("place", "creation_tick", "destruction_tick"),
+            ("species", "creation_tick", "extinction_tick"),
+        ):
+            with self.subTest(kind=kind):
+                subject = self.entry("Subject " + kind, kind)
+                old_end = self.fact(subject, end_field, 1, until_tick=5)
+                start = self.fact(subject, start_field, 8, 5)
+                self.assertFalse(self.article(subject, 5)["findings"])
+                ending = self.fact(subject, end_field, 7, 5, until_tick=10)
+                findings = self.article(subject, 5)["findings"]
+                self.assertEqual(len(findings), 1)
+                self.assertEqual(
+                    (findings[0]["code"], findings[0]["record_ids"], findings[0]["from_tick"], findings[0]["until_tick"]),
+                    ("LIFESPAN_CONFLICT", [start, ending], 5, 10),
+                )
+                self.assertNotIn(old_end, findings[0]["record_ids"])
+                self.apply({"op": "correct_fact", "assertion_id": start, "value": 7})
+                self.assertFalse(self.article(subject, 5)["findings"])
+                self.assertTrue(WikiFinding.objects.filter(pk=findings[0]["id"], resolved_at_edit=self.edit).exists())
+
+        observer = self.entry("Historical witness", "person")
+        character = self.entry("Historical subject", "person")
+        self.discover(character, observer, 0)
+        self.fact(character, "birth_tick", 9, author_only=True)
+        self.fact(character, "death_tick", 4)
+        self.assertEqual(self.article(character)["findings"][0]["code"], "LIFESPAN_CONFLICT")
+        self.assertNotIn("findings", self.article(character, 0, observer))
+
+    def test_shared_plan_positions_preserve_both_values_across_rename(self):
+        goal = self.entry("Open archive", "goal")
+        milestones = [self.entry(name, "milestone") for name in ("Record contents", "List supplies")]
+        for entry in milestones:
+            self.fact(entry, "milestone_goal", goal)
+            self.fact(entry, "milestone_order", 1)
+        before = self.article(goal)["incoming_links"]
+        self.assertEqual([(link["order"], link["order_shared"]) for link in before], [(1, True), (1, True)])
+        self.apply({"op": "rename_entry", "entry_id": milestones[0], "name": "A record of contents"})
+        self.assertEqual(self.article(goal)["incoming_links"], before)
+        self.event("Reorder plan", 10, (milestones[0], "milestone_order", 2))
+        after = self.article(goal, 10)["incoming_links"]
+        self.assertEqual([(link["entry_id"], link["order"]) for link in after], [(milestones[1], 1), (milestones[0], 2)])
+        self.assertFalse(any(link.get("order_shared") for link in after))
+
+    def test_contextual_measurements_and_relationship_declarations_keep_dated_references(self):
+        actor = self.entry("Inspector", "person")
+        capability = self.entry("Safety inspection", "skill")
+        site = self.entry("Ferry terminal")
+        source = self.entry("Inspection ledger", "source")
+        scale = self.entry("Inspections per hour", "trait")
+        self.fact(scale, "unit", "inspections/hour")
+        contexts = []
+        for name, probability in (("Clear visibility", "0.9"), ("Low visibility", "0.4")):
+            context = self.entry(name, "context")
+            contexts.append(context)
+            self.fact(context, "context_actor", actor, 2)
+            self.fact(context, "context_capability", capability, 2)
+            self.fact(context, "context_circumstance", site, 2)
+            self.fact(context, "context_probability", probability, 2)
+            self.fact(context, "processing_speed", "2.5", 2, qualifier_id=scale, citation_id=source)
+            self.assertEqual(self.values(context, 2)["context_probability"], probability)
+            record = next(fact for fact in self.article(context, 2)["assertions"] if fact["field"] == "processing_speed")
+            self.assertEqual((record["unit"], record["citation_id"]), ("inspections/hour", source))
+        self.assertFalse(self.article(actor, 1)["incoming_links"])
+        self.assertEqual({link["entry_id"] for link in self.article(actor, 2)["incoming_links"]}, set(contexts))
+        invalid = self.post({
+            "op": "record_fact", "entry_id": contexts[0], "field": "context_capability", "value": site, "from_tick": 2,
+        })
+        self.assertEqual(invalid.status_code, 422)
+        _, foreign = create_world(self.owner.pk, uuid4(), "Separate Wiki")
+        foreign_wiki = WikiWorld.objects.create(world_id=foreign["world"]["id"])
+        foreign_skill = WikiEntry.objects.create(wiki=foreign_wiki, kind="skill", name="Foreign skill")
+        invalid = self.post({
+            "op": "record_fact", "entry_id": contexts[0], "field": "context_capability",
+            "value": str(foreign_skill.pk), "from_tick": 2,
+        })
+        self.assertEqual(invalid.status_code, 422)
+
+        organization = self.entry("Ferry operator", "group")
+        definition = self.entry("Inspection agreement", "relation_def")
+        wanted = self.entry("Provide certification", "requirement")
+        credits = self.entry("Credits", "resource")
+        self.fact(credits, "unit", "credits")
+        relationship = self.entry("Terminal inspection", "relation")
+        self.fact(relationship, "relationship_type", definition)
+        self.fact(relationship, "first_party", actor)
+        self.fact(relationship, "second_party", organization)
+        self.fact(relationship, "first_party_role", "Inspector")
+        self.fact(relationship, "acquire_requirement", wanted)
+        self.fact(relationship, "declared_cost", "15", 4, qualifier_id=credits)
+        self.fact(relationship, "declared_capability", capability, 4)
+        for subject, field in ((actor, "first_party"), (organization, "second_party"), (definition, "relationship_type")):
+            self.assertIn(relationship, {link["entry_id"] for link in self.article(subject, 4)["incoming_links"]
+                                         if link["field"] == field})
+        self.assertNotIn("declared_cost", self.values(relationship, 3))
+        self.assertEqual(self.values(relationship, 4)["acquire_requirement"], wanted)
+        cost = next(v for v in self.article(relationship, 4)["values"] if v["field"] == "declared_cost")
+        self.assertEqual((cost["value"], cost["unit"]), ("15", "credits"))
+        invalid = self.post({
+            "op": "record_fact", "entry_id": relationship, "field": "relationship_type", "value": site, "from_tick": 4,
+        })
+        self.assertEqual(invalid.status_code, 422)
+        self.assertEqual(self.values(relationship, 4)["relationship_type"], definition)
+
     def test_uncertain_claim_and_correction_preserve_learned_evidence(self):
         harbor = self.entry("Harbor")
         observer = self.entry("Records clerk", "person")

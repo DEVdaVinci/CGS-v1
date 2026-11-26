@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import Counter, defaultdict
 from graphlib import TopologicalSorter
 
 from django.db.models import Q
@@ -155,7 +155,14 @@ def incoming_links(entry, at):
             values = positions[(link["entry_id"], order_field)]
             link["order"] = next(iter(values)) if len(values) == 1 else None
             link["order_conflict"] = len(values) > 1
-    links.sort(key=lambda link: (link["field"], link.get("order") is None, link.get("order") or 0))
+    positions_in_group = Counter((link["field"], link["order"]) for link in links if link.get("order") is not None)
+    for link in links:
+        if positions_in_group[(link["field"], link.get("order"))] > 1:
+            link["order_shared"] = True
+    links.sort(key=lambda link: (
+        link["field"], link.get("order") is None, link.get("order") or 0,
+        link["entry_id"] if link.get("order_shared") else "",
+    ))
     return links
 
 

@@ -348,6 +348,7 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
                     <p className="muted">
                       {link.order_conflict ? 'Conflicting order · ' : link.order === null ? 'Order unspecified · '
                         : link.order !== undefined ? 'Position ' + link.order + ' · ' : ''}
+                      {link.order_shared && 'Shared with another entry · '}
                       {times(link.from_tick, link.until_tick)}{link.source ? ' · ' + link.source : ''}
                     </p>
                   </div>
@@ -410,7 +411,9 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
                     <strong>{fieldLabel(view, finding.field)}. </strong>
                     {finding.code === 'CANON_CONFLICT'
                       ? 'Conflicting canon values. ' + times(finding.from_tick, finding.until_tick) + '.'
-                      : 'The source of a recorded observation changed. Review the recorded evidence.'}
+                      : finding.code === 'LIFESPAN_CONFLICT'
+                        ? 'The recorded end precedes the start. Both dates apply ' + times(finding.from_tick, finding.until_tick).toLowerCase() + '.'
+                        : 'The source of a recorded observation changed. Review the recorded evidence.'}
                     {' '}
                     {finding.record_ids.map((id, index) => (
                       <a key={id} href={'#wiki-record-' + id}>Record {index + 1}</a>

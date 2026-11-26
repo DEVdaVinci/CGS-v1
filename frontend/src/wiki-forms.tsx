@@ -14,6 +14,7 @@ export const kindLabel: Record<WikiKind, string> = {
   map: 'Map', territory: 'Territory', era: 'Era',
   source: 'Source', process: 'Mental process', skill: 'Skill', milestone: 'Goal milestone',
   requirement: 'Requirement', method: 'Method', status_def: 'Status definition',
+  context: 'Capability context', relation_def: 'Relationship type', relation: 'Relationship',
 }
 
 export type ArticleEdit =
@@ -68,6 +69,9 @@ const initialKeys: Partial<Record<WikiKind, string[]>> = {
   method: ['method_requirement', 'method_order', 'status'],
   role: ['role_duty', 'declared_authority', 'declared_limitation'],
   status_def: ['role_duty', 'declared_authority', 'declared_limitation'],
+  context: ['context_actor', 'context_capability', 'context_circumstance', 'context_probability'],
+  relation_def: ['first_party_role', 'second_party_role', 'role_duty'],
+  relation: ['relationship_type', 'first_party', 'second_party', 'first_party_role', 'second_party_role'],
   source: ['source_medium', 'source_locator', 'source_excerpt', 'source_person'],
 }
 
