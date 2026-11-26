@@ -120,6 +120,8 @@ export type WikiArticle = {
   entry: WikiEntry
   overview?: string
   sections?: WikiArticleSection[]
+  variant_of_id?: string | null
+  variant_ids?: string[]
   discoveries?: WikiDiscovery[]
   values?: WikiEffectiveValue[]
   assertions?: WikiAssertion[]
@@ -180,9 +182,10 @@ type ClaimDate = { tick: number | null; date_precision: EventDatePrecision; star
 export type WikiCommand =
   | {
     op: 'create_entry'; name: string; kind: WikiKind; author_only: boolean; overview?: string
-    catalog_type?: 'vehicle'; initial_at?: number; initial_values?: TypedValue[]
+    catalog_type?: 'vehicle'; initial_at?: number; initial_values?: TypedValue[]; variant_of_id?: string
   }
   | { op: 'rename_entry'; entry_id: string; name: string }
+  | { op: 'set_variant_origin'; entry_id: string; variant_of_id: string | null }
   | { op: 'update_overview'; entry_id: string; overview: string }
   | { op: 'update_world_introduction'; introduction: string }
   | { op: 'update_world_home'; introduction: string; cover_map_id: string | null; featured_entry_ids: string[] }

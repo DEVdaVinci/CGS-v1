@@ -31,7 +31,7 @@ The CGS source is authoritative. Run every original W1 completion check as well 
 
 | Check | Pass | Baseline | Required evidence |
 | --- | --- | --- | --- |
-| CORE-01 Character identity | W1 completion | Partial | Save and reload each Phase 1 identity and biography field required by the trace. Include aliases, birth and death, distinct birthplace and origin, nationality, species, class and background. Open the same person from a related event using the same ID. |
+| CORE-01 Character identity | W1 completion | Partial | Save and reload each Phase 1 identity and biography field required by the trace. Include aliases, birth and death, distinct birthplace and origin, nationality, species, class and background. Open the same person from a related event using the same ID. Create an independent character variant, follow its source association in either direction and open the exact variant from a saved event. |
 | CORE-02 Life dates and derived age | W1 completion | Partial | View age at two known dates, then with incomplete birth or calendar information. The page labels the known or unknown result and preserves the life dates and date precision. |
 | CORE-03 Character links | W1 completion | Partial | Author family, other personal and organism relationships, affiliations, jobs and titles with searchable record pickers. Verify inverse family links, derived versus declared siblings, dated relations and rejection of invalid or foreign targets. |
 | CORE-04 Resources and possession | W1 completion | Partial | Distinguish ownership, custody, equipment and possession with dated typed links. Record an individual item and a counted or measured resource, then compare both histories after a transfer. |

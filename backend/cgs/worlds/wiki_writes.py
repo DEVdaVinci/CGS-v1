@@ -55,10 +55,33 @@ def _named(value):
     return name
 
 
+def _variant_origin(wiki, kind, target_id, entry_id=None):
+    if kind not in ACTORS:
+        reject("INVALID_VARIANT", "Only a character or organism can have a variant relationship.")
+    if target_id is None:
+        return None
+    target = entry_for(wiki, target_id)
+    if target.kind not in ACTORS:
+        reject("INVALID_VARIANT", "Select a character or organism as the source identity.")
+    if entry_id is not None:
+        parents = dict(WikiEntry.objects.filter(wiki=wiki, variant_of__isnull=False)
+                       .values_list("pk", "variant_of_id"))
+        seen = {entry_id}
+        ancestor = target.pk
+        while ancestor is not None:
+            if ancestor in seen:
+                reject("RELATIONSHIP_CYCLE", "A character cannot be a variant of itself or of one of its variants.")
+            seen.add(ancestor)
+            ancestor = parents.get(ancestor)
+    return target
+
+
 def _create_entry(wiki, command):
+    origin_id = command.get("variant_of_id")
     entry = WikiEntry.objects.create(
         wiki=wiki, kind=command["kind"], name=_named(command["name"]), author_only=command["author_only"],
         overview=command.get("overview", ""), catalog_type=command.get("catalog_type", ""),
+        variant_of=_variant_origin(wiki, command["kind"], origin_id) if origin_id else None,
     )
     tick = command.get("initial_at", 0)
     values = {}
@@ -79,6 +102,13 @@ def _rename_entry(wiki, command):
     entry = entry_for(wiki, command["entry_id"])
     entry.name = _named(command["name"])
     entry.save(update_fields=["name"])
+    return entry.pk, set()
+
+
+def _set_variant_origin(wiki, command):
+    entry = entry_for(wiki, command["entry_id"])
+    entry.variant_of = _variant_origin(wiki, entry.kind, command["variant_of_id"], entry.pk)
+    entry.save(update_fields=["variant_of"])
     return entry.pk, set()
 
 
@@ -510,6 +540,7 @@ def _correct_learned_ability(wiki, command):
 OPERATIONS = {
     "create_entry": _create_entry,
     "rename_entry": _rename_entry,
+    "set_variant_origin": _set_variant_origin,
     "update_overview": _update_overview,
     "update_world_introduction": _update_world_introduction,
     "update_world_home": _update_world_home,

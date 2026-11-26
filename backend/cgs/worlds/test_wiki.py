@@ -1155,6 +1155,50 @@ class WikiTests(TransactionTestCase):
         self.assertEqual(self.article(character)["findings"][0]["code"], "LIFESPAN_CONFLICT")
         self.assertNotIn("findings", self.article(character, 0, observer))
 
+    def test_in_world_variants_have_independent_identity_events_and_scoped_reads(self):
+        original = self.entry("Lina", "person", overview="Coastal archivist")
+        variant = self.entry("Lina of the northern coast", "person", variant_of_id=original)
+        other = self.entry("Uncatalogued creature", "organism", author_only=True)
+        self.fact(variant, "birth_tick", 2)
+        event = self.apply({
+            "op": "record_event", "name": "Catalog review", "tick": 10, "performer_ids": [variant],
+        })
+        self.assertEqual(str(WikiEntry.objects.get(pk=variant).variant_of_id), original)
+        self.assertEqual(self.article(original)["variant_ids"], [variant])
+        self.assertEqual(self.article(variant)["variant_of_id"], original)
+        self.assertFalse(self.article(original, 10)["events"])
+        self.assertEqual([item["id"] for item in self.article(variant, 10)["events"]], [event])
+        self.assertEqual(self.values(original, 10)["birth_tick"], "unknown")
+        self.assertEqual(self.values(variant, 10)["birth_tick"], 2)
+
+        observer = self.entry("Witness", "person")
+        self.discover(variant, observer)
+        self.assertNotIn("variant_of_id", self.article(variant, 10, observer))
+        self.discover(original, observer)
+        self.assertNotIn("variant_ids", self.article(original, 10, observer))
+
+        place = self.entry("Harbor")
+        _, foreign = create_world(self.owner.pk, uuid4(), "Separate Wiki")
+        foreign_wiki = WikiWorld.objects.create(world_id=foreign["world"]["id"])
+        foreign_actor = WikiEntry.objects.create(wiki=foreign_wiki, name="Remote actor", kind="person")
+        for target, expected_error in (
+            (variant, "RELATIONSHIP_CYCLE"), (place, "INVALID_VARIANT"), (str(foreign_actor.pk), "INVALID_ENTRY"),
+        ):
+            invalid = self.post({"op": "set_variant_origin", "entry_id": variant, "variant_of_id": target})
+            self.assertEqual(invalid.status_code, 422)
+            self.assertEqual(invalid.json()["field_errors"][0]["code"], expected_error)
+        invalid = self.post({"op": "set_variant_origin", "entry_id": original, "variant_of_id": variant})
+        self.assertEqual(invalid.json()["field_errors"][0]["code"], "RELATIONSHIP_CYCLE")
+        invalid = self.post({"op": "create_entry", "name": "Invalid variant", "kind": "place", "variant_of_id": original})
+        self.assertEqual(invalid.status_code, 422)
+
+        self.apply({"op": "set_variant_origin", "entry_id": variant, "variant_of_id": other})
+        self.assertFalse(self.article(original)["variant_ids"])
+        self.assertEqual(self.article(other)["variant_ids"], [variant])
+        self.apply({"op": "set_variant_origin", "entry_id": variant, "variant_of_id": None})
+        self.assertIsNone(self.article(variant, 10)["variant_of_id"])
+        self.assertEqual([item["id"] for item in self.article(variant, 10)["events"]], [event])
+
     def test_shared_plan_positions_preserve_both_values_across_rename(self):
         goal = self.entry("Open archive", "goal")
         milestones = [self.entry(name, "milestone") for name in ("Record contents", "List supplies")]

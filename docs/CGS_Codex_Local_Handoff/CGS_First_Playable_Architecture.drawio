@@ -696,7 +696,7 @@
     </mxGraphModel>
   </diagram>
   <diagram id="cgs-graph-6" name="World storage relationships">
-    <mxGraphModel grid="1" gridSize="10" page="1" pageScale="1" pageWidth="1040" pageHeight="487" arrows="1">
+    <mxGraphModel grid="1" gridSize="10" page="1" pageScale="1" pageWidth="1040" pageHeight="546" arrows="1">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -723,6 +723,12 @@
         </mxCell>
         <mxCell id="world.entity_identity" parent="1" vertex="1" value="Entity identity" style="rounded=0;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EAF3EF;strokeColor=#357365;strokeWidth=1.5;fontColor=#163149;fontFamily=Helvetica;fontSize=16;fontStyle=1;">
           <mxGeometry as="geometry" x="52" y="342" width="190" height="58" />
+        </mxCell>
+        <mxCell id="world.character_variant" parent="1" vertex="1" value="Character variant&#10;Own identity and history" style="rounded=0;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EAF3EF;strokeColor=#357365;strokeWidth=1.5;fontColor=#163149;fontFamily=Helvetica;fontSize=16;fontStyle=1;">
+          <mxGeometry as="geometry" x="52" y="460" width="190" height="58" />
+        </mxCell>
+        <mxCell id="world.variant_origin" parent="1" edge="1" source="world.character_variant" target="world.entity_identity" value="Optional source actor" style="edgeStyle=segmentEdgeStyle;rounded=0;endArrow=block;endFill=1;strokeWidth=1.5;strokeColor=#52687D;exitX=0.5;exitY=0;entryX=0.5;entryY=1;fontFamily=Helvetica;fontSize=14;fontColor=#52687D;labelBackgroundColor=#FFFFFF;">
+          <mxGeometry as="geometry" relative="1"><mxPoint as="offset" x="90" y="0" /></mxGeometry>
         </mxCell>
         <mxCell id="author.proposal" parent="1" vertex="1" value="Draft proposal" style="rounded=0;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#EAF3EF;strokeColor=#357365;strokeWidth=1.5;fontColor=#163149;fontFamily=Helvetica;fontSize=16;fontStyle=1;">
           <mxGeometry as="geometry" x="410" y="342" width="195" height="58" />

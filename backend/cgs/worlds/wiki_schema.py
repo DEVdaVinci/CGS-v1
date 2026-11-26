@@ -339,6 +339,7 @@ class CreateEntry(StrictSerializer):
     author_only = serializers.BooleanField(default=False)
     overview = TextField(max_length=1500, allow_blank=True, required=False)
     catalog_type = serializers.ChoiceField(choices=WikiEntry.CatalogType.values, required=False)
+    variant_of_id = WikiRef(required=False, allow_null=True)
     initial_at = ExactClock(required=False)
     initial_values = DefinedValue(many=True, required=False, max_length=len(FIELDS))
 
@@ -356,6 +357,12 @@ class RenameEntry(StrictSerializer):
     op = serializers.ChoiceField(choices=("rename_entry",))
     entry_id = WikiRef()
     name = TextField(max_length=100)
+
+
+class SetVariantOrigin(StrictSerializer):
+    op = serializers.ChoiceField(choices=("set_variant_origin",))
+    entry_id = WikiRef()
+    variant_of_id = WikiRef(allow_null=True)
 
 
 class UpdateOverview(StrictSerializer):
@@ -649,6 +656,7 @@ class RemoveMapPin(StrictSerializer):
 COMMANDS = {
     "create_entry": CreateEntry,
     "rename_entry": RenameEntry,
+    "set_variant_origin": SetVariantOrigin,
     "update_overview": UpdateOverview,
     "update_world_introduction": UpdateWorldIntroduction,
     "update_world_home": UpdateWorldHome,

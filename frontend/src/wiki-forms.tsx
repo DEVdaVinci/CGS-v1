@@ -21,6 +21,7 @@ export type ArticleEdit =
   | { kind: 'fact'; field?: string }
   | { kind: 'claim' | 'event' }
   | { kind: 'rename' | 'overview' | 'sections' }
+  | { kind: 'variant-origin'; originId?: string }
   | { kind: 'learn'; learned?: WikiLearnedAbility }
   | { kind: 'discovery'; discovery?: WikiDiscovery }
   | { kind: 'edit-event'; event: WikiEvent }
@@ -100,6 +101,7 @@ export function WikiEntryForm({ fixedTemplate, chooser, entries, fields, ownerId
     event.preventDefault()
     const values = new FormData(event.currentTarget)
     const authorOnly = values.has('author_only')
+    const variantOrigin = String(values.get('variant_of_id') ?? '')
     const initialValues = initialFields.flatMap((field) => values.getAll(field.key).filter((value) => String(value).trim())
       .map((value) => ({ field: field.key, value: readValue(value, field), author_only: authorOnly })))
     const date = optionalTime(values, 'initial_at')
@@ -113,6 +115,7 @@ export function WikiEntryForm({ fixedTemplate, chooser, entries, fields, ownerId
       op: 'create_entry', name: String(values.get('name')), kind,
       author_only: authorOnly, overview: String(values.get('overview') ?? ''),
       ...(template === 'vehicle' ? { catalog_type: 'vehicle' } : {}),
+      ...(variantOrigin ? { variant_of_id: variantOrigin } : {}),
       ...(initialValues.length && date !== null ? { initial_at: date, initial_values: initialValues } : {}),
     })
   }
@@ -131,6 +134,8 @@ export function WikiEntryForm({ fixedTemplate, chooser, entries, fields, ownerId
         </select>
       </label>}
       <label className="field">Overview<textarea name="overview" rows={4} maxLength={1500} /></label>
+      {(kind === 'person' || kind === 'organism') && <EntryPicker key={template + '-variant'} name="variant_of_id"
+        label="Variant of" entries={entries.filter(isWikiActor)} required={false} />}
       {template === 'map' && <p className="muted">Link an existing map through its asset location. Measured room layouts are edited from Places.</p>}
       {initialFields.length > 0 && <fieldset className="wiki-change-fields" key={template}>
         <legend>Initial facts</legend>
@@ -685,6 +690,7 @@ export function WikiEditForm({ edit, overview, sections, ...props }: EntryFormPr
   if (edit.kind === 'edit-event') return <WikiEventForm {...props} entry={undefined} event={edit.event} />
   if (edit.kind === 'correct-date' || edit.kind === 'observe') return <WikiEvidenceForm {...props} edit={edit} />
   if (edit.kind === 'rename') return <RenameForm {...props} />
+  if (edit.kind === 'variant-origin') return <VariantOriginForm {...props} originId={edit.originId} />
   if (edit.kind === 'overview') return <OverviewForm {...props} overview={overview} />
   if (edit.kind === 'sections') return <ArticleSectionsForm {...props} initial={sections ?? []} />
   if (edit.kind === 'learn') return <LearnAbilityForm {...props} learned={edit.learned} />
@@ -812,6 +818,22 @@ function RenameForm({ entry, ...actions }: FormActions & { entry: WikiEntry }) {
       <h2>Rename entry</h2>
       <label className="field">Entry name<input name="name" defaultValue={entry.name} maxLength={100} required /></label>
       <Actions {...actions} submit="Save name" />
+    </form>
+  )
+}
+
+function VariantOriginForm({ entry, entries, originId, ...actions }: EntryFormProps & { originId?: string }) {
+  return (
+    <form className="wiki-form" aria-label="Edit variant relationship" onSubmit={(event) => {
+      event.preventDefault()
+      const origin = new FormData(event.currentTarget).get('variant_of_id')
+      actions.onSave({ op: 'set_variant_origin', entry_id: entry.id, variant_of_id: String(origin ?? '') || null })
+    }}>
+      <h2>Edit variant relationship</h2>
+      <p className="muted">{entry.name} keeps its own article, facts and event history.</p>
+      <EntryPicker name="variant_of_id" label="Variant of" initial={originId} required={false}
+        entries={entries.filter((candidate) => isWikiActor(candidate) && candidate.id !== entry.id)} />
+      <Actions {...actions} submit="Save variant relationship" />
     </form>
   )
 }

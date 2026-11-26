@@ -211,6 +211,7 @@ class WikiEntry(CreatedRecord):
     overview = models.CharField(max_length=1500, blank=True, default="")
     article_sections = models.JSONField(default=list, db_default=models.Value([], output_field=models.JSONField()), blank=True)
     catalog_type = models.CharField(max_length=12, choices=CatalogType, blank=True, default="")
+    variant_of = models.ForeignKey("self", on_delete=models.RESTRICT, null=True, blank=True, related_name="variants")
     author_only = models.BooleanField(default=False)
 
     class Meta:
@@ -219,6 +220,12 @@ class WikiEntry(CreatedRecord):
             models.CheckConstraint(
                 condition=models.Q(catalog_type="") | models.Q(kind="item", catalog_type="vehicle"),
                 name="wiki_entry_catalog_type_matches_kind",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(variant_of__isnull=True) | (
+                    models.Q(kind__in=("person", "organism")) & ~models.Q(id=models.F("variant_of_id"))
+                ),
+                name="wiki_entry_actor_variant",
             ),
         ]
 

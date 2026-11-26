@@ -191,9 +191,12 @@ function Family({ family, display, onEdit }: {
   )
 }
 
-function ArticleOverview({ article, display }: { article: WikiArticle; display: Display }) {
+function ArticleOverview({ article, display, onEditVariant }: {
+  article: WikiArticle; display: Display; onEditVariant?: () => void
+}) {
   const { view } = display
   const sections = article.sections ?? []
+  const variants = article.variant_ids ?? []
   const identityFields = ['birth_tick', 'death_tick', 'birthplace', 'origin', 'creation_tick', 'destruction_tick']
   const identity = identityFields.flatMap((key) => {
     const records = article.assertions?.filter((fact) => fact.field === key) ?? []
@@ -206,6 +209,9 @@ function ArticleOverview({ article, display }: { article: WikiArticle; display: 
         <h3>At a glance</h3>
         <dl>
           <div><dt>Type</dt><dd>{entryLabel(article.entry)}</dd></div>
+          {article.variant_of_id && <div>
+            <dt>Variant of</dt><dd><EntryReference {...display} id={article.variant_of_id} at={null} /></dd>
+          </div>}
           {identity.map((fact) => <div key={fact.id}>
             <dt>{fieldLabel(view, fact.field, article.entry.kind)}</dt>
             <dd><ValueText {...display} field={fact.field} value={fact.value} unit={fact.unit} />
@@ -213,6 +219,9 @@ function ArticleOverview({ article, display }: { article: WikiArticle; display: 
             </dd>
           </div>)}
         </dl>
+        {onEditVariant && <button className="button secondary" type="button" onClick={onEditVariant}>
+          Edit variant relationship
+        </button>}
       </aside>}
       <div className="wiki-article-prose">
         {article.overview ? <p className="wiki-prose wiki-lead">{article.overview}</p>
@@ -228,6 +237,10 @@ function ArticleOverview({ article, display }: { article: WikiArticle; display: 
           <h3>{item.heading}</h3>
           {item.body && <p className="wiki-prose">{item.body}</p>}
         </section>)}
+        {variants.length > 0 && <section className="wiki-prose-section" aria-label="Character variants">
+          <h3>Character variants</h3>
+          <ul>{variants.map((id) => <li key={id}><EntryReference {...display} id={id} at={null} /></li>)}</ul>
+        </section>}
       </div>
     </div>
   )
@@ -291,7 +304,9 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
       {article.entry.classification_needs_review && <p className="notice wiki-message">
         Review this item's dated vehicle classifications in History.
       </p>}
-      {!history && !view.viewpoint && <ArticleOverview article={article} display={display} />}
+      {!history && !view.viewpoint && <ArticleOverview article={article} display={display}
+        onEditVariant={edit && isWikiActor(article.entry)
+          ? () => edit({ kind: 'variant-origin', originId: article.variant_of_id ?? undefined }) : undefined} />}
       {!view.viewpoint && (!history || !article.image_map) && mapPanel}
       {(history || view.viewpoint) && historyControls}
       {!view.viewpoint && history && (

@@ -319,6 +319,12 @@ def _author_article(entry, at, identity):
         image_map = describe_image_map(entry)
         if image_map is not None:
             article["image_map"] = image_map
+    if entry.kind in ACTORS:
+        article["variant_of_id"] = str(entry.variant_of_id) if entry.variant_of_id else None
+        article["variant_ids"] = [
+            str(entry_id) for entry_id in entry.variants.filter(wiki_id=entry.wiki_id, kind__in=ACTORS)
+            .order_by("name", "id").values_list("id", flat=True)
+        ]
     if at is None:
         return article
     values = effective_values(entry, facts, at)
