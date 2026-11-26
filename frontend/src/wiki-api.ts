@@ -140,6 +140,12 @@ export type WikiImageMap = {
 }
 export type WikiArticleSection = { id: string; heading: string; body: string }
 export type WikiDiscovery = { observer_id: string; learned_at: number; source: string }
+export type WikiEventReport = {
+  id: string; event_id?: string; observer_id: string; title: string; account: string; source: string
+  learned_at: number; reported_tick: number | null; earliest_tick: number | null; latest_tick: number | null
+  known_entry_ids: string[]; author_only?: boolean
+}
+type EventReportInput = Omit<WikiEventReport, 'id' | 'event_id'> & { event_id: string }
 export type WikiWorldHome = { introduction: string; cover_map_id: string | null; featured: WikiEntry[] }
 export type WikiArticle = {
   entry: WikiEntry
@@ -178,6 +184,7 @@ export type WikiView = {
   world_home?: WikiWorldHome
   home_cover_ids?: string[]
   article: WikiArticle | null; can_edit?: boolean; edit_counter?: number
+  event_reports?: WikiEventReport[]
   timeline?: WikiEvent[]
   days_per_year?: number | null
 }
@@ -218,6 +225,7 @@ export type WikiCommand =
   | { op: 'update_world_introduction'; introduction: string }
   | { op: 'update_world_home'; introduction: string; cover_map_id: string | null; featured_entry_ids: string[] }
   | ({ op: 'set_discovery'; entry_id: string; learned_at: number | null } & Pick<WikiDiscovery, 'observer_id' | 'source'>)
+  | (EventReportInput & ({ op: 'record_event_report' } | { op: 'correct_event_report'; report_id: string }))
   | { op: 'update_article_sections'; entry_id: string; sections: WikiArticleSection[] }
   | ({ op: 'record_fact'; from_tick: number; until_tick: number | null; source: string; citation_id?: string | null } & FieldChange)
   | { op: 'correct_fact'; assertion_id: string; value: WikiValue; source?: string; citation_id?: string | null; author_only?: boolean; bind_unit?: boolean }

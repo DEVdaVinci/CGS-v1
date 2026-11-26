@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { canPerformEvent, type WikiEntry, type WikiEvent, type WikiField, type WikiValue } from './wiki-api'
+import { useEffect, useState, type ReactNode } from 'react'
+import { canPerformEvent, type WikiEntry, type WikiEvent, type WikiEventReport, type WikiField, type WikiValue } from './wiki-api'
 import { formatFieldValue, type ArticleEdit } from './wiki-forms'
 import { WorkspaceLink } from './home-masthead'
 
@@ -11,6 +11,7 @@ export type TimelineEdit =
 type TimelineProps = {
   events: WikiEvent[]; entries: WikiEntry[]; fields: WikiField[]; currentEvent?: string
   enclosing?: WikiEvent[]
+  reports?: WikiEventReport[]
   eventTime?: string
   onEventTimeChange?: (time: string) => void
   onOpen?: (id: string, at: number | null) => void
@@ -46,8 +47,60 @@ function dateLabel(event: WikiEvent) {
   return start === end ? 'Time ' + start : 'Time ' + start + ' to ' + end
 }
 
+function reportDate(report: WikiEventReport) {
+  if (report.reported_tick !== null) return 'Reported time ' + report.reported_tick
+  if (report.earliest_tick !== null) return 'Reported between time ' + report.earliest_tick + ' and ' + report.latest_tick
+  return 'Reported date unknown'
+}
+
+function EventReportList({ reports, linked, onCorrect }: {
+  reports: WikiEventReport[]
+  linked: (id: string) => ReactNode
+  onCorrect?: (report: WikiEventReport) => void
+}) {
+  return <ul className="wiki-records">{reports.map((report) => (
+    <li className="wiki-record" key={report.id}>
+      <article aria-label={report.title}>
+        <header className="wiki-card-heading">
+          <div>
+            <strong>{report.title}</strong>
+            <p className="muted">Learned at time {report.learned_at} · {reportDate(report)}</p>
+          </div>
+          {onCorrect && <button type="button" className="button secondary" onClick={() => onCorrect(report)}>
+            Correct character report
+          </button>}
+        </header>
+        {report.event_id && <p>Learned by {linked(report.observer_id)}{report.author_only && ' · Withheld from character view'}</p>}
+        {report.account && <p className="wiki-prose">{report.account}</p>}
+        {report.source && <p><strong>How they learned it</strong> {report.source}</p>}
+        {report.known_entry_ids.length > 0 && <dl className="wiki-event-roles"><div>
+          <dt>Known articles</dt>
+          <dd>{report.known_entry_ids.map((id) => <span key={id}>{linked(id)}</span>)}</dd>
+        </div></dl>}
+      </article>
+    </li>
+  ))}</ul>
+}
+
+export function CharacterEventReports({ reports, entries, at, entryHref, onOpen }: {
+  reports: WikiEventReport[]; entries: WikiEntry[]; at: number | null
+  entryHref: TimelineProps['entryHref']; onOpen: TimelineProps['onOpen']
+}) {
+  const directory = new Map(entries.map((entry) => [entry.id, entry.name]))
+  return <section className="wiki-timeline" aria-label="Character event reports">
+    <h2>Character event reports</h2>
+    {reports.length === 0 ? <p className="muted">No event reports learned by this time.</p> : (
+      <EventReportList reports={reports} linked={(id) => {
+        const name = directory.get(id)
+        return onOpen && name ? <WorkspaceLink className="wiki-reference" href={entryHref(id, at)}
+          onFollow={() => onOpen(id, at)}>{name}</WorkspaceLink> : <span>{name ?? 'Unavailable entry'}</span>
+      }} />
+    )}
+  </section>
+}
+
 export function WikiTimeline({
-  events, enclosing, entries, fields, currentEvent, eventTime = '', onEventTimeChange, onOpen, entryHref, onFocus, onEdit, onCorrectDate,
+  events, enclosing, entries, fields, currentEvent, eventTime = '', reports = [], onEventTimeChange, onOpen, entryHref, onFocus, onEdit, onCorrectDate,
 }: TimelineProps) {
   const title = enclosing ? 'Dated events' : 'World timeline'
   const allEvents = enclosing ? [...events, ...enclosing] : events
@@ -61,6 +114,13 @@ export function WikiTimeline({
   const index = new Map(allEvents.map((event) => [event.id, event]))
   const directory = new Map(entries.map((entry) => [entry.id, entry]))
   const definitions = new Map(fields.map((field) => [field.key, field]))
+  const reportsByEvent = new Map<string, WikiEventReport[]>()
+  for (const report of reports) {
+    if (!report.event_id) continue
+    const siblings = reportsByEvent.get(report.event_id) ?? []
+    siblings.push(report)
+    reportsByEvent.set(report.event_id, siblings)
+  }
   const selected = currentEvent ? index.get(currentEvent) : undefined
   const activePath = selected ? new Set(ancestors(selected, index).map((group) => group.id)) : new Set<string>()
   const filtered = Boolean(person || place || era || eventTime !== '')
@@ -155,6 +215,7 @@ export function WikiTimeline({
     const group = event.node_kind === 'group'
     const open = filtered || expanded.has(event.id) || activePath.has(event.id)
     const path = ancestors(event, index)
+    const eventReports = reportsByEvent.get(event.id)
     return (
       <article key={event.id} className="wiki-timeline-card" id={'wiki-event-' + event.id}
         aria-label={event.name} data-selected={currentEvent === event.id || undefined}
@@ -181,6 +242,7 @@ export function WikiTimeline({
               <button type="button" className="button secondary" onClick={() => onEdit({ kind: 'edit-event', event })}>Edit details</button>
               <button type="button" className="button secondary" onClick={() => onEdit({ kind: 'organize', event })}>Move or reorder</button>
               {!group && time !== null && <button type="button" className="button secondary" onClick={() => onEdit({ kind: 'correct-date', event })}>Correct event date</button>}
+              <button type="button" className="button secondary" onClick={() => onEdit({ kind: 'event-report', event })}>Record character report</button>
             </>}
             {onCorrectDate && !group && time !== null && <button type="button" className="button secondary"
               onClick={() => onCorrectDate(event)}>Correct event date</button>}
@@ -236,6 +298,11 @@ export function WikiTimeline({
         </section>}
         {event.citation_id && <p className="wiki-event-source">Source article {linked(event.citation_id, null)}</p>}
         {event.source && <p className="muted wiki-event-source">Source: {event.source}</p>}
+        {eventReports && <section className="wiki-event-effects" aria-label="Character reports">
+          <h5>Character reports</h5>
+          <EventReportList reports={eventReports} linked={(id) => linked(id, null)}
+            onCorrect={onEdit && ((report) => onEdit({ kind: 'event-report', event, report }))} />
+        </section>}
       </article>
     )
   }

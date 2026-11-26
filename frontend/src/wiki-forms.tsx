@@ -2,7 +2,7 @@ import { type FormEvent, useEffect, useState } from 'react'
 import {
   canPerformEvent, causalPhases, formatTimeWindow, getWiki, isWikiActor, type CausalPhase, type EventDatePrecision,
   type WikiArticleSection, type WikiAssertion, type WikiCausalAccount, type WikiClaim, type WikiCommand, type WikiDiscovery, type WikiEntry, type WikiEvent,
-  type WikiEntryTemplate, type WikiField, type WikiKind, type WikiLearnedAbility, type WikiObservation, type WikiProposition, type WikiValue,
+  type WikiEntryTemplate, type WikiEventReport, type WikiField, type WikiKind, type WikiLearnedAbility, type WikiObservation, type WikiProposition, type WikiValue,
 } from './wiki-api'
 import { DistributionInput, formatDistribution } from './wiki-distribution'
 
@@ -44,6 +44,7 @@ export type ArticleEdit =
   | { kind: 'observe'; source: WikiAssertion | WikiClaim; sourceKind: 'assertion' | 'claim' }
   | { kind: 'proposition'; record?: WikiProposition }
   | { kind: 'causal-account'; account?: WikiCausalAccount }
+  | { kind: 'event-report'; event: WikiEvent; report?: WikiEventReport }
 
 export type FormActions = { onSave: (command: WikiCommand) => void; onCancel: () => void; busy: boolean }
 type EntryFormProps = FormActions & {
@@ -759,6 +760,7 @@ export function WikiEditForm({ edit, overview, sections, propositions, ...props 
   if (edit.kind === 'correct-claim') return <CanonicalForm {...props} mode="correct-claim" claim={edit.claim} />
   if (edit.kind === 'proposition') return <PropositionForm {...props} record={edit.record} />
   if (edit.kind === 'causal-account') return <CausalAccountForm {...props} account={edit.account} propositions={propositions ?? []} />
+  if (edit.kind === 'event-report') return <WikiEventReportForm {...props} event={edit.event} report={edit.report} />
   return <CanonicalForm {...props} mode={edit.kind} initialField={edit.kind === 'fact' ? edit.field : undefined} />
 }
 
@@ -936,6 +938,55 @@ function CausalAccountForm({ entry, entries, fields, at, account, propositions, 
     </fieldset>
     <label className="wiki-checkbox"><input type="checkbox" name="author_only" defaultChecked={account?.author_only} /> Author only</label>
     <Actions {...actions} submit="Save causal account" />
+  </form>
+}
+
+export function WikiEventReportForm({ event, report, entries, at, ...actions }: FormActions & {
+  event: WikiEvent; report?: WikiEventReport; entries: WikiEntry[]; at: number | null
+}) {
+  const title = report ? 'Correct character report' : 'Record character report'
+  const [precision, setPrecision] = useState<EventDatePrecision>(
+    report?.reported_tick != null ? 'exact' : report?.earliest_tick != null ? 'bounded' : 'unknown',
+  )
+  return <form className="wiki-form" aria-label={title} onSubmit={(submission) => {
+    submission.preventDefault()
+    const values = new FormData(submission.currentTarget)
+    const details = {
+      event_id: event.id, observer_id: String(values.get('observer')),
+      title: String(values.get('title')), account: String(values.get('account') ?? ''), source: String(values.get('source') ?? ''),
+      learned_at: Number(values.get('learned_at')), author_only: values.has('author_only'),
+      reported_tick: optionalTime(values, 'reported_tick'),
+      earliest_tick: optionalTime(values, 'earliest_tick'), latest_tick: optionalTime(values, 'latest_tick'),
+      known_entry_ids: values.getAll('known_entries').map(String),
+    }
+    actions.onSave(report
+      ? { ...details, op: 'correct_event_report', report_id: report.id }
+      : { ...details, op: 'record_event_report' })
+  }}>
+    <h2>{title}</h2>
+    <p className="muted">Source event {event.name}</p>
+    <EntryPicker label="Character" name="observer" entries={entries.filter(isWikiActor)} initial={report?.observer_id} />
+    <label className="field">Report title<input name="title" maxLength={120} defaultValue={report?.title} required /></label>
+    <label className="field">What they learned<textarea name="account" maxLength={1500} rows={4} defaultValue={report?.account} /></label>
+    <label className="field">How they learned it<input name="source" maxLength={500} defaultValue={report?.source} /></label>
+    <TimeInput name="learned_at" label="Learned at" day={report?.learned_at ?? at} />
+    <label className="field">Reported date precision
+      <select value={precision} onChange={(update) => setPrecision(update.target.value as EventDatePrecision)}>
+        <option value="unknown">Unknown date</option><option value="exact">Exact date</option><option value="bounded">Bounded date</option>
+      </select>
+    </label>
+    {precision === 'exact' && <TimeInput name="reported_tick" label="Reported time" day={report?.reported_tick} />}
+    {precision === 'bounded' && <div className="wiki-form-row">
+      <TimeInput name="earliest_tick" label="Earliest reported time" day={report?.earliest_tick} />
+      <TimeInput name="latest_tick" label="Latest reported time" day={report?.latest_tick} />
+    </div>}
+    <EntryChoices label="Articles explicitly disclosed" name="known_entries" initial={report?.known_entry_ids ?? []}
+      entries={entries.map((entry) => ({ id: entry.id, name: entry.name + (entry.author_only ? ' (author only)' : '') }))} />
+    <label className="wiki-checkbox"><input type="checkbox" name="author_only" defaultChecked={report?.author_only} />
+      Withhold from character view
+    </label>
+    {entries.some((entry) => entry.author_only) && <p className="muted">Withhold reports that link to author-only articles.</p>}
+    <Actions {...actions} submit="Save character report" />
   </form>
 }
 

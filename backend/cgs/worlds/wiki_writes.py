@@ -8,7 +8,7 @@ from cgs.api import CgsError, resource_unavailable
 
 from .drafts import _scoped_read
 from .models import (
-    MutationReceipt, WikiAssertion, WikiCausalAccount, WikiCausalTerm, WikiClaim, WikiDiscovery, WikiEntry, WikiEvent, WikiEventLink,
+    MutationReceipt, WikiAssertion, WikiCausalAccount, WikiCausalTerm, WikiClaim, WikiDiscovery, WikiEntry, WikiEvent, WikiEventLink, WikiEventReport,
     WikiFinding, WikiLearnedAbility, WikiMapImage, WikiObservation, WikiProposition, WikiWorld, World,
 )
 from .services import digest_json
@@ -471,6 +471,29 @@ def _record_observation(wiki, command):
     return observation.pk, set()
 
 
+def _save_event_report(wiki, command):
+    event = _in_world(WikiEvent.objects.filter(wiki=wiki), command["event_id"])
+    observer = _actor_for(wiki, command["observer_id"])
+    existing = command.get("report_id")
+    report = _in_world(WikiEventReport.objects.filter(event=event), existing) if existing else WikiEventReport(event=event)
+    reported, first, last = command["reported_tick"], command["earliest_tick"], command["latest_tick"]
+    if ((first is None) != (last is None)) or (first is not None and (reported is not None or last < first)):
+        reject("INVALID_REPORT_DATE", "Choose an exact date, two ordered dates, or an unknown date.")
+    entries = [entry_for(wiki, entry_id) for entry_id in dict.fromkeys(command["known_entry_ids"])]
+    if not command["author_only"] and any(entry.author_only for entry in entries):
+        reject("PRIVATE_EVIDENCE", "Choose disclosed articles or withhold this report from character view.")
+
+    report.observer = observer
+    report.title = _named(command["title"])
+    report.account, report.source = command["account"], command["source"]
+    report.learned_at = command["learned_at"]
+    report.reported_tick, report.earliest_tick, report.latest_tick = reported, first, last
+    report.author_only = command["author_only"]
+    report.save()
+    report.known_entries.set(entries)
+    return report.pk, set()
+
+
 def _save_proposition(wiki, command):
     holder = entry_for(wiki, command["holder_id"])
     if holder.kind not in (*ACTORS, "goal", "milestone"):
@@ -595,6 +618,8 @@ OPERATIONS = {
     "record_claim": _record_claim,
     "correct_claim": _correct_claim,
     "record_observation": _record_observation,
+    "record_event_report": _save_event_report,
+    "correct_event_report": _save_event_report,
     "record_proposition": _save_proposition,
     "correct_proposition": _save_proposition,
     "record_causal_account": _save_causal_account,

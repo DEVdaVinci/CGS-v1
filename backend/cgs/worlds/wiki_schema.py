@@ -646,6 +646,26 @@ class RecordObservation(StrictSerializer):
     about_tick = ExactClock(required=False)
 
 
+class RecordEventReport(StrictSerializer):
+    op = serializers.ChoiceField(choices=("record_event_report",))
+    event_id = WikiRef()
+    observer_id = WikiRef()
+    title = TextField(max_length=120)
+    account = TextField(max_length=1500, allow_blank=True, default="")
+    source = TextField(max_length=500, allow_blank=True, default="")
+    learned_at = ExactClock()
+    reported_tick = ExactClock(allow_null=True, default=None)
+    earliest_tick = ExactClock(allow_null=True, default=None)
+    latest_tick = ExactClock(allow_null=True, default=None)
+    author_only = serializers.BooleanField(default=False)
+    known_entry_ids = serializers.ListField(child=WikiRef(), max_length=40, default=list)
+
+
+class CorrectEventReport(RecordEventReport):
+    op = serializers.ChoiceField(choices=("correct_event_report",))
+    report_id = WikiRef()
+
+
 class RecordProposition(StateValue):
     op = serializers.ChoiceField(choices=("record_proposition",))
     holder_id = WikiRef()
@@ -782,6 +802,8 @@ COMMANDS = {
     "record_claim": RecordClaim,
     "correct_claim": CorrectClaim,
     "record_observation": RecordObservation,
+    "record_event_report": RecordEventReport,
+    "correct_event_report": CorrectEventReport,
     "record_proposition": RecordProposition,
     "correct_proposition": CorrectProposition,
     "record_causal_account": RecordCausalAccount,

@@ -6,11 +6,11 @@ import {
   type WikiArticle, type WikiAttempt, type WikiCommand, type WikiEntry, type WikiEntryTemplate, type WikiKind,
   type WikiFinding, type WikiLinkedFact, type WikiLocation, type WikiSection, type WikiValue, type WikiView,
 } from './wiki-api'
-import { formatFieldValue, kindLabel, type ArticleEdit, WikiCalendarForm, WikiEditForm, WikiEntryForm, WikiEventForm, WikiEvidenceForm } from './wiki-forms'
+import { formatFieldValue, kindLabel, type ArticleEdit, WikiCalendarForm, WikiEditForm, WikiEntryForm, WikiEventForm, WikiEventReportForm, WikiEvidenceForm } from './wiki-forms'
 import { WikiGroupForm, WikiOrganizeForm } from './wiki-event-outline'
 import { isLayoutEdit, WikiLayoutForm, WikiLayoutPanel, type LayoutEdit } from './wiki-layout'
 import { type MapView, WikiMapImageForm, WikiMapPanel } from './wiki-map'
-import { WikiTimeline, type TimelineEdit } from './wiki-timeline'
+import { CharacterEventReports, WikiTimeline, type TimelineEdit } from './wiki-timeline'
 import {
   entryLabel, sectionFor, sections, WikiDirectory, WikiHistoryControls, WikiHome, WikiIntroductionForm, WikiNavigation, WikiSearch,
 } from './wiki-workspace'
@@ -854,8 +854,9 @@ export function Wiki({ account, worldId, onAuthError }: {
           command.op === 'record_event' || command.op === 'record_event_group' || command.op === 'edit_event'
           || command.op === 'organize_event' || command.op === 'correct_event_date'
         )
+        const reportEvent = command.op === 'record_event_report' || command.op === 'correct_event_report' ? command.event_id : ''
         const history = pending.location.history || command.op === 'record_claim' || command.op === 'correct_claim'
-        navigate({ ...pending.location, at: savedTime, history, eventId: focusEvent ? saved.record_id : pending.location.eventId })
+        navigate({ ...pending.location, at: savedTime, history, eventId: focusEvent ? saved.record_id : reportEvent || pending.location.eventId })
       }
       setNotice('Wiki change saved.')
       setRefresh((previous) => previous + 1)
@@ -995,7 +996,9 @@ export function Wiki({ account, worldId, onAuthError }: {
                   {!editing && <details className="wiki-timeline-view" open={at !== null ? true : undefined}>
                     <summary>State and viewpoint</summary>
                     <WikiHistoryControls timeline location={location} entries={view.entries} viewpoint={view.viewpoint}
-                      disabled={navigationLocked} onChange={(time, observer) => navigate({ ...location, at: time, viewAs: observer })} />
+                      disabled={navigationLocked} onChange={(time, observer) => navigate({
+                        ...location, at: time, viewAs: observer, eventId: observer ? '' : location.eventId,
+                      })} />
                   </details>}
                   {editing?.kind === 'calendar' && <WikiCalendarForm {...actions} daysPerYear={view.days_per_year ?? null} />}
                   {(editing?.kind === 'new-event' || (editing?.kind === 'edit-event' && editing.event.node_kind !== 'group')) && (
@@ -1014,12 +1017,17 @@ export function Wiki({ account, worldId, onAuthError }: {
                   )}
                   {editing?.kind === 'organize' && <WikiOrganizeForm {...actions} event={editing.event} events={view.timeline ?? []} />}
                   {editing?.kind === 'correct-date' && <WikiEvidenceForm {...actions} edit={editing} entries={view.entries} at={view.at} />}
-                  {!editing && <WikiTimeline events={view.timeline ?? []} entries={view.entries} fields={view.fields}
-                    entryHref={entryHref}
-                    eventTime={eventTime} onEventTimeChange={setEventTime}
-                    currentEvent={location.eventId} onEdit={canBuild && !navigationLocked ? beginEdit : undefined}
-                    onFocus={(eventId) => navigate({ ...location, eventId })}
-                    onOpen={navigationLocked ? undefined : openEntry} />}
+                  {editing?.kind === 'event-report' && <WikiEventReportForm {...actions}
+                    event={editing.event} report={editing.report} entries={view.entries} at={view.at} />}
+                  {!editing && (view.viewpoint ? <CharacterEventReports reports={view.event_reports ?? []}
+                    entries={view.entries} at={view.at} entryHref={entryHref} onOpen={navigationLocked ? undefined : openEntry} /> : (
+                    <WikiTimeline events={view.timeline ?? []} entries={view.entries} fields={view.fields} reports={view.event_reports}
+                      entryHref={entryHref}
+                      eventTime={eventTime} onEventTimeChange={setEventTime}
+                      currentEvent={location.eventId} onEdit={canBuild && !navigationLocked ? beginEdit : undefined}
+                      onFocus={(eventId) => navigate({ ...location, eventId })}
+                      onOpen={navigationLocked ? undefined : openEntry} />
+                  ))}
                 </div>
               ) : (
                 <>

@@ -10,7 +10,7 @@ from django.utils import timezone
 from PIL import Image
 
 from .drafts import apply_draft_edits
-from .models import MutationReceipt, WikiEntry, WikiEvent, WikiFinding, WikiMapImage, WikiMapPin, WikiWorld, WorldAccess
+from .models import MutationReceipt, WikiEntry, WikiEvent, WikiEventReport, WikiFinding, WikiMapImage, WikiMapPin, WikiWorld, WorldAccess
 from .services import create_world, digest_json
 from .tests import SESSION, provision
 
@@ -732,6 +732,74 @@ class WikiTests(TransactionTestCase):
         self.assertEqual(self.values(milk, 12)["status"], "In cart")
         restricted = self.browser.get(self.path + "/timeline", {"at": 12, "view_as": mira}).json()
         self.assertEqual(restricted["timeline"], [])
+
+    def test_event_reports_scope_references_and_dates_independently_of_canonical_history(self):
+        observer = self.entry("Harbor witness", "person")
+        other = self.entry("Second witness", "organism")
+        disclosed = self.entry("North quay")
+        protected = self.entry("Sealed vault", author_only=True)
+        event = self.apply({
+            "op": "record_event", "name": "Vault seal opened", "tick": 7, "participant_ids": [other],
+            "place_ids": [protected], "changes": [{"entry_id": protected, "field": "status", "value": "Open"}],
+        })
+        command = {
+            "op": "record_event_report", "event_id": event, "observer_id": observer,
+            "title": "A lock broke", "account": "A gate jammed on the quay.", "source": "Message from a porter",
+            "learned_at": 8, "earliest_tick": 2, "latest_tick": 6, "known_entry_ids": [disclosed],
+        }
+        report_id = self.apply(command)
+        for invalid in [
+            {"earliest_tick": 9}, {"reported_tick": 4}, {"latest_tick": None},
+        ]:
+            response = self.post({**command, **invalid})
+            self.assertEqual(response.status_code, 422, response.json())
+            self.assertEqual(response.json()["field_errors"][0]["code"], "INVALID_REPORT_DATE")
+        private_message = {**command, "title": "Withheld details", "known_entry_ids": [protected]}
+        invalid_reference = self.post(private_message)
+        self.assertEqual(invalid_reference.json()["field_errors"][0]["code"], "PRIVATE_EVIDENCE")
+        withheld_id = self.apply({**private_message, "author_only": True})
+        self.assertEqual(WikiEventReport.objects.count(), 2)
+        stored = WikiEventReport.objects.get(pk=report_id)
+        self.assertEqual((str(stored.event_id), str(stored.observer_id), stored.learned_at), (event, observer, 8))
+        self.assertEqual([str(entry.pk) for entry in stored.known_entries.all()], [disclosed])
+
+        def timeline(at, viewer=None):
+            params = {"at": at, **({"view_as": viewer} if viewer else {})}
+            response = self.browser.get(self.path + "/timeline", params)
+            self.assertEqual(response.status_code, 200, response.json())
+            return response.json()
+
+        before = timeline(7, observer)
+        self.assertEqual(before["event_reports"], [])
+        self.assertEqual([entry["id"] for entry in before["entries"]], [observer])
+        learned = timeline(8, observer)
+        self.assertEqual(learned["timeline"], [])
+        self.assertEqual({entry["id"] for entry in learned["entries"]}, {observer, disclosed})
+        self.assertEqual(learned["event_reports"], [{
+            "id": report_id, "observer_id": observer, "title": "A lock broke", "account": command["account"],
+            "source": command["source"], "learned_at": 8, "earliest_tick": 2, "latest_tick": 6,
+            "reported_tick": None, "known_entry_ids": [disclosed],
+        }])
+        self.assertEqual(timeline(8, other)["event_reports"], [])
+        self.assertEqual(self.article(disclosed, 8, observer)["observations"], [])
+        self.assertEqual(
+            self.browser.get(self.path + "/entries/" + protected, {"at": 8, "view_as": observer}).status_code, 404,
+        )
+        author = timeline(8)
+        self.assertEqual(author["timeline"][0]["changes"][0]["value"], "Open")
+        self.assertEqual({report["id"]: report["event_id"] for report in author["event_reports"]},
+                         {report_id: event, withheld_id: event})
+
+        self.apply({"op": "edit_event", "event_id": event, "name": "Vault opened by the watch"})
+        self.assertEqual(timeline(8, observer), learned)
+        corrected_id = self.apply({
+            **command, "op": "correct_event_report", "report_id": report_id,
+            "title": "A gate jammed", "earliest_tick": None, "latest_tick": None, "reported_tick": 5,
+        })
+        self.assertEqual(corrected_id, report_id)
+        self.assertEqual(timeline(8, observer)["event_reports"][0]["reported_tick"], 5)
+        stored.refresh_from_db()
+        self.assertEqual((stored.title, stored.reported_tick, stored.earliest_tick), ("A gate jammed", 5, None))
 
     def test_dated_truth_and_scoped_evidence_stay_distinct_through_corrections(self):
         gate = self.entry("Cedar Gate")

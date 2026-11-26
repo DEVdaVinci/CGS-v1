@@ -7,7 +7,7 @@ from cgs.api import resource_unavailable
 
 from .drafts import _scoped_read
 from .models import (
-    WikiAssertion, WikiClaim, WikiDiscovery, WikiEntry, WikiEvent, WikiEventLink, WikiFinding,
+    WikiAssertion, WikiClaim, WikiDiscovery, WikiEntry, WikiEvent, WikiEventLink, WikiEventReport, WikiFinding,
     WikiLearnedAbility, WikiMapImage, WikiObservation, WikiWorld,
 )
 from .wiki import at_tick, can_edit, value_slot, visible_unit, wiki_access
@@ -78,9 +78,19 @@ def read_wiki_home(world_id, account_id):
         return {**_world_home(wiki), "can_edit": can_edit(membership)}
 
 
+def _visible_event_reports(observer, at):
+    return WikiEventReport.objects.filter(
+        event__wiki_id=observer.wiki_id, observer=observer, learned_at__lte=at, author_only=False,
+    )
+
+
 def _known_entries(observer, at):
     explicit = WikiDiscovery.objects.filter(observer=observer, learned_at__lte=at).values_list("subject_id", flat=True)
     known = {str(observer.pk), *(str(subject) for subject in explicit)}
+    disclosed = _visible_event_reports(observer, at).filter(
+        known_entries__wiki_id=observer.wiki_id, known_entries__author_only=False,
+    ).values_list("known_entries__pk", flat=True)
+    known.update(str(entry_id) for entry_id in disclosed)
     # A recorded observation can establish identity as well as a value. Admit
     # the evidence only when every identity it names is eligible for projection.
     evidence = []
@@ -157,6 +167,19 @@ def _serialize_observation(observation, *, author=False):
     if author:
         evidence["source_id"] = str(source.pk)
     return evidence
+
+
+def _serialize_event_report(report, *, author):
+    data = {
+        "id": str(report.pk), "observer_id": str(report.observer_id), "title": report.title,
+        "account": report.account, "source": report.source, "learned_at": report.learned_at,
+        "reported_tick": report.reported_tick, "earliest_tick": report.earliest_tick, "latest_tick": report.latest_tick,
+        "known_entry_ids": [str(entry.pk) for entry in report.known_entries.all()
+                            if entry.wiki_id == report.observer.wiki_id and (author or not entry.author_only)],
+    }
+    if author:
+        data.update(event_id=str(report.event_id), author_only=report.author_only)
+    return data
 
 
 def _last_sightings(entry, at, observations):
@@ -439,4 +462,9 @@ def read_wiki(world_id, account_id, at, observer_id=None, entry_id=None, *, time
             )
         if timeline:
             response["timeline"] = _serialize_events(WikiEvent.objects.filter(wiki_id=world_id)) if observer is None else []
+            reports = (_visible_event_reports(observer, at) if observer else WikiEventReport.objects.filter(event__wiki_id=world_id))
+            response["event_reports"] = [
+                _serialize_event_report(report, author=observer is None)
+                for report in reports.select_related("observer").prefetch_related("known_entries").order_by("learned_at", "id")
+            ]
         return response

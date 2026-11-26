@@ -416,6 +416,31 @@ class WikiEventLink(models.Model):
         ]
 
 
+class WikiEventReport(CreatedRecord):
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    event = models.ForeignKey(WikiEvent, on_delete=models.RESTRICT, related_name="character_reports")
+    observer = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, related_name="event_reports")
+    title = models.CharField(max_length=120)
+    account = models.CharField(max_length=1500, blank=True)
+    source = models.CharField(max_length=500, blank=True)
+    learned_at = models.PositiveBigIntegerField()
+    reported_tick = models.PositiveBigIntegerField(null=True)
+    earliest_tick = models.PositiveBigIntegerField(null=True)
+    latest_tick = models.PositiveBigIntegerField(null=True)
+    author_only = models.BooleanField(default=False)
+    known_entries = models.ManyToManyField(WikiEntry, related_name="event_report_mentions", blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["observer", "learned_at"], name="wiki_event_report_knowledge")]
+        constraints = [
+            models.CheckConstraint(condition=(
+                Q(earliest_tick__isnull=True, latest_tick__isnull=True)
+                | Q(reported_tick__isnull=True, earliest_tick__isnull=False, latest_tick__isnull=False,
+                    latest_tick__gte=F("earliest_tick"))
+            ), name="wiki_event_report_dates"),
+        ]
+
+
 class WikiLearnedAbility(CreatedRecord):
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     character = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, related_name="wiki_learned_abilities")
