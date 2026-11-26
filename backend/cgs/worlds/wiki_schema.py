@@ -15,6 +15,7 @@ DEFINITIONS = ("class", "species")
 ENTITY_KINDS = tuple(WikiEntry.Kind.values)
 VISUAL_ASSETS = ("image", "model_3d", "texture", "animation", "map")
 PHYSICAL_ENTITIES = (*ACTORS, *DEFINITIONS, "item", "place")
+RESOURCE_HOLDERS = (*ACTORS, "group", "place", "item")
 DECLARATION_KINDS = ("role", "status_def", "relation_def", "relation")
 NONLIVING = ("item", "place", "group", "culture", "territory", *VISUAL_ASSETS)
 LIFESPAN_START_FIELDS = {
@@ -26,7 +27,7 @@ MEASURED_FIELDS = (
     "resource_amount", "declared_reward", "declared_cost", "actual_rating", "physical_average", "physical_distribution",
     "power_average", "power_distribution",
     "processing_speed", "mental_bandwidth", "processing_efficiency", "processing_cost",
-    "processing_overload", "emotional_stress",
+    "processing_overload", "emotional_stress", "weight_measure", "movement_amount",
 )
 IDENTITY = "Identity and classification"
 PHYSICAL = "Physical traits and condition"
@@ -119,10 +120,16 @@ FIELDS = {
         WikiField("residence", "Residence", ACTORS, "reference", "place", section=SPATIAL),
         WikiField("destination", "Destination", ACTORS, "reference", "place", section=SPATIAL),
         WikiField("mass_kg", "Mass (kg)", PHYSICAL_ENTITIES, "decimal", section=PHYSICAL, inherited=True),
+        WikiField("weight_measure", "Weight", (*PHYSICAL_ENTITIES, "body_part"), "decimal", section=PHYSICAL,
+                  qualifier_kind="trait", qualifier_required=True, minimum=0),
         WikiField("physical_trait", "Physical trait", (*ACTORS, *DEFINITIONS), section=PHYSICAL,
                   qualifier_kind="trait", qualifier_required=True, inherited=True),
         WikiField("anatomy", "Body part", (*ACTORS, *DEFINITIONS), "reference", "body_part",
                   section=PHYSICAL, many=True, inherited=True),
+        WikiField("part_parent", "Enclosing body part", ("body_part",), "reference", "body_part",
+                  section=PHYSICAL, many=True, acyclic=True, inverse="Constituent body parts"),
+        WikiField("body_function", "Body function", (*ACTORS, *DEFINITIONS, "body_part"), "reference", "body_fn",
+                  section=PHYSICAL, many=True, inverse="Performs this function"),
         WikiField("condition", "Physical condition", ACTORS, section=PHYSICAL,
                   qualifier_kind="body_part", qualifier_required=True),
         WikiField("functionality", "Physical function", ACTORS, section=PHYSICAL,
@@ -201,6 +208,12 @@ FIELDS = {
                   targets=(*ACTORS, "group"), inverse="Owned items"),
         WikiField("possessor", "Possessor", ("item",), "reference", section=RESOURCES,
                   targets=(*ACTORS, "group"), inverse="Held items"),
+        WikiField("worn_by", "Worn by", ("item",), "reference", section=RESOURCES,
+                  targets=ACTORS, many=True, inverse="Worn items"),
+        WikiField("equipped_by", "Equipped by", ("item",), "reference", section=RESOURCES,
+                  targets=(*ACTORS, "item"), many=True, inverse="Equipped items"),
+        WikiField("carried_by", "Carried by", ("item",), "reference", section=RESOURCES,
+                  targets=(*ACTORS, "item"), many=True, inverse="Carried items"),
         WikiField("item_affiliation", "Related item", (*ACTORS, "group", "place"), "reference", "item",
                   section=RESOURCES, qualifier_kind="role", many=True, inverse="Related entries"),
         WikiField("item_container", "Contained in item", ("item",), "reference", "item",
@@ -211,6 +224,12 @@ FIELDS = {
                   section=RESOURCES, qualifier_kind="item", qualifier_required=True, inherited=True),
         WikiField("resource_amount", "Resource amount", (*ACTORS, "group"), "decimal",
                   section=RESOURCES, qualifier_kind="resource", qualifier_required=True),
+        WikiField("movement_sender", "From holder", ("resource_mv",), "reference", section=RESOURCES,
+                  targets=RESOURCE_HOLDERS, inverse="Outgoing resource movements"),
+        WikiField("movement_recipient", "To holder", ("resource_mv",), "reference", section=RESOURCES,
+                  targets=RESOURCE_HOLDERS, inverse="Incoming resource movements"),
+        WikiField("movement_amount", "Amount moved", ("resource_mv",), "decimal", section=RESOURCES,
+                  qualifier_kind="resource", qualifier_required=True, minimum=0),
         WikiField("unit", "Unit", ("resource", "trait"), section=RESOURCES),
         WikiField("image", "Image", ENTITY_KINDS, "reference", "image", section=VISUALS, many=True),
         WikiField("model_3d", "3D model", ENTITY_KINDS, "reference", "model_3d", section=VISUALS, many=True),

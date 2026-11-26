@@ -16,6 +16,7 @@ export const kindLabel: Record<WikiKind, string> = {
   requirement: 'Requirement', method: 'Method', status_def: 'Status definition',
   context: 'Capability context', relation_def: 'Relationship type', relation: 'Relationship',
   method_step: 'Method step',
+  body_fn: 'Body function', resource_mv: 'Resource movement',
 }
 
 export type ArticleEdit =
@@ -71,6 +72,8 @@ const initialKeys: Partial<Record<WikiKind, string[]>> = {
   milestone: ['milestone_goal', 'goal_mode', 'milestone_order', 'requirement_mode', 'status'],
   method: ['method_requirement', 'method_order', 'status'],
   method_step: ['step_method', 'step_order', 'step_subject', 'status'],
+  resource_mv: ['movement_sender', 'movement_recipient'],
+  body_part: ['part_parent', 'body_function'],
   role: ['role_duty', 'declared_authority', 'declared_limitation'],
   status_def: ['role_duty', 'declared_authority', 'declared_limitation'],
   context: ['context_actor', 'context_capability', 'context_circumstance', 'context_probability'],
@@ -153,7 +156,7 @@ export function WikiEntryForm({ fixedTemplate, chooser, entries, fields, ownerId
           />
         ))}
         {linkedFields.length > 0 && <details className="wiki-event-options">
-          <summary>Family and nationality</summary>
+          <summary>{kind === 'person' || kind === 'organism' ? 'Family and nationality' : 'Linked entries'}</summary>
           <div className="wiki-event-links">{linkedFields.map((field) => (
             <EntryChoices key={field.key} label={initialLabel(field)} name={field.key} initial={[]}
               entries={entries.filter((entry) => field.target_kinds.includes(entry.kind))} />

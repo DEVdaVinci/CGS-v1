@@ -457,3 +457,21 @@ Brainstorm p. 2 names body parts, bodily functions, weight, resource and financi
 | Manual resource movements | From **Definitions**, create a **Resource movement** whose dated source and destination holders use generic world entities. History records its **Amount moved** with a Resource and recorded unit and the existing citation field. This logs the author's statement about a transfer. The participants' balance facts remain separately authored until W2 validation and P2 execution can apply an approved transfer. | Reopen two resource movements with distinct resources and holders, past and later dates, sources and captured units. Verify the same movement from both holders and preserve independent balances. |
 
 The new physical and resource declarations share the existing typed command and report surfaces. Migration adds logical catalog choices and preserves saved values and identity. Broader anatomy templates and equipment catalogs remain tracked for W3.
+
+### Verification of physical authoring
+
+- Chrome followed a Body part from its enclosing part and opened its named Body function. It reopened an actor's assigned part, Mass and Weight. Django checked shared anatomy and function definitions for different actor kinds, a separately dated condition, preserved measured units, and rejection of a cycle or wrong function type.
+- Chrome reopened dated equipment from its borrower and followed a named Resource movement from both holders. Django checked former custody, unchanged ownership, worn, carried and equipped links, and separately sourced movements in water and credits. Recording those movements left the independently authored balances intact.
+- The isolated `index-B-VvfFaE.js` candidate passed 67 Django tests, 30 Chrome scenarios and the pending migration check. Migration 0024 preserved original fields and rows across 39 tables on a disposable PostgreSQL copy. The actual physical facts view was inspected after reload. Items 12, 14, 16 and 17 retain the remaining scope shown in the [inventory](CGS_Wiki_Current_Coverage.md).
+
+## Shared subgoals and authored motivations
+
+CGS p. 2 shows a common subgoal reused by multiple branches and a position within each branch. Brainstorm p. 2 assigns motivations, values and preferences to a character's goals and decisions. This pass addresses inventory items 37, 41 and 42 and CORE-16.
+
+| Concept | Browser, service and storage | Acceptance |
+| --- | --- | --- |
+| Shared subgoal | From a Goal **History**, record **Additional parent goal** and **Position within another goal** for the relevant plan. Existing **Parent goal** and its authored position keep their data. Each plan opens the same subgoal ID and shows its local position at the selected date. The generic typed writer validates cycles across the combined dated hierarchy. The same relationship shown via two authored links appears once in the parent view. | Link one goal to two plans, give it different positions, put it beside a competing sibling, and reopen both plans. Change the position in one plan without changing the other. Reject a cycle using both link types. Keep earlier dates readable. |
+| Actor values and preferences | Create a named **Value** and link it from an actor's History. A dated **Preference** links its holder, an optional preferred entry and an optional avoided entry. The two entries use the general Wiki identity types. The existing text fields remain usable for prose. | Reopen structured values and preferences with two different actor kinds and distinct dates. Confirm a temporary mood change leaves a longer-lived value intact. |
+| Motivation for a goal | Define **Motivation** with reusable text and explicit Value, Preference and subject links. A Goal or Goal milestone History can attach it at an authored date and reopen the same motivation. It records reasons without turning a desire into a canonical fact or measuring a person's response. | Link the same motivation to two goals, one aspiring to a state and another maintaining it. Reopen both goals and their cited rationale. Save opposing desired states without creating a canonical contradiction. |
+
+The new facts reuse the existing title, source, date and authorized history surfaces. Record authorable evaluation and goal progress as separate W2 and W3 acceptance.

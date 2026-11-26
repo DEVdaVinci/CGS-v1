@@ -201,6 +201,8 @@ class WikiEntry(CreatedRecord):
         RELATION_DEF = "relation_def", "Relationship type"
         RELATION = "relation", "Relationship"
         METHOD_STEP = "method_step", "Method step"
+        BODY_FUNCTION = "body_fn", "Body function"
+        RESOURCE_MOVEMENT = "resource_mv", "Resource movement"
 
     class CatalogType(models.TextChoices):
         VEHICLE = "vehicle", "Vehicle"

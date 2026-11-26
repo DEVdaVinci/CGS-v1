@@ -5,6 +5,7 @@ export type WikiKind = 'person' | 'place' | 'group' | 'class' | 'ability' | 'ite
   | 'image' | 'model_3d' | 'texture' | 'animation' | 'map' | 'territory' | 'era'
   | 'source' | 'process' | 'skill' | 'milestone'
   | 'requirement' | 'method' | 'method_step' | 'status_def' | 'context' | 'relation_def' | 'relation'
+  | 'body_fn' | 'resource_mv'
 export type WikiEntry = {
   id: string; name: string; kind: WikiKind; author_only?: boolean
   catalog_type?: 'vehicle'; classification_needs_review?: boolean

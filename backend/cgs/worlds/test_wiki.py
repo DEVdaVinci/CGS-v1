@@ -1375,6 +1375,77 @@ class WikiTests(TransactionTestCase):
         self.assertEqual(invalid.status_code, 422)
         self.assertEqual(self.values(relationship, 4)["relationship_type"], definition)
 
+    def test_anatomy_and_weight_keep_separate_definitions_state_and_units(self):
+        actor = self.entry("Surveyor", "person")
+        organism = self.entry("Mangrove climber", "organism")
+        limb = self.entry("Forelimb", "body_part")
+        hand = self.entry("Grasping fingers", "body_part")
+        grasping = self.entry("Grasping", "body_fn")
+        self.fact(hand, "part_parent", limb, 2)
+        self.fact(hand, "body_function", grasping, 2)
+        for subject in (actor, organism):
+            self.fact(subject, "anatomy", hand, 2)
+            self.fact(subject, "body_function", grasping, 2)
+        self.fact(organism, "part_function_pct", "72.5", 4, qualifier_id=hand)
+        self.assertEqual(self.values(organism, 4)["part_function_pct"], "72.5")
+        self.assertNotIn("part_function_pct", self.values(organism, 2))
+        self.assertEqual(self.values(hand, 4)["part_parent"], limb)
+        self.assertFalse(self.article(limb, 1)["incoming_links"])
+        self.assertEqual(self.article(limb, 2)["incoming_links"][0]["entry_id"], hand)
+        self.assertEqual({link["entry_id"] for link in self.article(grasping, 2)["incoming_links"]},
+                         {actor, hand, organism})
+        cycle = self.post({"op": "record_fact", "entry_id": limb, "field": "part_parent", "value": hand, "from_tick": 2})
+        self.assertEqual(cycle.json()["field_errors"][0]["code"], "RELATIONSHIP_CYCLE")
+        self.assertEqual(self.post({
+            "op": "record_fact", "entry_id": hand, "field": "body_function", "value": organism, "from_tick": 2,
+        }).status_code, 422)
+
+        scale = self.entry("Force gauge", "trait")
+        register = self.entry("Scale readings", "source")
+        self.fact(scale, "unit", "newtons")
+        self.fact(actor, "mass_kg", "70.5")
+        first = self.fact(actor, "weight_measure", "691", 2, until_tick=6, qualifier_id=scale, citation_id=register)
+        self.event("Change gauge units", 6, (scale, "unit", "pounds-force"))
+        self.fact(actor, "weight_measure", "155", 6, qualifier_id=scale)
+        latest = self.article(actor, 6)
+        historical = next(item for item in latest["assertions"] if item["id"] == first)
+        self.assertEqual((historical["value"], historical["unit"], historical["citation_id"]), ("691", "newtons", register))
+        self.assertEqual(self.values(actor, 6)["mass_kg"], "70.5")
+        self.assertEqual(next(item for item in latest["values"] if item["field"] == "weight_measure")["unit"], "pounds-force")
+
+    def test_item_use_and_resource_movements_are_dated_and_preserve_balances(self):
+        owner = self.entry("Survey company", "group")
+        borrower = self.entry("Surveyor", "person")
+        harness = self.entry("Survey harness", "item")
+        self.fact(harness, "owner", owner)
+        self.fact(harness, "possessor", owner)
+        self.event("Loan the harness", 5, (harness, "possessor", borrower), (harness, "equipped_by", borrower))
+        self.fact(harness, "worn_by", borrower, 5)
+        self.fact(harness, "carried_by", borrower, 5)
+        self.assertEqual(self.values(harness, 4)["possessor"], owner)
+        self.assertEqual(self.values(harness, 5)["owner"], owner)
+        self.assertEqual({link["field"] for link in self.article(borrower, 5)["incoming_links"]},
+                         {"possessor", "equipped_by", "worn_by", "carried_by"})
+        water = self.entry("Potable water", "resource")
+        credits = self.entry("Survey credits", "resource")
+        source = self.entry("Supply docket", "source")
+        self.fact(water, "unit", "liters")
+        self.fact(credits, "unit", "credits")
+        self.fact(owner, "resource_amount", "18", qualifier_id=water)
+        self.fact(borrower, "resource_amount", "40", qualifier_id=credits)
+        for resource, unit, start in ((water, "liters", 6), (credits, "credits", 7)):
+            movement = self.entry("Delivery at " + str(start), "resource_mv")
+            self.fact(movement, "movement_sender", owner, start)
+            self.fact(movement, "movement_recipient", borrower, start)
+            amount_id = self.fact(movement, "movement_amount", "2.5", start, qualifier_id=resource, citation_id=source)
+            self.assertFalse(any(link["entry_id"] == movement for link in self.article(owner, start - 1)["incoming_links"]))
+            for holder in (owner, borrower):
+                self.assertTrue(any(link["entry_id"] == movement for link in self.article(holder, start)["incoming_links"]))
+            amount = next(item for item in self.article(movement, start)["assertions"] if item["id"] == amount_id)
+            self.assertEqual((amount["value"], amount["unit"], amount["citation_id"]), ("2.5", unit, source))
+        self.assertEqual(self.values(owner, 7)["resource_amount"], "18")
+        self.assertEqual(self.values(borrower, 7)["resource_amount"], "40")
+
     def test_uncertain_claim_and_correction_preserve_learned_evidence(self):
         harbor = self.entry("Harbor")
         observer = self.entry("Records clerk", "person")
