@@ -207,6 +207,7 @@ class WikiEntry(CreatedRecord):
         PREFERENCE = "preference", "Preference"
         MOTIVATION = "motivation", "Motivation"
         BEHAVIOR = "behavior", "Behavior"
+        RELATIONSHIP_TERM = "rel_term", "Term set"
 
     class CatalogType(models.TextChoices):
         VEHICLE = "vehicle", "Vehicle"

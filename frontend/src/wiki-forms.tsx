@@ -18,7 +18,7 @@ export const kindLabel: Record<WikiKind, string> = {
   method_step: 'Method step',
   body_fn: 'Body function', resource_mv: 'Resource movement',
   value_def: 'Value', preference: 'Preference', motivation: 'Motivation',
-  behavior: 'Behavior',
+  behavior: 'Behavior', rel_term: 'Term set',
 }
 
 export function formatFieldValue(field: WikiField | undefined, value: WikiValue) {
@@ -108,6 +108,7 @@ const initialKeys: Partial<Record<WikiKind, string[]>> = {
     'first_party_limit', 'second_party_limit', 'role_duty',
   ],
   relation: ['relationship_type', 'first_party', 'second_party', 'first_party_role', 'second_party_role'],
+  rel_term: ['term_for', 'term_party', 'acquire_requirement', 'retain_requirement', 'declared_capability', 'authority_scope'],
   source: ['source_medium', 'source_locator', 'source_excerpt', 'source_person'],
 }
 
@@ -181,7 +182,7 @@ export function WikiEntryForm({ fixedTemplate, chooser, entries, fields, ownerId
           <ValueInput
             key={field.key} field={field} entries={entries} entryId="" name={field.key}
             label={initialLabel(field)}
-            initial={field.key === 'goal_owner' ? ownerId : undefined}
+            initial={field.key === 'goal_owner' || field.key === 'term_for' ? ownerId : undefined}
             required={false}
           />
         ))}

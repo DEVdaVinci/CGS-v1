@@ -16,7 +16,7 @@ ENTITY_KINDS = tuple(WikiEntry.Kind.values)
 VISUAL_ASSETS = ("image", "model_3d", "texture", "animation", "map")
 PHYSICAL_ENTITIES = (*ACTORS, *DEFINITIONS, "item", "place")
 RESOURCE_HOLDERS = (*ACTORS, "group", "place", "item")
-DECLARATION_KINDS = ("role", "status_def", "relation_def", "relation")
+DECLARATION_KINDS = ("role", "status_def", "relation_def", "relation", "rel_term")
 RELATIONSHIP_ROLES = (
     ("first_party", "allowed_first_party_kind", "first_party_limit"),
     ("second_party", "allowed_second_party_kind", "second_party_limit"),
@@ -214,12 +214,17 @@ FIELDS = {
                   section=RELATIONSHIPS),
         WikiField("second_party_limit", "Second party's maximum active relationships", ("relation_def",), "integer",
                   section=RELATIONSHIPS),
+        WikiField("term_for", "Relationship or type", ("rel_term",), "reference", section=RELATIONSHIPS,
+                  targets=("relation", "relation_def"), inverse="Term sets"),
+        WikiField("term_party", "Applies to", ("rel_term",), section=RELATIONSHIPS,
+                  choices=("First party", "Second party", "Whole relationship")),
         WikiField("role_duty", "Duty or expectation", DECLARATION_KINDS, section=RELATIONSHIPS, many=True),
         WikiField("declared_authority", "Declared authority", DECLARATION_KINDS, section=RELATIONSHIPS, many=True),
         WikiField("authority_scope", "Where authority applies", DECLARATION_KINDS, "reference",
                   section=RELATIONSHIPS, targets=ENTITY_KINDS, many=True),
         WikiField("declared_capability", "Declared capability", DECLARATION_KINDS, "reference",
-                  section=RELATIONSHIPS, targets=("ability", "skill", "process"), many=True, inverse="Declared by"),
+                  section=RELATIONSHIPS, targets=("ability", "skill", "process", "behavior", "body_fn"),
+                  many=True, inverse="Declared by"),
         WikiField("declared_cost", "Declared cost", DECLARATION_KINDS, "decimal", section=RESOURCES,
                   qualifier_kind="resource", qualifier_required=True, minimum=0),
         WikiField("declared_reward", "Declared reward", DECLARATION_KINDS, "decimal", section=RESOURCES,

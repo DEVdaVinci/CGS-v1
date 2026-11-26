@@ -6,7 +6,7 @@ export type WikiKind = 'person' | 'place' | 'group' | 'class' | 'ability' | 'ite
   | 'source' | 'process' | 'skill' | 'milestone'
   | 'requirement' | 'method' | 'method_step' | 'status_def' | 'context' | 'relation_def' | 'relation'
   | 'body_fn' | 'resource_mv' | 'value_def' | 'preference' | 'motivation'
-  | 'behavior'
+  | 'behavior' | 'rel_term'
 export type WikiEntry = {
   id: string; name: string; kind: WikiKind; author_only?: boolean
   catalog_type?: 'vehicle'; classification_needs_review?: boolean
@@ -103,6 +103,7 @@ export type WikiLinkedFact = {
   id: string; entry_id: string; field: string; label: string; qualifier_id: string | null
   from_tick: number; until_tick: number | null; source: string
   order?: number | null; order_conflict?: boolean; order_shared?: boolean
+  party_scope?: string | null; scope_conflict?: boolean
 }
 export type WikiProposition = {
   id: string; holder_id: string; subject_id: string; kind: 'belief' | 'desired_state'

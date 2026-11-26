@@ -165,6 +165,17 @@ def incoming_links(entry, at):
         for fact in matches
         if FIELDS[fact.field].many or (fact.entry_id, fact.field, fact.qualifier_id) not in conflicts
     ]
+    term_links = [link for link in links if link["field"] == "term_for"]
+    if term_links:
+        scopes = defaultdict(set)
+        for term_id, scope in at_tick(WikiAssertion.objects.filter(
+            entry_id__in=[link["entry_id"] for link in term_links], field="term_party",
+        ), at).values_list("entry_id", "value"):
+            scopes[str(term_id)].add(scope)
+        for link in term_links:
+            scope = scopes[link["entry_id"]]
+            link["party_scope"] = next(iter(scope)) if len(scope) == 1 else None
+            link["scope_conflict"] = len(scope) > 1
     primary_subgoals = {link["entry_id"] for link in links if link["field"] == "parent_goal"}
     links = [link for link in links if link["field"] != "shared_parent_goal" or link["entry_id"] not in primary_subgoals]
     plan_entries = {link["entry_id"] for link in links if link["field"] in PLAN_ORDERS}

@@ -330,12 +330,13 @@ function ArticleOverview({ article, display, onEditVariant }: {
   )
 }
 
-function Article({ article, display, breadcrumbs, history, historyControls, onShowHistory, onShowOverview, onEdit, onTimeline, onGoal, onLayoutEdit, mapPanel }: {
+function Article({ article, display, breadcrumbs, history, historyControls, onShowHistory, onShowOverview, onEdit, onTimeline, onGoal, onTermSet, onLayoutEdit, mapPanel }: {
   article: WikiArticle; display: Display; onEdit?: (edit: ArticleEdit) => void
   breadcrumbs: ReactNode
   history: boolean; historyControls: ReactNode; onShowHistory: () => void; onShowOverview: () => void
   onTimeline: (eventId: string) => void
   onGoal: (ownerId: string) => void
+  onTermSet: (ownerId: string) => void
   onLayoutEdit?: (edit: LayoutEdit) => void
   mapPanel?: ReactNode
 }) {
@@ -376,6 +377,9 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
             <button className="button secondary" type="button" onClick={() => edit({ kind: 'fact' })}>Record fact</button>
             <button className="button secondary" type="button" onClick={() => edit({ kind: 'event' })}>Record dated change</button>
             <button className="button secondary" type="button" onClick={() => edit({ kind: 'claim' })}>Record claim</button>
+            {(article.entry.kind === 'relation' || article.entry.kind === 'relation_def') && (
+              <button className="button secondary" type="button" onClick={() => onTermSet(article.entry.id)}>New term set</button>
+            )}
             {!article.entry.author_only && view.entries.some((entry) => isWikiActor(entry) && entry.id !== article.entry.id) &&
               <button className="button secondary" type="button" onClick={() => edit({ kind: 'discovery' })}>Record discovery</button>}
           </div>
@@ -459,6 +463,7 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
                   <div><EntryReference {...display} id={link.entry_id} />
                     {link.qualifier_id && <> · <EntryReference {...display} id={link.qualifier_id} /></>}
                     <p className="muted">
+                      {link.field === 'term_for' && (link.scope_conflict ? 'Conflicting party scopes' : link.party_scope ?? 'Party scope unspecified') + ' · '}
                       {link.order_conflict ? 'Conflicting order · ' : link.order === null ? 'Order unspecified · '
                         : link.order !== undefined ? 'Position ' + link.order + ' · ' : ''}
                       {link.order_shared && 'Shared with another entry · '}
@@ -1079,6 +1084,7 @@ export function Wiki({ account, worldId, onAuthError }: {
                             navigate({ ...location, section: 'timeline', entryId: '', eventId })
                           }}
                           onGoal={(ownerId) => beginEdit({ kind: 'create', fixedTemplate: 'goal', ownerId })}
+                          onTermSet={(ownerId) => beginEdit({ kind: 'create', fixedTemplate: 'rel_term', ownerId })}
                           onLayoutEdit={canBuild ? beginEdit : undefined}
                           mapPanel={activeArticle.entry.kind === 'map' && <WikiMapPanel key={activeArticle.entry.id}
                             entry={activeArticle.entry} map={activeArticle.image_map} worldId={worldId} entries={view.entries}

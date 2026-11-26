@@ -675,6 +675,76 @@ class WikiTests(TransactionTestCase):
                          [("index units", first_source, 2, 5), ("index units", second_source, 5, None)])
         self.assertEqual(self.article(actor, 5)["incoming_links"][0]["entry_id"], context)
 
+    def test_relationship_terms_can_have_independent_scopes_dates_and_quantities(self):
+        from .models import WikiAssertion
+
+        maker = self.entry("Workshop cooperative", "group")
+        equipment = self.entry("Community bench", "item")
+        relationship_type = self.entry("Maintenance arrangement", "relation_def")
+        relationship = self.entry("Shared workbench", "relation")
+        first = self.entry("Workshop payments", "rel_term")
+        second = self.entry("Equipment upkeep", "rel_term")
+        default = self.entry("Standard upkeep policy", "rel_term")
+        acquire = self.entry("Signed agreement", "requirement")
+        retain = self.entry("Annual condition check", "requirement")
+        capability = self.entry("Access tool storage", "behavior")
+        article = self.entry("Workshop charter", "source")
+        budget = self.entry("Maintenance credit", "resource")
+        self.fact(budget, "unit", "credits")
+        self.fact(relationship, "relationship_type", relationship_type)
+        self.fact(relationship, "first_party", maker)
+        self.fact(relationship, "second_party", equipment)
+        self.fact(relationship, "declared_cost", "9", qualifier_id=budget)
+        self.fact(first, "term_for", relationship, 2, until_tick=8)
+        self.fact(first, "term_party", "First party", 2)
+        self.fact(first, "acquire_requirement", acquire, 2, citation_id=article)
+        self.fact(first, "retain_requirement", retain, 2, citation_id=article)
+        self.fact(first, "authority_scope", equipment, 2)
+        self.fact(first, "declared_capability", capability, 2)
+        self.fact(first, "declared_cost", "2", 2, until_tick=5, qualifier_id=budget)
+        self.fact(first, "declared_cost", "3.5", 5, qualifier_id=budget)
+        self.fact(second, "term_for", relationship, 4)
+        self.fact(second, "term_party", "Second party", 4)
+        self.fact(second, "declared_cost", "4", 4, qualifier_id=budget)
+        self.fact(second, "declared_reward", "6", 4, qualifier_id=budget)
+        self.fact(default, "term_for", relationship_type)
+        self.fact(default, "term_party", "Whole relationship")
+
+        def term_scopes(entry, time):
+            return {link["entry_id"]: link["party_scope"] for link in self.article(entry, time)["incoming_links"]
+                    if link["field"] == "term_for"}
+
+        self.assertEqual(term_scopes(relationship, 1), {})
+        self.assertEqual(term_scopes(relationship, 2), {first: "First party"})
+        self.assertEqual(term_scopes(relationship, 5), {first: "First party", second: "Second party"})
+        self.assertEqual(term_scopes(relationship, 8), {second: "Second party"})
+        self.assertEqual(term_scopes(relationship_type, 5), {default: "Whole relationship"})
+        self.assertEqual(self.values(relationship, 5)["declared_cost"], "9")
+        self.assertEqual(self.values(first, 4)["declared_cost"], "2")
+        self.assertEqual(self.values(first, 5)["declared_cost"], "3.5")
+        self.assertEqual(self.values(second, 5)["declared_cost"], "4")
+        self.assertEqual(self.values(second, 5)["declared_reward"], "6")
+        self.assertEqual(self.values(first, 5)["declared_capability"], capability)
+        self.assertEqual(self.values(first, 5)["authority_scope"], equipment)
+        requirements = WikiAssertion.objects.filter(entry_id=first, field__in=("acquire_requirement", "retain_requirement"))
+        self.assertEqual({(fact.field, fact.value, str(fact.citation_id)) for fact in requirements}, {
+            ("acquire_requirement", acquire, article), ("retain_requirement", retain, article),
+        })
+        for entry in (maker, equipment):
+            self.assertIn(relationship, {link["entry_id"] for link in self.article(entry, 5)["incoming_links"]})
+
+        _, another = create_world(self.owner.pk, uuid4(), "Foreign workshop")
+        foreign_world = WikiWorld.objects.create(world_id=another["world"]["id"])
+        foreign_relationship = WikiEntry.objects.create(wiki=foreign_world, name="Other agreement", kind="relation")
+        for bad_parent, code in ((equipment, "INVALID_REFERENCE"), (str(foreign_relationship.pk), "INVALID_ENTRY")):
+            response = self.post({
+                "op": "create_entry", "name": "Invalid set", "kind": "rel_term", "initial_at": 2, "initial_values": [
+                    {"field": "term_party", "value": "First party"}, {"field": "term_for", "value": bad_parent},
+                ],
+            })
+            self.assertEqual(response.json()["field_errors"][0]["code"], code)
+        self.assertFalse(WikiEntry.objects.filter(name="Invalid set").exists())
+
     def test_qualified_changes_and_inverse_ownership_are_independent(self):
         mira = self.entry("Mira", "person")
         borrower = self.entry("Ivo", "person")
