@@ -21,7 +21,19 @@ def event_bounds(event):
         if event.start_tick is None or event.end_tick is None:
             reject("EVENT_RANGE", "Give the event group both dates or let its dates follow its children.")
         start, end = event.start_tick, event.end_tick
+    elif event.date_precision == WikiEvent.Precision.UNKNOWN:
+        if any(value is not None for value in (event.tick, event.start_tick, event.end_tick)):
+            reject("EVENT_RANGE", "Leave all dates blank when the event date is unknown.")
+        return None
+    elif event.date_precision == WikiEvent.Precision.BOUNDED:
+        if event.tick is not None or event.start_tick is None or event.end_tick is None:
+            reject("EVENT_RANGE", "Enter the earliest and latest possible dates for this event.")
+        start, end = event.start_tick, event.end_tick
+        if start == end:
+            reject("EVENT_RANGE", "Use an exact date when the earliest and latest times are the same.")
     else:
+        if event.tick is None:
+            reject("EVENT_RANGE", "Enter the event's exact effective time.")
         start = event.tick if event.start_tick is None else event.start_tick
         end = start if event.end_tick is None else event.end_tick
     if not 0 <= start <= end <= MAX_CLOCK:

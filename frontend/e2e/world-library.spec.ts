@@ -39,6 +39,8 @@ test('signs in, creates and reopens a world, and hides it from another account',
   }
 
   await page.reload()
+  await page.getByRole('searchbox', { name: 'Find a world' }).fill(worldName)
+  await page.getByRole('searchbox', { name: 'Find a world' }).press('Enter')
   await expect(worldLink).toHaveCount(1)
   await worldLink.click()
   await expect(page.getByRole('heading', { name: worldName })).toBeVisible()
@@ -46,6 +48,19 @@ test('signs in, creates and reopens a world, and hides it from another account',
   await page.reload()
   await expect(page.getByRole('heading', { name: worldName })).toBeVisible()
   await expect(page.getByText('Owner', { exact: true })).toBeVisible()
+  await page.getByRole('link', { name: 'All worlds' }).click()
+  const search = page.getByRole('searchbox', { name: 'Find a world' })
+  await search.fill('no world with this title ' + crypto.randomUUID())
+  await search.press('Enter')
+  await expect(page.getByText('No worlds match your search.')).toBeVisible()
+  await search.fill(worldName)
+  await search.press('Enter')
+  await expect(page.getByRole('list', { name: 'Your worlds' }).getByRole('link')).toHaveCount(1)
+  const resume = page.getByRole('link', { name: 'Continue ' + worldName })
+  await expect(resume).toHaveAttribute('href', new URL(worldUrl).pathname)
+  await resume.click()
+  await expect(page.getByRole('heading', { name: worldName })).toBeVisible()
+  if (process.env.CGS_E2E_CAPTURE === '1') await page.screenshot({ path: info.outputPath('world-home-mobile.png'), fullPage: true })
 
   const other = await browser.newPage()
   try {
@@ -99,6 +114,8 @@ test('reuses the creation key after a lost response and a refresh', async ({ pag
   expect(keys[0]).toBeTruthy()
   expect(keys[1]).toBe(keys[0])
   await page.reload()
+  await page.getByRole('searchbox', { name: 'Find a world' }).fill(worldName)
+  await page.getByRole('searchbox', { name: 'Find a world' }).press('Enter')
   await expect(page.getByRole('link', { name: worldName, exact: true })).toHaveCount(1)
 })
 

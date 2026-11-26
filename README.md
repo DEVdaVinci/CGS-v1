@@ -17,7 +17,9 @@ docker compose exec api python manage.py createsuperuser
 
 Open [CGS](http://127.0.0.1:8000/), sign in, and select **Create world**. Open the world and select **Open Wiki**. Start from the overview or use the sidebar to reach **Characters**, **Places**, **Items**, **Vehicles**, **Maps**, or **Timeline**. On a narrow screen, open **Menu**.
 
-In **Build**, use **Search this world** to find an article by name. Use the section's creation button or **New entry**. An article's **Overview** holds its editable summary. Open **History** to inspect dated facts and events, choose a time or preview a character's knowledge. Add an effective date when recording a new fact. Open **Timeline** for events and calendar settings. **Maps** lists map references. For a measured room plan, open its place, choose a date in **History**, and use **Place layout**.
+In **Build**, use **Search this world** to find an article by name. Use the section's creation button or **New entry**. Open **History** to inspect dated facts and events, choose a time or preview a character's knowledge. Catalog links open **Overview**. Links from a dated event or fact open the applicable history. On **Timeline**, use **Filter events by time** to narrow the event list and **State and viewpoint** to choose the time for a character preview.
+
+In **Maps → New map**, enter a name and choose a PNG or JPEG. Open the map and select **Add pin**. Click the image to set the position or enter percentages, and optionally choose a **Linked place**. Select a saved pin to open its Place, edit it, or remove it. For a map reference already in the Wiki, open it and select **Attach map image**. The original locator is available in **History**. For a measured room plan, open its Place, choose a date in History, and use **Place layout**.
 
 The world page also offers **Edit draft** for the dungeon draft.
 
@@ -28,7 +30,7 @@ The world page also offers **Edit draft** for the dungeon draft.
 
 Use **Previous revision** to review an earlier snapshot. Use [Django admin](http://127.0.0.1:8000/admin/) to manage accounts.
 
-The Compose setup is for local development. It builds the browser app, starts PostgreSQL, and applies migrations before starting Django. Run `docker compose ps -a` to check startup. Expect `api` to be running, `db` to be healthy, and `migrate` to have exited with code 0. Run `docker compose down` to stop the services and retain the database volume.
+The Compose setup is for local development. It builds the browser app, starts PostgreSQL, and applies migrations before starting Django. Run `docker compose ps -a` to check startup. Expect `api` to be running, `db` to be healthy, and `migrate` to have exited with code 0. Run `docker compose down` to stop the services and retain the database and uploaded-map volumes.
 
 ## Alternative setup with native PostgreSQL 17
 
@@ -53,7 +55,7 @@ $env:CGS_DEBUG = '1'
 & ./.venv/Scripts/python.exe backend/manage.py runserver
 ```
 
-Run `createsuperuser` once for each fresh database. Open the same local CGS URL once Django is running.
+Run `createsuperuser` once for each fresh database. Open the same local CGS URL once Django is running. Native Django stores uploaded files in `backend/media` by default. Set `CGS_MEDIA_ROOT` to use a different local directory.
 
 ## Developer checks
 

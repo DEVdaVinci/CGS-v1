@@ -5,6 +5,8 @@
 !frontend/**
 **/.env
 **/.env.*
+backend/media/
+backend/media/**
 **/__pycache__/
 **/node_modules/
 **/dist/

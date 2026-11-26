@@ -7,13 +7,16 @@ from cgs.api import resource_unavailable
 
 from .drafts import _scoped_read
 from .models import (
-    WikiAssertion, WikiClaim, WikiEntry, WikiEvent, WikiEventLink, WikiFinding,
-    WikiLearnedAbility, WikiObservation, WikiWorld,
+    WikiAssertion, WikiClaim, WikiDiscovery, WikiEntry, WikiEvent, WikiEventLink, WikiEventReport, WikiFinding,
+    WikiLearnedAbility, WikiMapImage, WikiObservation, WikiWorld,
 )
-from .wiki import at_tick, can_edit, value_slot, wiki_access
+from .wiki import at_tick, can_edit, value_slot, visible_unit, wiki_access
 from .wiki_events import event_bounds
 from .wiki_layouts import place_layout
-from .wiki_records import derived_age, effective_values, family_links, incoming_links, observation_visible, propositions_for
+from .wiki_maps import describe_image_map
+from .wiki_records import (
+    causal_accounts_for, derived_age, effective_values, family_links, incoming_links, observation_visible, propositions_for,
+)
 from .wiki_schema import ACTORS, FIELDS, NONLIVING
 
 
@@ -54,6 +57,71 @@ def search_wiki(world_id, account_id, query):
         return {"entries": list(_describe_catalog(directory, list(directory)).values())}
 
 
+def _world_home(wiki):
+    if wiki is None:
+        return {"introduction": "", "cover_map_id": None, "featured": []}
+    directory = WikiEntry.objects.filter(wiki=wiki, author_only=False, pk__in=wiki.featured_entry_ids)
+    featured = _describe_catalog(directory, list(directory))
+    cover = WikiMapImage.objects.filter(wiki=wiki, entry_id=wiki.cover_map_id, entry__author_only=False).first()
+    return {
+        "introduction": wiki.introduction,
+        "cover_map_id": str(cover.entry_id) if cover else None,
+        "featured": [featured[key] for key in wiki.featured_entry_ids if key in featured],
+    }
+
+
+def read_wiki_home(world_id, account_id):
+    with transaction.atomic():
+        _scoped_read()
+        membership = wiki_access(world_id, account_id)
+        wiki = WikiWorld.objects.filter(world_id=world_id).first()
+        return {**_world_home(wiki), "can_edit": can_edit(membership)}
+
+
+def _visible_event_reports(observer, at):
+    return WikiEventReport.objects.filter(
+        event__wiki_id=observer.wiki_id, observer=observer, learned_at__lte=at, author_only=False,
+    )
+
+
+def _known_entries(observer, at):
+    explicit = WikiDiscovery.objects.filter(observer=observer, learned_at__lte=at).values_list("subject_id", flat=True)
+    known = {str(observer.pk), *(str(subject) for subject in explicit)}
+    disclosed = _visible_event_reports(observer, at).filter(
+        known_entries__wiki_id=observer.wiki_id, known_entries__author_only=False,
+    ).values_list("known_entries__pk", flat=True)
+    known.update(str(entry_id) for entry_id in disclosed)
+    # A recorded observation can establish identity as well as a value. Admit
+    # the evidence only when every identity it names is eligible for projection.
+    evidence = []
+    observations = WikiObservation.objects.filter(
+        observer=observer, learned_at__lte=at, author_only=False,
+    ).select_related("assertion", "claim")
+    for observation in observations:
+        source = observation.assertion or observation.claim
+        if source.author_only:
+            continue
+        identities = {str(source.entry_id)}
+        if observation.claim_id and source.speaker_id:
+            identities.add(str(source.speaker_id))
+        if source.qualifier_id:
+            identities.add(str(source.qualifier_id))
+        if FIELDS[source.field].target_kinds:
+            identities.add(str(observation.value))
+        evidence.append(identities)
+    candidates = set().union(*evidence)
+    if candidates:
+        allowed = {
+            str(pk) for pk in WikiEntry.objects.filter(
+                wiki_id=observer.wiki_id, pk__in=candidates, author_only=False,
+            ).values_list("pk", flat=True)
+        }
+        for identities in evidence:
+            if identities <= allowed:
+                known.update(identities)
+    return known
+
+
 def _id(value):
     return str(value) if value is not None else None
 
@@ -61,47 +129,93 @@ def _id(value):
 def _serialize_assertion(fact):
     return {
         "id": str(fact.pk), "field": fact.field, "value": fact.value,
+        "unit": fact.recorded_unit,
         "from_tick": fact.from_tick, "until_tick": fact.until_tick, "source": fact.source,
+        "citation_id": _id(fact.citation_id),
         "author_only": fact.author_only, "event_id": _id(fact.opened_by_id),
         "qualifier_id": _id(fact.qualifier_id),
     }
 
 
 def _serialize_claim(claim):
-    return {
+    data = {
         "id": str(claim.pk), "field": claim.field, "value": claim.value,
-        "tick": claim.tick, "speaker_id": str(claim.speaker_id),
-        "source": claim.source, "author_only": claim.author_only,
+        "unit": claim.recorded_unit,
+        "tick": claim.tick, "speaker_id": _id(claim.speaker_id),
+        "date_precision": claim.date_precision, "start_tick": claim.start_tick, "end_tick": claim.end_tick,
+        "source": claim.source, "citation_id": _id(claim.citation_id), "author_only": claim.author_only,
         "qualifier_id": _id(claim.qualifier_id),
     }
+    citations = [str(entry.pk) for entry in claim.additional_citations.all() if entry.pk != claim.citation_id]
+    if citations:
+        data["additional_citation_ids"] = citations
+    return data
 
 
 def _observations_about(entry):
     return WikiObservation.objects.filter(
         Q(assertion__entry=entry) | Q(claim__entry=entry) | Q(observer=entry)
-    ).select_related("assertion", "claim", "claim__speaker").order_by("learned_at", "id")
+    ).select_related("assertion", "claim", "claim__speaker", "unit_source").order_by("learned_at", "id")
 
 
 def _serialize_observation(observation, *, author=False):
     source = observation.assertion or observation.claim
     evidence = {
         "id": str(observation.pk), "field": source.field, "value": observation.value,
+        "unit": observation.recorded_unit if author else visible_unit(observation),
         "about_tick": observation.about_tick, "learned_at": observation.learned_at,
         "observer_id": str(observation.observer_id),
         "source_kind": "claim" if observation.claim_id else "assertion",
         "entry_id": str(source.entry_id), "qualifier_id": _id(source.qualifier_id),
     }
-    if observation.claim_id:
+    if observation.claim_id and source.speaker_id:
         evidence["speaker_id"] = str(observation.claim.speaker_id)
+    if observation.learning_note:
+        evidence["learning_note"] = observation.learning_note
     if author:
         evidence["source_id"] = str(source.pk)
+        if observation.author_only:
+            evidence["author_only"] = True
     return evidence
+
+
+def _serialize_event_report(report, *, author):
+    data = {
+        "id": str(report.pk), "observer_id": str(report.observer_id), "title": report.title,
+        "account": report.account, "source": report.source, "learned_at": report.learned_at,
+        "reported_tick": report.reported_tick, "earliest_tick": report.earliest_tick, "latest_tick": report.latest_tick,
+        "known_entry_ids": [str(entry.pk) for entry in report.known_entries.all()
+                            if entry.wiki_id == report.observer.wiki_id and (author or not entry.author_only)],
+    }
+    if author:
+        data.update(event_id=str(report.event_id), author_only=report.author_only)
+    return data
+
+
+def _last_sightings(entry, at, observations):
+    if at is None or entry.kind not in (*ACTORS, "item"):
+        return []
+    latest = {}
+    sightings = []
+    for observation in observations:
+        when = observation["about_tick"]
+        if (observation["field"] != "located_in" or observation["entry_id"] != str(entry.pk)
+                or when is None or when > at or observation["learned_at"] > at):
+            continue
+        observer = observation["observer_id"]
+        latest[observer] = max(when, latest.get(observer, when))
+        sightings.append(observation)
+    return sorted(
+        (item for item in sightings if item["about_tick"] == latest[item["observer_id"]]),
+        key=lambda item: (-item["about_tick"], item["observer_id"], item["id"]),
+    )
 
 
 def _event_outline(event):
     bounds = event_bounds(event)
     return {
         "id": str(event.pk), "tick": event.tick, "node_kind": event.node_kind,
+        "date_precision": event.date_precision,
         "parent_id": _id(event.parent_id), "sort_order": event.sort_order,
         "start_tick": event.start_tick, "end_tick": event.end_tick,
         "display_start": bounds[0] if bounds else None, "display_end": bounds[1] if bounds else None,
@@ -121,7 +235,8 @@ def _serialize_events(query, outline=None):
         records.append({
             **(_event_outline(event) if outline is None else outline[str(event.pk)]),
             "name": event.name,
-            "source": event.source, "description": event.description, "summary": event.summary, "method": event.method,
+            "source": event.source, "citation_id": _id(event.citation_id),
+            "description": event.description, "summary": event.summary, "method": event.method,
             "cross_reference_ids": [str(target.pk) for target in event.cross_references.all()],
             "cause_event_ids": [str(target.pk) for target in event.cause_events.all()],
             "cause_state": [
@@ -151,12 +266,14 @@ def _event_effects(event):
         result.append({
             "id": str(fact.pk), "entry_id": str(fact.entry_id), "field": fact.field,
             "qualifier_id": _id(fact.qualifier_id), "value": fact.value,
+            "unit": fact.recorded_unit, "previous_unit": previous.recorded_unit if previous else None,
             "previous_value": previous.value if previous else None,
         })
     for fact in closed.values():
         result.append({
             "id": str(fact.pk), "entry_id": str(fact.entry_id), "field": fact.field,
             "qualifier_id": _id(fact.qualifier_id), "value": None, "previous_value": fact.value,
+            "unit": None, "previous_unit": fact.recorded_unit,
         })
     return result
 
@@ -207,7 +324,7 @@ def _article_events(entry):
     if not direct:
         return [], []
     nodes = [_event_outline(event) for event in world_events.only(
-        "tick", "node_kind", "parent_id", "sort_order", "start_tick", "end_tick",
+        "tick", "node_kind", "date_precision", "parent_id", "sort_order", "start_tick", "end_tick",
     )]
     _derive_group_dates(nodes)
     outline = {node["id"]: node for node in nodes}
@@ -226,27 +343,58 @@ def _article_events(entry):
 
 def _author_article(entry, at, identity):
     facts = list(WikiAssertion.objects.filter(entry=entry).order_by("field", "from_tick", "id"))
-    claims = WikiClaim.objects.filter(entry=entry).order_by("tick", "id")
+    claims = WikiClaim.objects.filter(entry=entry).prefetch_related(Prefetch(
+        "additional_citations", queryset=WikiEntry.objects.order_by("name", "id"),
+    )).order_by("tick", "id")
     events, event_ancestors = _article_events(entry)
-    findings = WikiFinding.objects.filter(entry=entry, resolved_at_edit__isnull=True).order_by("from_tick", "id")
+    findings = list(WikiFinding.objects.filter(entry=entry, resolved_at_edit__isnull=True).order_by("from_tick", "id"))
+    evidence = {record_id for finding in findings if finding.details for record_id in finding.record_ids}
+    record_entries = {
+        str(record_id): str(owner)
+        for record_id, owner in WikiAssertion.objects.filter(
+            entry__wiki_id=entry.wiki_id, pk__in=evidence,
+        ).values_list("id", "entry_id")
+    }
+    observations = [_serialize_observation(item, author=True) for item in _observations_about(entry)]
     article = {
         "entry": identity,
         "overview": entry.overview,
+        "sections": entry.article_sections,
+        "discoveries": [
+            {"observer_id": str(item.observer_id), "learned_at": item.learned_at, "source": item.source}
+            for item in WikiDiscovery.objects.filter(subject=entry).order_by("learned_at", "id")
+        ],
         "assertions": [_serialize_assertion(fact) for fact in facts],
         "claims": [_serialize_claim(claim) for claim in claims],
         "events": events,
         "event_ancestors": event_ancestors,
-        "observations": [_serialize_observation(o, author=True) for o in _observations_about(entry)],
+        "observations": observations,
+        "last_sightings": _last_sightings(entry, at, observations),
         "findings": [
             {
                 "id": str(finding.pk), "code": finding.code, "field": finding.field,
                 "record_ids": finding.record_ids, "from_tick": finding.from_tick, "until_tick": finding.until_tick,
+                **({
+                    "details": finding.details,
+                    "record_entries": {record_id: record_entries[record_id] for record_id in finding.record_ids
+                                       if record_id in record_entries},
+                } if finding.details else {}),
             }
             for finding in findings
         ],
     }
     if entry.kind == WikiEntry.Kind.GROUP:
         article["legacy_location_review"] = any(fact.field == "located_in" for fact in facts)
+    if entry.kind == WikiEntry.Kind.MAP:
+        image_map = describe_image_map(entry)
+        if image_map is not None:
+            article["image_map"] = image_map
+    if entry.kind in ACTORS:
+        article["variant_of_id"] = str(entry.variant_of_id) if entry.variant_of_id else None
+        article["variant_ids"] = [
+            str(entry_id) for entry_id in entry.variants.filter(wiki_id=entry.wiki_id, kind__in=ACTORS)
+            .order_by("name", "id").values_list("id", flat=True)
+        ]
     if at is None:
         return article
     values = effective_values(entry, facts, at)
@@ -254,6 +402,7 @@ def _author_article(entry, at, identity):
     if entry.kind in ACTORS:
         article["learned_abilities"] = _learned_abilities(entry, at)
         article["family"] = family_links(entry, facts, at)
+        article["causal_accounts"] = causal_accounts_for(entry, at)
     if entry.kind in (*ACTORS, *NONLIVING, "species"):
         article["age_years"] = derived_age(entry, values, at)
     if entry.kind == WikiEntry.Kind.PLACE:
@@ -270,7 +419,9 @@ def _character_article(entry, observer, at, visible_ids):
     knowledge = [_serialize_observation(o) for o in observations if observation_visible(o, visible_ids)]
     return {
         "entry": _describe_entry(entry), "observations": knowledge,
+        "last_sightings": _last_sightings(entry, at, knowledge),
         "propositions": propositions_for(entry, at, observer, visible_ids),
+        "causal_accounts": causal_accounts_for(entry, at, observer, visible_ids),
     }
 
 
@@ -285,7 +436,7 @@ def read_wiki(world_id, account_id, at, observer_id=None, entry_id=None, *, time
             observer = directory.filter(pk=observer_id, kind__in=ACTORS).first()
             if observer is None:
                 raise resource_unavailable()
-            directory = directory.filter(author_only=False)
+            directory = directory.filter(author_only=False, pk__in=_known_entries(observer, at))
         entries = list(directory)
         indexed = {str(entry.pk): entry for entry in entries}
         descriptions = (
@@ -307,7 +458,15 @@ def read_wiki(world_id, account_id, at, observer_id=None, entry_id=None, *, time
                 can_edit=can_edit(membership), edit_counter=wiki.edit_counter if wiki else 0,
                 checked_scope="temporal_and_references",
                 days_per_year=wiki.days_per_year if wiki else None,
+                world_introduction=wiki.introduction if wiki else "",
             )
+            if at is None and entry_id is None and not timeline:
+                response["world_home"] = _world_home(wiki)
+                response["home_cover_ids"] = [
+                    str(pk) for pk in WikiMapImage.objects.filter(
+                        wiki_id=world_id, entry__author_only=False, entry__isnull=False,
+                    ).values_list("entry_id", flat=True)
+                ] if can_edit(membership) else []
         if selected is not None:
             response["article"] = (
                 _character_article(selected, observer, at, indexed)
@@ -315,4 +474,9 @@ def read_wiki(world_id, account_id, at, observer_id=None, entry_id=None, *, time
             )
         if timeline:
             response["timeline"] = _serialize_events(WikiEvent.objects.filter(wiki_id=world_id)) if observer is None else []
+            reports = (_visible_event_reports(observer, at) if observer else WikiEventReport.objects.filter(event__wiki_id=world_id))
+            response["event_reports"] = [
+                _serialize_event_report(report, author=observer is None)
+                for report in reports.select_related("observer").prefetch_related("known_entries").order_by("learned_at", "id")
+            ]
         return response

@@ -75,8 +75,11 @@ export function signOut(token: string) {
   })
 }
 
-export function listWorlds(cursor?: string, signal?: AbortSignal) {
-  const suffix = cursor ? '?' + new URLSearchParams({ cursor }).toString() : ''
+export function listWorlds(cursor?: string, signal?: AbortSignal, query = '') {
+  const params = new URLSearchParams()
+  if (cursor) params.set('cursor', cursor)
+  if (query) params.set('q', query)
+  const suffix = params.size ? '?' + params : ''
   return request<WorldPage>('/worlds' + suffix, { signal })
 }
 
