@@ -50,6 +50,7 @@ export type ArticleEdit =
   | { kind: 'correct-date'; event: WikiEvent }
   | { kind: 'observe'; source: WikiAssertion | WikiClaim; sourceKind: 'assertion' | 'claim'; privateSource?: boolean }
   | { kind: 'proposition'; record?: WikiProposition }
+  | { kind: 'belief-change'; record: WikiProposition }
   | { kind: 'causal-account'; account?: WikiCausalAccount }
   | { kind: 'event-report'; event: WikiEvent; report?: WikiEventReport }
 
@@ -844,6 +845,7 @@ export function WikiEditForm({ edit, overview, sections, propositions, ...props 
   if (edit.kind === 'correct') return <CanonicalForm {...props} mode="correct" fact={edit.fact} />
   if (edit.kind === 'correct-claim') return <CanonicalForm {...props} mode="correct-claim" claim={edit.claim} />
   if (edit.kind === 'proposition') return <PropositionForm {...props} record={edit.record} />
+  if (edit.kind === 'belief-change') return <PropositionForm {...props} previous={edit.record} />
   if (edit.kind === 'causal-account') return <CausalAccountForm {...props} account={edit.account} propositions={propositions ?? []} />
   if (edit.kind === 'event-report') return <WikiEventReportForm {...props} event={edit.event} report={edit.report} />
   if (edit.kind === 'fact') return <CanonicalForm {...props} mode="fact" initialField={edit.field} initialQualifier={edit.qualifierId} />
@@ -878,15 +880,16 @@ function DiscoveryForm({ entry, entries, discovery, ...actions }: EntryFormProps
   )
 }
 
-function PropositionForm({ entry, entries, fields, observations = [], record, at, ...actions }: EntryFormProps & {
-  record?: WikiProposition
+function PropositionForm({ entry, entries, fields, observations = [], record, previous, at, ...actions }: EntryFormProps & {
+  record?: WikiProposition; previous?: WikiProposition
 }) {
-  const [subjectId, setSubject] = useState(record?.subject_id ?? '')
-  const [fieldKey, setField] = useState(record?.field ?? 'status')
+  const original = previous ?? record
+  const [subjectId, setSubject] = useState(original?.subject_id ?? '')
+  const [fieldKey, setField] = useState(original?.field ?? 'status')
   const subject = entries.find((item) => item.id === subjectId)
   const eligible = subject ? fields.filter((field) => field.kinds.includes(subject.kind)) : []
   const field = eligible.find((item) => item.key === fieldKey)
-  const holder = entries.find((item) => item.id === record?.holder_id) ?? entry
+  const holder = entries.find((item) => item.id === original?.holder_id) ?? entry
   const goal = holder.kind === 'goal' || holder.kind === 'milestone'
   const evidence = observations.filter((observation) => observation.observer_id === holder.id)
   const observationLabels = evidence.map((observation) => {
@@ -898,14 +901,14 @@ function PropositionForm({ entry, entries, fields, observations = [], record, at
     }
   })
   const noun = goal ? 'desired state' : 'belief'
-  const title = (record ? 'Correct ' : 'Record ') + noun
+  const title = previous ? 'Record belief change' : (record ? 'Correct ' : 'Record ') + noun
 
   return (
     <form className="wiki-form" aria-label={title} onSubmit={(event) => {
       event.preventDefault()
       if (!field) return
       const data = new FormData(event.currentTarget)
-      const qualifier = String(data.get('qualifier') ?? '')
+      const qualifier = previous?.qualifier_id ?? String(data.get('qualifier') ?? '')
       const details = {
         holder_id: holder.id, entry_id: subjectId, field: field.key, value: readValue(data.get('value'), field),
         from_tick: Number(data.get('from_tick')), until_tick: optionalTime(data, 'until_tick'),
@@ -917,25 +920,28 @@ function PropositionForm({ entry, entries, fields, observations = [], record, at
         }),
         ...(qualifier ? { qualifier_id: qualifier } : {}),
       }
-      actions.onSave(record
+      actions.onSave(previous ? { ...details, op: 'change_belief', previous_belief_id: previous.id } : record
         ? { ...details, op: 'correct_proposition', proposition_id: record.id }
         : { ...details, op: 'record_proposition' })
     }}>
       <h2>{title}</h2>
       <p className="muted">{holder.name}</p>
-      <EntryPicker label="Subject" entries={entries} initial={subjectId}
-        onChange={(id) => { setSubject(id); setField('status') }} />
+      {previous ? <>
+        <p>{[subject?.name, field?.label, entries.find((item) => item.id === previous.qualifier_id)?.name].filter(Boolean).join(' · ')}</p>
+        <p className="muted">The earlier belief ends at the new effective time. Its value and evidence stay in History.</p>
+      </> : <EntryPicker label="Subject" entries={entries} initial={subjectId}
+        onChange={(id) => { setSubject(id); setField('status') }} />}
       {field && <>
-        <label className="field">Field<select value={fieldKey} onChange={(event) => setField(event.target.value)}>
+        {!previous && <label className="field">Field<select value={fieldKey} onChange={(event) => setField(event.target.value)}>
           {eligible.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
-        </select></label>
+        </select></label>}
         <ValueInput key={subjectId + ':' + fieldKey} name="value" field={field} entries={entries} entryId={subjectId}
           initial={record?.subject_id === subjectId && record.field === fieldKey ? record.value : undefined} />
-        <QualifierInput key={'qualifier-' + fieldKey} name="qualifier" field={field} entries={entries} initial={record?.qualifier_id} />
+        {!previous && <QualifierInput key={'qualifier-' + fieldKey} name="qualifier" field={field} entries={entries} initial={record?.qualifier_id} />}
       </>}
       <div className="wiki-form-row">
-        <TimeInput name="from_tick" label="Effective from" day={record?.from_tick ?? at} />
-        <TimeInput name="until_tick" label="Effective until (optional)" day={record?.until_tick ?? undefined} optional />
+        <TimeInput name="from_tick" label="Effective from" day={previous ? undefined : record?.from_tick ?? at} />
+        <TimeInput name="until_tick" label="Effective until (optional)" day={original?.until_tick ?? undefined} optional />
         <TimeInput name="about_tick" label="About time (optional)" day={record?.about_tick ?? undefined} optional />
       </div>
       {!goal && <>
@@ -952,8 +958,8 @@ function PropositionForm({ entry, entries, fields, observations = [], record, at
           entries={observationLabels} />
       </>}
       <label className="field">Source (optional)<input name="source" maxLength={500} defaultValue={record?.source} /></label>
-      <label className="wiki-checkbox"><input type="checkbox" name="author_only" defaultChecked={record?.author_only} /> Author only</label>
-      <Actions {...actions} submit={'Save ' + noun} />
+      <label className="wiki-checkbox"><input type="checkbox" name="author_only" defaultChecked={original?.author_only} /> Author only</label>
+      <Actions {...actions} submit={previous ? 'Save belief change' : 'Save ' + noun} />
     </form>
   )
 }

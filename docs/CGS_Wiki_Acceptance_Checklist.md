@@ -1,6 +1,6 @@
 # CGS Wiki acceptance checklist
 
-This checklist expands the [workspace and reference design](CGS_Wiki_Reference_Design.md) into release checks. The baseline column describes the app at `a223384`. See the [core follow-up evidence](CGS_W1_Core_Worldbuilding.md#verification-of-the-core-follow-up) and [current gap inventory](CGS_Wiki_Current_Coverage.md) for the later verified cases, remaining source and reference gaps, and their readiness.
+This checklist expands the [workspace and reference design](CGS_Wiki_Reference_Design.md) into release checks. The baseline column describes the app at `a223384`. See the [current W1 evidence](CGS_W1_Core_Worldbuilding.md#dated-belief-changes) and [gap inventory](CGS_Wiki_Current_Coverage.md) for the verified cases and open source and reference checks.
 
 ## How to use the checklist
 

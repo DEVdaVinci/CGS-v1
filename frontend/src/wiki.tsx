@@ -225,8 +225,12 @@ function Propositions({ article, display, edit }: { article: WikiArticle; displa
               })}
             </ul> : null}
           </div>
-          {edit && record.holder_id === article.entry.id && <button className="button secondary" type="button"
-            onClick={() => edit({ kind: 'proposition', record })}>{goal ? 'Correct desired state' : 'Correct belief'}</button>}
+          {edit && record.holder_id === article.entry.id && <div className="form-actions">
+            <button className="button secondary" type="button"
+              onClick={() => edit({ kind: 'proposition', record })}>{goal ? 'Correct desired state' : 'Correct belief'}</button>
+            {record.kind === 'belief' && <button className="button secondary" type="button"
+              onClick={() => edit({ kind: 'belief-change', record })}>Record belief change</button>}
+          </div>}
         </li>
       ))}</ul>}
     </section>
@@ -996,7 +1000,7 @@ export function Wiki({ account, worldId, onAuthError }: {
           at: command.initial_at ?? null, history: false,
         })
       } else {
-        const savedTime = pending.location.at ?? timeOfChange(command)
+        const savedTime = command.op === 'change_belief' ? command.from_tick : pending.location.at ?? timeOfChange(command)
         const focusEvent = pending.location.section === 'timeline' && (
           command.op === 'record_event' || command.op === 'record_event_group' || command.op === 'edit_event'
           || command.op === 'organize_event' || command.op === 'correct_event_date'

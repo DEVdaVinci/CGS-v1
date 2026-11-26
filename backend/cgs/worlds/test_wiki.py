@@ -10,7 +10,10 @@ from django.utils import timezone
 from PIL import Image
 
 from .drafts import apply_draft_edits
-from .models import MutationReceipt, WikiEntry, WikiEvent, WikiEventReport, WikiFinding, WikiMapImage, WikiMapPin, WikiWorld, WorldAccess
+from .models import (
+    MutationReceipt, WikiEntry, WikiEvent, WikiEventReport, WikiFinding, WikiMapImage, WikiMapPin, WikiProposition,
+    WikiWorld, WorldAccess,
+)
 from .services import create_world, digest_json
 from .tests import SESSION, provision
 
@@ -1069,6 +1072,56 @@ class WikiTests(TransactionTestCase):
         self.assertEqual(self.article(gate, 10)["findings"], [])
         self.assertEqual(self.article(mira)["incoming_links"][0]["entry_id"], goal)
         self.assertEqual(self.article(goal)["propositions"][0]["kind"], "desired_state")
+
+    def test_dated_belief_change_preserves_evidence_and_retries_atomically(self):
+        gate = self.entry("Gate")
+        actor = self.entry("Courier", "person")
+        other = self.entry("Witness", "person")
+        self.discover(gate, actor)
+        self.discover(gate, other)
+        canon = self.fact(gate, "status", "Open")
+        claim = self.apply({"op": "record_claim", "entry_id": gate, "field": "status", "value": "Closed",
+                            "speaker_id": other, "tick": 2})
+        observation = {"op": "record_observation", "observer_id": actor}
+        old_evidence = self.apply({**observation, "source_kind": "claim", "source_id": claim, "learned_at": 3})
+        new_evidence = self.apply({**observation, "source_kind": "assertion", "source_id": canon, "learned_at": 7})
+        slot = {"holder_id": actor, "entry_id": gate, "field": "status"}
+        previous = self.apply({"op": "record_proposition", **slot, "value": "Closed", "from_tick": 4,
+                               "until_tick": 10, "evidence_id": old_evidence, "confidence": "0.65"})
+        unrelated = self.apply({"op": "record_proposition", **slot, "holder_id": other, "value": "Locked", "from_tick": 1})
+        account = self.apply({"op": "record_causal_account", "holder_id": actor, "title": "Why I waited",
+                              "from_tick": 4, "terms": [{"phase": "cause", "belief_id": previous}]})
+        change = {"op": "change_belief", "previous_belief_id": previous, **slot, "value": "Open",
+                  "from_tick": 7, "evidence_id": new_evidence, "confidence": "0.9"}
+        for override, code in (
+            ({"from_tick": 4}, "INVALID_BELIEF_CHANGE_TIME"),
+            ({"from_tick": 10}, "INVALID_BELIEF_CHANGE_TIME"),
+            ({"from_tick": 6}, "INVALID_EVIDENCE_TIME"),
+            ({"holder_id": other}, "INVALID_BELIEF_SLOT"),
+        ):
+            invalid = self.post({**change, **override})
+            self.assertEqual(invalid.status_code, 422, invalid.json())
+            self.assertEqual(invalid.json()["field_errors"][0]["code"], code)
+        self.assertEqual(WikiProposition.objects.get(pk=previous).until_tick, 10)
+        self.assertEqual(WikiProposition.objects.count(), 2)
+
+        key = uuid4()
+        saved = self.post(change, key=key)
+        self.assertEqual(saved.status_code, 200, saved.json())
+        self.assertEqual(self.post(change, key=key).json(), saved.json())
+        successor = saved.json()["record_id"]
+        old, new = (WikiProposition.objects.get(pk=record) for record in (previous, successor))
+        self.assertEqual((old.from_tick, old.until_tick, old.value, str(old.evidence_id)), (4, 7, "Closed", old_evidence))
+        self.assertEqual((new.from_tick, new.until_tick, new.value, str(new.evidence_id)), (7, 10, "Open", new_evidence))
+        self.assertFalse(new.author_only)
+        self.assertEqual(WikiProposition.objects.count(), 3)
+        self.assertEqual(self.article(gate, 6, observer=actor)["propositions"][0]["id"], previous)
+        self.assertEqual(self.article(gate, 7, observer=actor)["propositions"][0]["id"], successor)
+        self.assertEqual(self.article(gate, 7, observer=other)["propositions"][0]["id"], unrelated)
+        self.assertEqual(self.article(gate, 10, observer=actor)["propositions"], [])
+        self.assertEqual(self.values(gate, 7)["status"], "Open")
+        saved_account = next(item for item in self.article(actor, 7)["causal_accounts"] if item["id"] == account)
+        self.assertEqual(saved_account["terms"][0]["belief"]["id"], previous)
 
     def test_measured_connections_and_occupants_read_at_the_requested_time(self):
         hall = self.entry("Harbor Hall")

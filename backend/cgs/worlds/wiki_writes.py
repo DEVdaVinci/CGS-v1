@@ -582,6 +582,28 @@ def _save_proposition(wiki, command):
     return proposition.pk, set()
 
 
+def _change_belief(wiki, command):
+    previous = _in_world(
+        WikiProposition.objects.filter(holder__wiki=wiki).select_related("holder"), command["previous_belief_id"],
+    )
+    qualifier_id = str(previous.qualifier_id) if previous.qualifier_id else None
+    selection = (str(previous.holder_id), str(previous.subject_id), previous.field, qualifier_id)
+    requested = (command["holder_id"], command["entry_id"], command["field"], command.get("qualifier_id"))
+    if previous.holder.kind not in ACTORS or selection != requested:
+        reject("INVALID_BELIEF_SLOT", "Record the change for the same belief holder, subject, field and qualifier.")
+    start = command["from_tick"]
+    if start <= previous.from_tick or not contains_tick(previous, start):
+        reject("INVALID_BELIEF_CHANGE_TIME", "Choose a time after the belief started and before it ended.")
+
+    successor = dict(command)
+    successor.setdefault("until_tick", previous.until_tick)
+    successor.setdefault("author_only", previous.author_only)
+    result = _save_proposition(wiki, successor)
+    previous.until_tick = start
+    previous.save(update_fields=["until_tick"])
+    return result
+
+
 def _save_causal_account(wiki, command):
     holder = _actor_for(wiki, command["holder_id"])
     existing = command.get("account_id")
@@ -665,6 +687,7 @@ OPERATIONS = {
     "correct_event_report": _save_event_report,
     "record_proposition": _save_proposition,
     "correct_proposition": _save_proposition,
+    "change_belief": _change_belief,
     "record_causal_account": _save_causal_account,
     "correct_causal_account": _save_causal_account,
     "set_calendar": _set_calendar,

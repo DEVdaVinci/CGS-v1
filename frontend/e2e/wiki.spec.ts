@@ -337,8 +337,8 @@ test('authors structured characters, defaults, goals, and beliefs through the Wi
   await expect(page.getByRole('heading', { name: 'Keep the gate clear' })).toBeVisible()
   await openEntry(page, 'Mira', 'Character')
   await showTime(page, 10)
-  await page.getByRole('button', { name: 'Record belief' }).click()
-  const belief = page.getByRole('form', { name: 'Record belief' })
+  await page.getByRole('button', { name: 'Record belief', exact: true }).click()
+  const belief = page.getByRole('form', { name: 'Record belief', exact: true })
   await belief.getByRole('combobox', { name: 'Subject', exact: true }).selectOption({ label: 'Harbor Gate' })
   await belief.getByLabel('Value', { exact: true }).fill('Locked')
   await belief.getByRole('combobox', { name: 'Evidence (optional)' }).selectOption({ label: 'Harbor Gate · Status · Learned at 10' })
@@ -379,7 +379,30 @@ test('authors structured characters, defaults, goals, and beliefs through the Wi
   await expect(page.getByRole('region', { name: 'Attributed claims' })).toContainText('Locked')
   await fact(page, 'Status', 'Blocked', { from: 11 })
   await showTime(page, 11)
-  await expect(findings).toContainText(/conflict/i)
+  await expect(findings).toContainText('Conflicting canon values')
+  const linkedValues: string[] = []
+  const hashes: string[] = []
+  for (const label of ['Record 1', 'Record 2']) {
+    await findings.getByRole('link', { name: label, exact: true }).click()
+    const hash = new URL(page.url()).hash
+    expect(hash).toMatch(/^#wiki-record-/)
+    hashes.push(hash)
+    linkedValues.push(await page.locator(hash).innerText())
+  }
+  expect(new Set(hashes).size).toBe(2)
+  expect(linkedValues.join(' ')).toMatch(/Open/)
+  expect(linkedValues.join(' ')).toMatch(/Blocked/)
+  await page.getByRole('region', { name: 'Fact history' }).getByRole('listitem').filter({ hasText: 'Blocked' })
+    .getByRole('button', { name: 'Correct value', exact: true }).click()
+  const conflict = page.getByRole('form', { name: 'Correct value' })
+  await conflict.getByLabel('Value', { exact: true }).fill('Open')
+  await conflict.getByRole('button', { name: 'Save correction' }).click()
+  await expect(findings).toContainText('No findings')
+  await page.reload()
+  for (const hash of hashes) await expect(page.locator(hash)).toContainText('Open')
+  await expect(page.getByRole('region', { name: 'Attributed claims' })).toContainText('Locked')
+  await showAs(page, 'Mira', 11)
+  await expect(page.getByRole('region', { name: 'Beliefs', exact: true })).toContainText('Locked')
 })
 
 async function showTime(page: Page, time: number) {
@@ -560,6 +583,12 @@ test('reopens a dated Place hierarchy and overlapping territories from the Wiki'
   await expect(path.getByRole('link')).toHaveText(['Archive wing', 'Second floor'])
 
   await createEntry(page, 'Survey cabinet model', '3D model')
+  await createEntry(page, 'Survey oak finish', 'Texture')
+  const textureId = new URL(page.url()).searchParams.get('entry')!
+  await fact(page, 'Asset location', 'surveys/oak-finish.png')
+  await createEntry(page, 'Survey hinge motion', 'Animation')
+  const animationId = new URL(page.url()).searchParams.get('entry')!
+  await fact(page, 'Asset location', 'surveys/hinge-motion.glb')
   for (const [section, type, name] of [
     ['Items', 'item', 'Survey cabinet'], ['Vehicles', 'vehicle', 'Survey wagon'],
   ]) {
@@ -572,9 +601,35 @@ test('reopens a dated Place hierarchy and overlapping territories from the Wiki'
     await form.getByLabel('Initial facts start at time').fill('4')
     await form.getByRole('button', { name: 'Save entry' }).click()
     await fact(page, '3D model', 'Survey cabinet model', { reference: true, from: 4 })
+    await fact(page, 'Texture', 'Survey oak finish', { reference: true, from: 5 })
+    await fact(page, 'Animation', 'Survey hinge motion', { reference: true, from: 6 })
+    const assetOwner = page.url()
+    const assetOwnerId = new URL(assetOwner).searchParams.get('entry')!
+    const visuals = facts.getByRole('region', { name: 'Visual references' })
+    await showTime(page, 4)
+    await expect(visuals.getByRole('link', { name: 'Survey oak finish' })).toHaveCount(0)
+    await expect(visuals.getByRole('link', { name: 'Survey hinge motion' })).toHaveCount(0)
+    await showTime(page, 5)
+    await expect(visuals.getByRole('link', { name: 'Survey oak finish' })).toBeVisible()
+    await expect(visuals.getByRole('link', { name: 'Survey hinge motion' })).toHaveCount(0)
+    await showTime(page, 6)
     await page.reload()
     await expect(facts.getByRole('region', { name: 'Physical traits and condition' })).toContainText('Painted oak with brass clasps')
     await expect(facts.getByRole('region', { name: 'Visual references' }).getByRole('link', { name: 'Survey cabinet model' })).toBeVisible()
+    expect((await readWiki(page, '/entries/' + assetOwnerId, { at: 6 })).article?.assertions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ field: 'texture', value: textureId, from_tick: 5 }),
+      expect.objectContaining({ field: 'animation', value: animationId, from_tick: 6 }),
+    ]))
+    for (const [assetName, assetId, locator] of [
+      ['Survey oak finish', textureId, 'surveys/oak-finish.png'],
+      ['Survey hinge motion', animationId, 'surveys/hinge-motion.glb'],
+    ]) {
+      await visuals.getByRole('link', { name: assetName, exact: true }).click()
+      expect(new URL(page.url()).searchParams.get('entry')).toBe(assetId)
+      await expect(facts).toContainText(locator)
+      await page.goto(assetOwner)
+      await showTime(page, 6)
+    }
     await page.getByRole('navigation', { name: 'Article views' }).getByRole('button', { name: 'Overview', exact: true }).click()
     await expect(page.getByText(`${name} carries regional surveys.`, { exact: true })).toBeVisible()
   }
@@ -1175,6 +1230,32 @@ test('reopens a Source with independent authorship, custody and recording date',
   await fact(page, 'Status', 'Collection recorded', { from: 4, citation: 'Council interview' })
   await page.getByRole('region', { name: 'Fact history' }).getByRole('link', { name: 'Council interview' }).click()
   await expect(profile).toContainText('Archive shelf 8, track 4')
+  for (const [medium, name, locator] of [
+    ['Document', 'Council minutes', 'Archive shelf 2, folio 3'],
+    ['Artifact', 'Council seal', 'Cabinet 1, tray north'],
+    ['Person', 'Natalia testimony', 'North entrance interview'],
+  ]) {
+    await menu.getByRole('link', { name: 'Sources', exact: true }).click()
+    await page.getByRole('button', { name: 'New source' }).click()
+    await form.getByLabel('Entry name').fill(name)
+    await form.getByRole('combobox', { name: 'Medium', exact: true }).selectOption({ label: medium })
+    await form.getByRole('combobox', { name: 'Recorded person', exact: true }).selectOption({ label: 'Natalia' })
+    await form.getByLabel('Locator').fill(locator)
+    await form.getByLabel('Initial facts start at time').fill('4')
+    await form.getByRole('button', { name: 'Save entry' }).click()
+    await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
+    await page.getByRole('navigation', { name: 'Article views' }).getByRole('button', { name: 'Overview' }).click()
+    await page.reload()
+    await expect(profile.getByText(medium, { exact: true })).toBeVisible()
+    await expect(profile).toContainText(locator)
+    await expect(profile.getByRole('link', { name: 'Natalia', exact: true })).toBeVisible()
+    const id = new URL(page.url()).searchParams.get('entry')!
+    const source = (await readWiki(page, '/entries/' + id, { at: 4 })).article!
+    expect(source.assertions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ field: 'source_medium', value: medium, from_tick: 4 }),
+      expect.objectContaining({ field: 'source_locator', value: locator, from_tick: 4 }),
+    ]))
+  }
 })
 
 test('reopens a shared subgoal with its own position in each plan', async ({ page }, info) => {
@@ -1230,19 +1311,34 @@ test('follows a goal motivation to a stored actor value and preference', async (
   await createEntry(page, 'Harbor custodian', 'Character')
   const actorUrl = page.url()
   await createEntry(page, 'Dusk pier', 'Place')
+  await createEntry(page, 'Nesting survey', 'Source')
+  const sourceId = new URL(page.url()).searchParams.get('entry')!
   await createEntry(page, 'Quiet', 'Value')
   await createEntry(page, 'Leave the nesting site undisturbed', 'Preference')
   await fact(page, 'Preference holder', 'Harbor custodian', { reference: true, from: 2 })
   await fact(page, 'Avoided entry', 'Dusk pier', { reference: true, from: 2 })
   await createEntry(page, 'Guard the nesting site', 'Motivation')
-  await fact(page, 'Motivating value', 'Quiet', { reference: true, from: 2 })
-  await fact(page, 'Motivating preference', 'Leave the nesting site undisturbed', { reference: true, from: 2 })
+  const motivationId = new URL(page.url()).searchParams.get('entry')!
+  await fact(page, 'Motivating value', 'Quiet', { reference: true, from: 2, citation: 'Nesting survey' })
+  await fact(page, 'Motivating preference', 'Leave the nesting site undisturbed', { reference: true, from: 2, citation: 'Nesting survey' })
+  await fact(page, 'Subject of the motivation', 'Dusk pier', { reference: true, from: 2, citation: 'Nesting survey' })
   await createEntry(page, 'Maintain the sanctuary', 'Goal')
-  await fact(page, 'Motivation', 'Guard the nesting site', { reference: true, from: 2 })
+  const goalUrl = page.url()
+  const goalId = new URL(goalUrl).searchParams.get('entry')!
+  await fact(page, 'Goal owner', 'Harbor custodian', { reference: true, from: 2 })
+  await fact(page, 'Motivation', 'Guard the nesting site', { reference: true, from: 2, until: 6, citation: 'Nesting survey' })
   const facts = page.getByRole('region', { name: 'Facts at the selected time' })
   await facts.getByRole('link', { name: 'Guard the nesting site', exact: true }).click()
   await page.reload()
   await expect(facts.getByRole('link', { name: 'Quiet', exact: true })).toBeVisible()
+  await expect(facts.getByRole('link', { name: 'Dusk pier', exact: true })).toBeVisible()
+  const history = page.getByRole('region', { name: 'Fact history' })
+  await expect(history.getByRole('listitem').filter({ hasText: 'Subject of the motivation' })
+    .getByRole('link', { name: 'Nesting survey', exact: true })).toBeVisible()
+  const records = (await readWiki(page, '/entries/' + motivationId, { at: 2 })).article!.assertions!
+  for (const field of ['motivation_value', 'motivation_preference', 'motivation_subject']) {
+    expect(records).toContainEqual(expect.objectContaining({ field, citation_id: sourceId, from_tick: 2 }))
+  }
   await facts.getByRole('link', { name: 'Leave the nesting site undisturbed', exact: true }).click()
   await expect(facts.getByRole('link', { name: 'Dusk pier', exact: true })).toBeVisible()
   await facts.getByRole('link', { name: 'Harbor custodian', exact: true }).click()
@@ -1251,6 +1347,12 @@ test('follows a goal motivation to a stored actor value and preference', async (
   const preferences = page.getByRole('region', { name: 'Preferences', exact: true })
   await expect(preferences.getByRole('link', { name: 'Leave the nesting site undisturbed' })).toBeVisible()
   await expect(facts.getByRole('link', { name: 'Quiet', exact: true })).toBeVisible()
+  await page.goto(goalUrl)
+  await showTime(page, 6)
+  await expect(facts.getByRole('link', { name: 'Guard the nesting site', exact: true })).toHaveCount(0)
+  expect((await readWiki(page, '/entries/' + goalId, { at: 6 })).article!.assertions).toContainEqual(
+    expect.objectContaining({ field: 'goal_motivation', value: motivationId, from_tick: 2, until_tick: 6, citation_id: sourceId }),
+  )
 })
 
 test('reopens independent mental state, resource balances and a sourced goal priority', async ({ page }) => {
@@ -1419,8 +1521,8 @@ test('authors a scoped causal account from typed beliefs and reloads its terms',
   await showTime(page, 4)
   const beliefs = page.getByRole('region', { name: 'Beliefs', exact: true })
   for (const value of ['Unpowered', 'Signal dimmed', 'Signal missed']) {
-    await beliefs.getByRole('button', { name: 'Record belief' }).click()
-    const belief = page.getByRole('form', { name: 'Record belief' })
+    await beliefs.getByRole('button', { name: 'Record belief', exact: true }).click()
+    const belief = page.getByRole('form', { name: 'Record belief', exact: true })
     await belief.getByRole('combobox', { name: 'Subject', exact: true }).selectOption({ label: 'Harbor signal' })
     await belief.getByLabel('Value', { exact: true }).fill(value)
     await belief.getByLabel('Effective from').fill('2')
@@ -1571,8 +1673,11 @@ test('opens names, titles and changing nationalities from saved profiles', async
   await createEntry(page, 'Harbor federation', 'Group')
   const federationUrl = page.url()
   await createEntry(page, 'Estuary commonwealth', 'Group')
+  await createEntry(page, 'Tidewatch tradition', 'Culture')
+  const cultureUrl = page.url()
   await createEntry(page, 'First works', 'Role or title')
   await createEntry(page, 'North station', 'Place')
+  const stationUrl = page.url()
   await fact(page, 'Title', 'First works', { reference: true })
   await page.getByRole('button', { name: 'Overview', exact: true }).click()
   const infobox = page.getByRole('complementary', { name: 'Article facts' })
@@ -1592,6 +1697,8 @@ test('opens names, titles and changing nationalities from saved profiles', async
   await fact(page, 'Epithet', 'Night navigator', { from: 3 })
   await fact(page, 'Nationality or citizenship', 'Harbor federation', { reference: true, from: 2, until: 6 })
   await fact(page, 'Nationality or citizenship', 'Estuary commonwealth', { reference: true, from: 2 })
+  await fact(page, 'Cultural affiliation', 'Tidewatch tradition', { reference: true, from: 3 })
+  await fact(page, 'Place affiliation', 'North station', { reference: true, from: 3, until: 7 })
   await page.getByRole('button', { name: 'Overview', exact: true }).click()
   await expect(infobox).toContainText('Archivist')
   await expect(infobox).toContainText('Keeper of the tides')
@@ -1604,6 +1711,27 @@ test('opens names, titles and changing nationalities from saved profiles', async
   await showTime(page, 6)
   await expect(facts.getByRole('link', { name: 'Harbor federation', exact: true })).toHaveCount(0)
   await expect(facts.getByRole('link', { name: 'Estuary commonwealth', exact: true })).toBeVisible()
+  await expect(facts.getByRole('link', { name: 'Tidewatch tradition', exact: true })).toBeVisible()
+  await expect(facts.getByRole('link', { name: 'North station', exact: true })).toBeVisible()
+  await showTime(page, 7)
+  await page.reload()
+  await expect(facts.getByRole('link', { name: 'North station', exact: true })).toHaveCount(0)
+  await expect(facts.getByRole('link', { name: 'Tidewatch tradition', exact: true })).toBeVisible()
+  const affiliations = (await readWiki(page, '/entries/' + actorId, { at: 7 })).article!.assertions!
+  expect(affiliations).toEqual(expect.arrayContaining([
+    expect.objectContaining({ field: 'culture', from_tick: 3, until_tick: null }),
+    expect.objectContaining({ field: 'place_affiliation', from_tick: 3, until_tick: 7 }),
+  ]))
+  expect(affiliations.some(record => record.field === 'located_in')).toBe(false)
+  for (const url of [cultureUrl, stationUrl]) {
+    await page.goto(url)
+    await showTime(page, 6)
+    await page.getByRole('region', { name: 'Affiliated entries', exact: true }).getByRole('link', { name: 'Riley', exact: true }).click()
+    expect(new URL(page.url()).searchParams.get('entry')).toBe(actorId)
+  }
+  await page.goto(stationUrl)
+  await showTime(page, 7)
+  await expect(page.getByRole('region', { name: 'Affiliated entries', exact: true })).toHaveCount(0)
 
   await page.goto(federationUrl)
   await expect(page.getByRole('navigation', { name: 'Article views' })).toBeVisible()
@@ -1952,8 +2080,13 @@ test('reopens six distinct sourced capability measurements at two dates', async 
   await createEntry(page, 'Standard inspection index', 'Trait')
   await fact(page, 'Unit', 'index units')
   await createEntry(page, 'First shift worksheet', 'Source')
+  const firstId = new URL(page.url()).searchParams.get('entry')!
+  await discover(page, 'Archive analyst', 4)
   await createEntry(page, 'Revised shift worksheet', 'Source')
+  const revisedId = new URL(page.url()).searchParams.get('entry')!
   await createEntry(page, 'Night indexing', 'Capability context')
+  const contextUrl = page.url()
+  const contextId = new URL(contextUrl).searchParams.get('entry')!
   await fact(page, 'Measured actor', 'Archive analyst', { reference: true })
   await fact(page, 'Measured capability', 'Index case notes', { reference: true })
   const qualifier = { label: 'Trait', entry: 'Standard inspection index' }
@@ -1963,9 +2096,10 @@ test('reopens six distinct sourced capability measurements at two dates', async 
   ]
   for (const [label, value] of readings) {
     await fact(page, label, value, { qualifier, from: 2, citation: 'First shift worksheet',
-      ...(label === 'Processing cost' ? { until: 5 } : {}) })
+      ...(['Processing cost', 'Processing speed'].includes(label) ? { until: 5 } : {}) })
   }
   await fact(page, 'Processing cost', '24.5', { qualifier, from: 5, citation: 'Revised shift worksheet' })
+  await fact(page, 'Processing speed', '21.5', { qualifier, from: 5, citation: 'Revised shift worksheet' })
   await fact(page, 'Success probability (0–1)', '0.6', { from: 2 })
   await fact(page, 'Difficulty', '2.75', { qualifier, from: 5, citation: 'Revised shift worksheet' })
   await page.getByRole('button', { name: 'Record fact', exact: true }).click()
@@ -1989,7 +2123,8 @@ test('reopens six distinct sourced capability measurements at two dates', async 
   await showTime(page, 5)
   await page.reload()
   for (const [label, value] of readings) {
-    await expect(measure(label)).toContainText((label === 'Processing cost' ? '24.5' : value) + ' index units')
+    const revised = { 'Processing cost': '24.5', 'Processing speed': '21.5' } as Record<string, string>
+    await expect(measure(label)).toContainText((revised[label] ?? value) + ' index units')
   }
   await expect(measure('Difficulty')).toContainText('2.75 index units')
   await expect(measure('Success probability range')).toContainText('0.7 to 0.8')
@@ -2007,9 +2142,66 @@ test('reopens six distinct sourced capability measurements at two dates', async 
   await expect(findings).toContainText('No findings')
   const pastCost = history.getByRole('listitem').filter({ hasText: 'Processing cost' }).filter({ hasText: '14.5' })
   await expect(pastCost.getByRole('link', { name: 'First shift worksheet' })).toBeVisible()
+  await pastCost.getByRole('button', { name: 'Record observation', exact: true }).click()
+  const observation = page.getByRole('form', { name: 'Record observation', exact: true })
+  await observation.getByRole('combobox', { name: 'Observer', exact: true }).selectOption({ label: 'Archive analyst' })
+  await observation.getByLabel('Learned at').fill('4')
+  await observation.getByLabel('About time').fill('4')
+  await observation.getByRole('combobox', { name: 'Learning source (optional)', exact: true })
+    .selectOption({ label: 'First shift worksheet' })
+  await observation.getByRole('button', { name: 'Save observation', exact: true }).click()
+  await expect(observation).toHaveCount(0)
+  const savedCost = page.getByRole('region', { name: 'Recorded observations' }).getByRole('listitem')
+    .filter({ hasText: 'Processing cost' })
+  await expect(savedCost).toContainText('14.5 index units')
+  await expect(savedCost.getByRole('link', { name: 'First shift worksheet', exact: true })).toBeVisible()
   const laterCost = history.getByRole('listitem').filter({ hasText: 'Processing cost' }).filter({ hasText: '24.5' })
   await laterCost.getByRole('link', { name: 'Revised shift worksheet' }).click()
   await expect(page.getByRole('heading', { name: 'Revised shift worksheet', exact: true })).toBeVisible()
+
+  await page.getByRole('navigation', { name: 'Wiki sections' }).getByRole('link', { name: 'Timeline', exact: true }).click()
+  await page.getByRole('button', { name: 'New event', exact: true }).click()
+  const event = page.getByRole('form', { name: 'New event', exact: true })
+  await event.getByLabel('Event name').fill('Shift assessment')
+  await event.getByLabel('Event time').fill('6')
+  await event.getByRole('combobox', { name: 'Source article', exact: true }).selectOption({ label: 'Revised shift worksheet' })
+  for (const [index, [field, value]] of [['Processing overload', '25.5'], ['Emotional stress', '26.5']].entries()) {
+    await event.getByRole('button', { name: index ? 'Add another change' : 'Add a state change' }).click()
+    const change = event.getByRole('group', { name: 'Change ' + (index + 1), exact: true })
+    await change.getByRole('combobox', { name: 'Affected entry', exact: true }).selectOption({ label: 'Night indexing' })
+    await change.getByRole('combobox', { name: 'Field', exact: true }).selectOption({ label: field })
+    await change.getByLabel('Value', { exact: true }).fill(value)
+    await change.getByRole('combobox', { name: 'Trait', exact: true }).selectOption({ label: qualifier.entry })
+  }
+  await event.getByRole('button', { name: 'Save event', exact: true }).click()
+  await expect(page.getByRole('article', { name: 'Shift assessment', exact: true })
+    .getByRole('link', { name: 'Revised shift worksheet', exact: true })).toBeVisible()
+  const assessment = (await readWiki(page, '/timeline')).timeline!.find(item => item.name === 'Shift assessment')!
+  expect(assessment.citation_id).toBe(revisedId)
+  await page.goto(contextUrl)
+  await showTime(page, 5)
+  await expect(measure('Processing overload')).toContainText('15.5 index units')
+  await expect(measure('Emotional stress')).toContainText('16.5 index units')
+  await showTime(page, 6)
+  await page.reload()
+  await expect(measure('Processing overload')).toContainText('25.5 index units')
+  await expect(measure('Emotional stress')).toContainText('26.5 index units')
+  await expect(measure('Mental bandwidth')).toContainText('12.5 index units')
+  const context = (await readWiki(page, '/entries/' + contextId, { at: 6 })).article!
+  expect(context.assertions).toEqual(expect.arrayContaining([
+    expect.objectContaining({ field: 'processing_speed', from_tick: 5, value: '21.5', unit: 'index units', citation_id: revisedId }),
+    expect.objectContaining({ field: 'processing_overload', from_tick: 6, value: '25.5', event_id: assessment.id }),
+    expect.objectContaining({ field: 'emotional_stress', from_tick: 6, value: '26.5', event_id: assessment.id }),
+  ]))
+  const analyst = context.observations.find(item => item.field === 'processing_cost')!.observer_id
+  await showAs(page, 'Archive analyst', 6)
+  const knowledge = page.getByRole('region', { name: 'Character knowledge' })
+  await expect(knowledge).toContainText('14.5 index units')
+  await expect(knowledge.getByRole('link', { name: 'First shift worksheet', exact: true })).toBeVisible()
+  const scoped = (await readWiki(page, '/entries/' + contextId, { at: 6, view_as: analyst })).article!
+  expect(scoped.observations).toContainEqual(expect.objectContaining({
+    field: 'processing_cost', value: '14.5', unit: 'index units', learned_at: 4, about_tick: 4, learning_source_id: firstId,
+  }))
 })
 
 test('authors distinct Lucidchart group relationships through the same Wiki workflow', async ({ page }) => {
@@ -2177,6 +2369,9 @@ test('authors and reopens separate relationship terms through the participants a
   await expect(page.getByRole('heading', { name: 'Workshop upkeep terms' })).toBeVisible()
   await fact(page, 'Declared cost', '2', { qualifier: currency, from: 2, until: 5 })
   await fact(page, 'Declared cost', '3.5', { qualifier: currency, from: 5 })
+  await fact(page, 'Declared authority', 'Approve an equipment inspection', { from: 2 })
+  await fact(page, 'Declared benefit', 'Use the shared register', { from: 2 })
+  await fact(page, 'Limitation', 'Requires a second reviewer', { from: 4 })
 
   await createEntry(page, 'Member access terms', 'Term set')
   await fact(page, 'Relationship or type', 'Sela and the workshop', { reference: true, from: 4 })
@@ -2218,8 +2413,18 @@ test('authors and reopens separate relationship terms through the participants a
   await expect(facts.getByRole('link', { name: 'Inspection signoff' })).toBeVisible()
   await expect(facts.getByRole('link', { name: 'Continuing safety review' })).toBeVisible()
   await expect(facts.getByRole('link', { name: 'Use a shared bench' })).toBeVisible()
+  await expect(facts).toContainText('Approve an equipment inspection')
+  await expect(facts).toContainText('Use the shared register')
+  await expect(facts).toContainText('Requires a second reviewer')
+  const termId = new URL(page.url()).searchParams.get('entry')!
+  expect((await readWiki(page, '/entries/' + termId, { at: 5 })).article!.assertions).toEqual(expect.arrayContaining([
+    expect.objectContaining({ field: 'declared_authority', value: 'Approve an equipment inspection', from_tick: 2 }),
+    expect.objectContaining({ field: 'declared_benefit', value: 'Use the shared register', from_tick: 2 }),
+    expect.objectContaining({ field: 'declared_limitation', value: 'Requires a second reviewer', from_tick: 4 }),
+  ]))
   await showTime(page, 3)
   await expect(facts).toContainText('2 credits')
+  await expect(facts).not.toContainText('Requires a second reviewer')
 
   await page.goto(memberUrl)
   await showTime(page, 5)
@@ -3076,6 +3281,7 @@ test('uses the redesigned Wiki catalogs, global search, contextual history, and 
   await item.getByLabel('Initial facts start at time').fill('7')
   await item.getByRole('button', { name: 'Save entry' }).click()
   await expect(page.getByRole('heading', { name: 'Facts at time 7' })).toBeVisible()
+  const weightId = new URL(page.url()).searchParams.get('entry')!
   await page.getByRole('button', { name: 'Record dated change', exact: true }).click()
   const event = page.getByRole('form', { name: 'Record dated change' })
   await event.getByLabel('Event name').fill('Inventory arrives')
@@ -3096,10 +3302,16 @@ test('uses the redesigned Wiki catalogs, global search, contextual history, and 
   const vehicle = page.getByRole('form', { name: 'New vehicle' })
   await vehicle.getByLabel('Entry name').fill('Survey ferry')
   await vehicle.getByLabel('Overview').fill('Carries survey equipment across the harbor.')
+  await vehicle.getByLabel('Mass (kg)').fill('52.5')
+  await vehicle.getByRole('button', { name: 'Save entry' }).click()
+  await expect(vehicle.getByRole('alert')).toContainText('Choose when the initial facts apply')
+  await expect(vehicle.getByLabel('Initial facts start at time')).toBeFocused()
+  await vehicle.getByLabel('Initial facts start at time').fill('7')
   await vehicle.getByRole('button', { name: 'Save entry' }).click()
   await expect(page.getByRole('heading', { name: 'Survey ferry', exact: true })).toBeVisible()
   const ferryId = new URL(page.url()).searchParams.get('entry')
   expect(ferryId).toBeTruthy()
+  await views.getByRole('button', { name: 'Overview', exact: true }).click()
   expect(new URL(page.url()).searchParams.has('at')).toBe(false)
   await expect(page.getByLabel('View state at time')).toHaveCount(0)
   await page.getByRole('button', { name: 'Read', exact: true }).click()
@@ -3118,6 +3330,7 @@ test('uses the redesigned Wiki catalogs, global search, contextual history, and 
   expect(new URL(page.url()).searchParams.get('entry')).toBe(ferryId)
 
   await choose('Places')
+  await createEntry(page, 'Survey terminal', 'Place')
   await search.fill('survey ferry')
   await search.press('Enter')
   await page.getByRole('region', { name: 'Search results' }).getByRole('link', { name: 'Survey ferry Vehicle' }).click()
@@ -3126,10 +3339,37 @@ test('uses the redesigned Wiki catalogs, global search, contextual history, and 
   expect(new URL(page.url()).searchParams.get('entry')).toBe(ferryId)
   if (process.env.CGS_E2E_CAPTURE === '1') await page.screenshot({ path: info.outputPath('vehicle-workspace.png') })
 
-  await choose('All articles')
-  await createEntry(page, 'Survey sled', 'Vehicle')
-  await choose('Vehicles')
-  await expect(catalog.getByRole('link', { name: 'Survey sled Vehicle', exact: true })).toBeVisible()
+  for (const [name, kind, plural, mass, contextualName, contextualId, contextualMass] of [
+    ['Brass weight', 'Item', 'Items', '15.5', 'Survey weight', weightId, '12.5'],
+    ['Survey sled', 'Vehicle', 'Vehicles', '65.5', 'Survey ferry', ferryId!, '52.5'],
+  ]) {
+    await choose('All articles')
+    await page.getByRole('button', { name: 'New entry', exact: true }).click()
+    const global = page.getByRole('form', { name: 'New entry' })
+    await global.getByLabel('Entry type').selectOption({ label: kind })
+    await global.getByLabel('Entry name').fill(name)
+    await global.getByLabel('Mass (kg)').fill(mass)
+    await global.getByRole('button', { name: 'Save entry' }).click()
+    await expect(global.getByRole('alert')).toContainText('Choose when the initial facts apply')
+    await expect(global.getByLabel('Initial facts start at time')).toBeFocused()
+    await global.getByLabel('Initial facts start at time').fill('7')
+    await global.getByRole('button', { name: 'Save entry' }).click()
+    await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
+    const id = new URL(page.url()).searchParams.get('entry')!
+    await choose(plural)
+    for (const [articleName, articleId, expectedMass] of [[name, id, mass], [contextualName, contextualId, contextualMass]]) {
+      await openEntry(page, articleName, kind)
+      await showTime(page, 7)
+      await page.reload()
+      expect(new URL(page.url()).searchParams.get('entry')).toBe(articleId)
+      const massRow = page.getByRole('region', { name: 'Facts at the selected time' })
+        .getByText('Mass (kg)', { exact: true }).locator('..')
+      await expect(massRow.locator('dd')).toHaveText(expectedMass)
+      expect((await readWiki(page, '/entries/' + articleId, { at: 7 })).article?.assertions).toContainEqual(
+        expect.objectContaining({ field: 'mass_kg', value: expectedMass, from_tick: 7 }),
+      )
+    }
+  }
   await choose('All articles')
   await page.getByRole('button', { name: 'New entry', exact: true }).click()
   const legacy = page.getByRole('form', { name: 'New entry' })
@@ -3410,8 +3650,8 @@ test('reopens competing claims, private observations and a belief with multiple 
 
   await page.goto(actorUrl)
   await showTime(page, 4)
-  await page.getByRole('button', { name: 'Record belief' }).click()
-  const belief = page.getByRole('form', { name: 'Record belief' })
+  await page.getByRole('button', { name: 'Record belief', exact: true }).click()
+  const belief = page.getByRole('form', { name: 'Record belief', exact: true })
   await belief.getByRole('combobox', { name: 'Subject', exact: true }).selectOption({ label: 'Dispatch gate' })
   await belief.getByLabel('Value', { exact: true }).fill('Closed')
   await belief.getByLabel('Confidence (0–1, optional)').fill('0.65')
@@ -3443,6 +3683,44 @@ test('reopens competing claims, private observations and a belief with multiple 
   await showTime(page, 4)
   await expect(page.getByRole('region', { name: 'Facts at the selected time' })).toContainText('Open')
   await expect(claims).toContainText('Awaiting inspection')
+  await observe(history.getByRole('listitem').filter({ hasText: 'Open' }).getByRole('button', { name: 'Record observation' }),
+    '7', 'Saw the gate open.')
+
+  await page.goto(actorUrl)
+  await showTime(page, 4)
+  await beliefs.getByRole('button', { name: 'Record belief change', exact: true }).click()
+  const change = page.getByRole('form', { name: 'Record belief change' })
+  await expect(change).toContainText('Dispatch gate · Status')
+  await expect(change.getByLabel('Effective from')).toHaveValue('')
+  await expect(change.getByLabel('Effective until (optional)')).toHaveValue('8')
+  const desktop = page.viewportSize()
+  if (desktop) await page.setViewportSize({ width: 390, height: 844 })
+  await expect(change.getByRole('button', { name: 'Save belief change' })).toBeVisible()
+  if (process.env.CGS_E2E_CAPTURE === '1') await change.screenshot({ path: info.outputPath('belief-change-narrow.png') })
+  if (desktop) await page.setViewportSize(desktop)
+  await change.getByLabel('Value', { exact: true }).fill('Open')
+  await change.getByLabel('Effective from').fill('4')
+  await change.getByLabel('Confidence (0–1, optional)').fill('0.9')
+  await change.getByRole('combobox', { name: 'Evidence (optional)', exact: true }).selectOption({ label: 'Dispatch gate · Status · Learned at 7' })
+  await change.getByRole('button', { name: 'Save belief change' }).click()
+  await expect(page.getByText('Choose a time after the belief started and before it ended.', { exact: true })).toBeVisible()
+  await expect(change.getByLabel('Value', { exact: true })).toHaveValue('Open')
+  await change.getByLabel('Effective from').fill('7')
+  await change.getByRole('button', { name: 'Save belief change' }).click()
+  await expect(page).toHaveURL(/[?&]at=7(?:&|$)/)
+  await expect(beliefs).toContainText('Dispatch gate · Status · Open')
+  await expect(beliefs).toContainText('Confidence 0.9')
+  await page.reload()
+  await expect(beliefs).toContainText('From time 7 until time 8')
+  await showAs(page, 'Courier', 6)
+  await expect(beliefs).toContainText('Dispatch gate · Status · Closed')
+  await expect(beliefs).toContainText('From time 4 until time 7')
+  await expect(beliefs.getByRole('link', { name: 'Signal board · Learned at time 4' })).toBeVisible()
+  await showAs(page, 'Courier', 7)
+  await expect(beliefs).toContainText('Dispatch gate · Status · Open')
+  await expect(beliefs.getByRole('button', { name: 'Record belief change' })).toHaveCount(0)
+  await showAs(page, 'Courier', 8)
+  await expect(beliefs).toContainText('No beliefs recorded for this time.')
 })
 
 test('authors biography, family, and related actions while keeping independent world history', async ({ page }, info) => {

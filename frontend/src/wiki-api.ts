@@ -277,7 +277,10 @@ export type WikiCommand =
   | ({
     holder_id: string; from_tick: number; until_tick: number | null; about_tick: number | null
     evidence_id: string | null; source: string; additional_evidence_ids?: string[]; confidence?: string | null
-  } & FieldChange & ({ op: 'record_proposition' } | { op: 'correct_proposition'; proposition_id: string }))
+  } & FieldChange & (
+    { op: 'record_proposition' } | { op: 'correct_proposition'; proposition_id: string }
+    | { op: 'change_belief'; previous_belief_id: string }
+  ))
   | (CausalAccountInput & ({ op: 'record_causal_account' } | { op: 'correct_causal_account'; account_id: string }))
   | { op: 'set_calendar'; days_per_year: number | null }
   | ({ op: 'save_layout'; place_id: string; name: string; from_tick: number } & WikiBounds)

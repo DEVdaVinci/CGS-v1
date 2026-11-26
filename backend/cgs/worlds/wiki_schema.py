@@ -736,6 +736,13 @@ class CorrectProposition(RecordProposition):
     proposition_id = WikiRef()
 
 
+class ChangeBelief(RecordProposition):
+    op = serializers.ChoiceField(choices=("change_belief",))
+    previous_belief_id = WikiRef()
+    until_tick = ExactClock(allow_null=True, required=False)
+    author_only = serializers.BooleanField(required=False)
+
+
 class CausalTermInput(StrictSerializer):
     phase = serializers.ChoiceField(choices=WikiCausalTerm.Phase.values)
     belief_id = WikiRef()
@@ -861,6 +868,7 @@ COMMANDS = {
     "correct_event_report": CorrectEventReport,
     "record_proposition": RecordProposition,
     "correct_proposition": CorrectProposition,
+    "change_belief": ChangeBelief,
     "record_causal_account": RecordCausalAccount,
     "correct_causal_account": CorrectCausalAccount,
     "set_calendar": SetCalendar,
