@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import type { WikiView } from '../src/wiki-api'
 
 async function openWiki(page: Page, worldLabel = 'Cedar world') {
   const password = process.env.CGS_E2E_PASSWORD
@@ -41,6 +42,30 @@ test('reopens and extends the upgraded legacy Wiki and Draft', async ({ page, br
   const crewUrl = page.url()
   await expect(page.getByText("Review this group's legacy location.", { exact: false })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Fact history' })).toContainText('Ambiguous ledger entry')
+  const historicalFacts = page.getByRole('region', { name: 'Fact history', exact: true })
+  for (const catalog of ['Items', 'Vehicles']) {
+    await sections.getByRole('link', { name: catalog, exact: true }).click()
+    await openEntry(page, 'Archive ferry', 'Vehicle')
+    expect(new URL(page.url()).searchParams.get('entry')).toBe('00000000-0000-4000-8000-000000000202')
+    await showTime(page, 3)
+    await expect(historicalFacts).toContainText('Ferry registry')
+    await expect(historicalFacts).toContainText('From time 3')
+  }
+  await expect(page.getByRole('navigation', { name: 'Wiki entries' }).getByText('Archive handcart')).toHaveCount(0)
+  await sections.getByRole('link', { name: 'Items', exact: true }).click()
+  await openEntry(page, 'Archive handcart', 'Item')
+  const cartId = new URL(page.url()).searchParams.get('entry')!
+  expect(cartId).toBe('00000000-0000-4000-8000-000000000203')
+  await expect(page.getByText("Review this item's dated vehicle classifications in History.")).toBeVisible()
+  await showTime(page, 4)
+  await page.reload()
+  await expect(historicalFacts).toContainText('Equipment list')
+  await expect(historicalFacts).toContainText('Later inventory')
+  const cart = (await readWiki(page, '/entries/' + cartId, { at: 4 })).article!
+  expect(cart.assertions?.filter(row => row.field === 'item_type')).toMatchObject([
+    { value: 'Vehicle', from_tick: 1, until_tick: 4 },
+    { value: 'Tool', from_tick: 4, until_tick: null },
+  ])
   await sections.getByRole('link', { name: 'Timeline', exact: true }).click()
   const arrival = page.getByRole('article', { name: 'Archive arrival', exact: true })
   await expect(page.getByRole('region', { name: 'Time 8', exact: true }).getByRole('article', { name: 'Archive arrival' })).toBeVisible()
@@ -128,6 +153,18 @@ async function fact(page: Page, field: string, value: string, options: {
   await form.getByRole('button', { name: 'Save fact' }).click()
   await expect(page.getByRole('region', { name: 'Fact history' })).toBeVisible()
   await expect(form).toHaveCount(0)
+}
+
+function wikiApi(page: Page) {
+  const url = new URL(page.url())
+  const [, , worldId] = url.pathname.split('/')
+  return url.origin + '/api/v1/worlds/' + worldId + '/wiki'
+}
+
+async function readWiki(page: Page, path: string, params: Record<string, string | number> = {}): Promise<WikiView> {
+  const response = await page.request.get(wikiApi(page) + path, { params })
+  expect(response.ok()).toBeTruthy()
+  return await response.json()
 }
 
 test('authors a publicly sourced Solo Leveling Wiki sample through episode two', async ({ page }, info) => {
@@ -855,6 +892,13 @@ test('keeps a species default, average, weighted population and typical items se
   await openWiki(page)
   await createEntry(page, 'Swimming pace', 'Trait')
   await fact(page, 'Unit', 'm/s')
+  await createEntry(page, 'Paddling force', 'Trait')
+  await fact(page, 'Unit', 'points')
+  await createEntry(page, 'Attention', 'Trait')
+  await createEntry(page, 'Current reading', 'Ability')
+  await createEntry(page, 'Webbed foot', 'Body part')
+  await createEntry(page, 'Paddling', 'Body function')
+  await createEntry(page, 'Wetland census', 'Source')
   await createEntry(page, 'Work satchel', 'Item')
   const menu = page.getByRole('navigation', { name: 'Wiki sections' })
   await menu.getByRole('link', { name: 'Organisms & species' }).click()
@@ -862,38 +906,102 @@ test('keeps a species default, average, weighted population and typical items se
   const species = page.getByRole('form', { name: 'New species' })
   await species.getByLabel('Entry name').fill('Estuary walkers')
   await species.getByLabel('Height (cm)', { exact: true }).fill('165')
+  await species.getByLabel('Width (cm)', { exact: true }).fill('26.5')
+  await species.getByLabel('Length (cm)', { exact: true }).fill('172.5')
+  await species.getByLabel('Mass (kg)', { exact: true }).fill('55.25')
   await species.getByText('Linked entries', { exact: true }).click()
   await species.getByRole('group', { name: 'Typical item' }).getByRole('checkbox', { name: 'Work satchel' }).check()
   await species.getByLabel('Initial facts start at time').fill('0')
   await species.getByRole('button', { name: 'Save entry' }).click()
   await expect(page.getByRole('heading', { name: 'Estuary walkers', exact: true })).toBeVisible()
+  const speciesUrl = page.url()
+  const speciesId = new URL(speciesUrl).searchParams.get('entry')!
   const scale = { label: 'Trait', entry: 'Swimming pace' }
+  const powerScale = { label: 'Trait', entry: 'Paddling force' }
   await fact(page, 'Physical measurement', '2.75', { qualifier: scale })
   await fact(page, 'Average physical measurement', '2.5', { qualifier: scale })
+  await fact(page, 'Average power rating', '12.5', { qualifier: powerScale, citation: 'Wetland census', from: 2 })
+  await fact(page, 'Typical personality', 'Notices subtle changes', {
+    qualifier: { label: 'Trait', entry: 'Attention' }, citation: 'Wetland census', from: 2,
+  })
+  await fact(page, 'Typical ability', 'Current reading', { reference: true, from: 2 })
+  await fact(page, 'Body part', 'Webbed foot', { reference: true })
+  await fact(page, 'Body function', 'Paddling', { reference: true })
   await fact(page, 'Typical item population share (0–1)', '0.75', { qualifier: { label: 'Item', entry: 'Work satchel' } })
 
-  await page.getByRole('button', { name: 'Record fact', exact: true }).click()
-  const distribution = page.getByRole('form', { name: 'Record fact' })
-  await distribution.getByRole('combobox', { name: 'Field', exact: true }).selectOption({ label: 'Physical measurement distribution' })
-  await distribution.getByRole('combobox', { name: 'Trait', exact: true }).selectOption({ label: 'Swimming pace' })
-  await distribution.getByLabel('Outcome 1').fill('2')
-  await distribution.getByLabel('Weight 1').fill('3')
-  await distribution.getByRole('button', { name: 'Add outcome' }).click()
-  await distribution.getByRole('textbox', { name: 'Outcome 2', exact: true }).fill('4')
-  await distribution.getByLabel('Weight 2').fill('1')
-  await distribution.getByRole('button', { name: 'Save fact' }).click()
+  for (const [field, trait, lower, upper, from] of [
+    ['Physical measurement distribution', 'Swimming pace', '2', '4', '0'],
+    ['Power rating distribution', 'Paddling force', '10', '20', '2'],
+  ]) {
+    await page.getByRole('button', { name: 'Record fact', exact: true }).click()
+    const distribution = page.getByRole('form', { name: 'Record fact' })
+    await distribution.getByRole('combobox', { name: 'Field', exact: true }).selectOption({ label: field })
+    await distribution.getByRole('combobox', { name: 'Trait', exact: true }).selectOption({ label: trait })
+    await distribution.getByRole('combobox', { name: 'Source article', exact: true }).selectOption({ label: 'Wetland census' })
+    await distribution.getByLabel('Outcome 1').fill(lower)
+    await distribution.getByLabel('Weight 1').fill('3')
+    await distribution.getByRole('button', { name: 'Add outcome' }).click()
+    await distribution.getByRole('textbox', { name: 'Outcome 2', exact: true }).fill(upper)
+    await distribution.getByLabel('Weight 2').fill('1')
+    await distribution.getByLabel('Effective from').fill(from)
+    await distribution.getByRole('button', { name: 'Save fact' }).click()
+    await expect(distribution).toHaveCount(0)
+  }
   const facts = page.getByRole('region', { name: 'Facts at the selected time' })
   const population = facts.getByRole('region', { name: 'Species population' })
   await expect(population).toContainText('2 × 3, 4 × 1 m/s')
+  await showTime(page, 2)
   await page.reload()
   await expect(population).toContainText('2.5 m/s')
   await expect(population).toContainText('0.75')
+  await expect(population).toContainText('12.5 points')
+  await expect(population).toContainText('10 × 3, 20 × 1 points')
+  await expect(population).toContainText('Notices subtle changes')
+  await expect(population.getByRole('link', { name: 'Current reading', exact: true })).toBeVisible()
   await expect(facts.getByRole('region', { name: 'Physical traits and condition' })).toContainText('2.75 m/s')
+  const stored = (await readWiki(page, '/entries/' + speciesId, { at: 2 })).article!.assertions!
+  expect(stored).toEqual(expect.arrayContaining([
+    expect.objectContaining({ field: 'width_cm', value: '26.5' }),
+    expect.objectContaining({ field: 'length_cm', value: '172.5' }),
+    expect.objectContaining({ field: 'mass_kg', value: '55.25' }),
+    expect.objectContaining({ field: 'power_average', from_tick: 2, value: '12.5', unit: 'points', citation_id: expect.any(String) }),
+    expect.objectContaining({ field: 'power_distribution', from_tick: 2, unit: 'points', citation_id: expect.any(String) }),
+  ]))
+  const powerDistribution = stored.find(row => row.field === 'power_distribution')!
+  expect(JSON.parse(String(powerDistribution.value))).toEqual([{ value: '10', weight: '3' }, { value: '20', weight: '1' }])
   if (process.env.CGS_E2E_CAPTURE === '1') await population.screenshot({ path: info.outputPath('species-population.png') })
   await population.getByRole('link', { name: 'Work satchel', exact: true }).first().click()
   await expect(page.getByRole('heading', { name: 'Work satchel', exact: true })).toBeVisible()
   await showTime(page, 0)
   await expect(page.getByRole('region', { name: 'Typical for these definitions' }).getByRole('link', { name: 'Estuary walkers' })).toBeVisible()
+
+  for (const animal of ['North walker', 'South walker']) {
+    await createEntry(page, animal, 'Organism')
+    await fact(page, 'Species', 'Estuary walkers', { reference: true })
+    const physical = facts.getByRole('region', { name: 'Physical traits and condition' })
+    await expect(physical).toContainText('2.75 m/s')
+    for (const dimension of ['165', '26.5', '172.5', '55.25']) await expect(physical).toContainText(dimension)
+    await expect(physical.getByRole('link', { name: 'Webbed foot', exact: true })).toBeVisible()
+    if (animal === 'North walker') {
+      await fact(page, 'Physical measurement', '3.25', { qualifier: scale, citation: 'Wetland census', from: 3 })
+      await showTime(page, 2)
+      await expect(physical).toContainText('2.75 m/s')
+      await showTime(page, 3)
+      await page.reload()
+      await expect(physical).toContainText('3.25 m/s')
+    } else {
+      await showTime(page, 3)
+      await expect(physical).toContainText('2.75 m/s')
+      await expect(physical).not.toContainText('3.25 m/s')
+    }
+  }
+  await page.goto(speciesUrl)
+  await showTime(page, 2)
+  await expect(population).toContainText('2.5 m/s')
+  await facts.getByRole('link', { name: 'Paddling', exact: true }).click()
+  await showTime(page, 2)
+  await expect(page.getByRole('region', { name: 'Performs this function', exact: true })
+    .getByRole('link', { name: 'Estuary walkers', exact: true })).toBeVisible()
 })
 
 test('reads ordered goals and follows a job into its declared authority', async ({ page }) => {
@@ -1143,6 +1251,81 @@ test('follows a goal motivation to a stored actor value and preference', async (
   const preferences = page.getByRole('region', { name: 'Preferences', exact: true })
   await expect(preferences.getByRole('link', { name: 'Leave the nesting site undisturbed' })).toBeVisible()
   await expect(facts.getByRole('link', { name: 'Quiet', exact: true })).toBeVisible()
+})
+
+test('reopens independent mental state, resource balances and a sourced goal priority', async ({ page }) => {
+  test.setTimeout(90_000)
+  await openWiki(page, 'Marsh survey office')
+  await createEntry(page, 'Survey diary', 'Source')
+  const diaryId = new URL(page.url()).searchParams.get('entry')!
+  await createEntry(page, 'Composure', 'Trait')
+  await createEntry(page, 'Observation', 'Mental process')
+  await createEntry(page, 'Field recording', 'Skill')
+  for (const [name, unit] of [['Energy reserve', 'joules'], ['Stamina reserve', 'points'], ['Survey credit', 'credits']]) {
+    await createEntry(page, name, 'Resource')
+    await fact(page, 'Unit', unit)
+  }
+  await createEntry(page, 'Field surveyor', 'Character')
+  const actorId = new URL(page.url()).searchParams.get('entry')!
+  const citation = 'Survey diary'
+  await fact(page, 'Personality trait', 'Patient under pressure', {
+    qualifier: { label: 'Trait', entry: 'Composure' }, from: 1, citation,
+  })
+  await fact(page, 'Emotional state', 'Apprehensive', { from: 1, until: 5, citation })
+  await fact(page, 'Emotional state', 'Relieved', { from: 5, citation })
+  await fact(page, 'Mood', 'Quietly optimistic', { from: 1, citation })
+  await fact(page, 'Mental state', 'Alert and focused', { from: 1, citation })
+  await fact(page, 'Mental process', 'Observation', { reference: true, from: 1, citation })
+  await fact(page, 'Skill', 'Field recording', { reference: true, from: 1, citation })
+  for (const [resource, value, from, until] of [
+    ['Energy reserve', '150.5', 1, undefined],
+    ['Stamina reserve', '8', 1, 5],
+    ['Stamina reserve', '5', 5, undefined],
+    ['Survey credit', '20.75', 1, undefined],
+  ] as const) {
+    await fact(page, 'Resource amount', value, { qualifier: { label: 'Resource', entry: resource }, from, until, citation })
+  }
+  const facts = page.getByRole('region', { name: 'Facts at the selected time' })
+  const mind = facts.getByRole('region', { name: 'Mind and goals', exact: true })
+  const resources = facts.getByRole('region', { name: 'Resources and inventory', exact: true })
+  await showTime(page, 4)
+  await expect(mind).toContainText('Apprehensive')
+  await expect(resources).toContainText('8 points')
+  await showTime(page, 5)
+  await page.reload()
+  for (const value of ['Patient under pressure', 'Relieved', 'Quietly optimistic', 'Alert and focused']) {
+    await expect(mind).toContainText(value)
+  }
+  await expect(mind).not.toContainText('Apprehensive')
+  for (const value of ['Observation', 'Field recording']) await expect(mind.getByRole('link', { name: value, exact: true })).toBeVisible()
+  for (const amount of ['150.5 joules', '5 points', '20.75 credits']) await expect(resources).toContainText(amount)
+
+  const saved = (await readWiki(page, '/entries/' + actorId, { at: 5 })).article!.assertions!
+  expect(saved.filter(record => record.field === 'mood')).toMatchObject([
+    { value: 'Apprehensive', from_tick: 1, until_tick: 5, citation_id: diaryId },
+    { value: 'Relieved', from_tick: 5, until_tick: null, citation_id: diaryId },
+  ])
+  expect(saved.filter(record => record.field === 'resource_amount')).toEqual(expect.arrayContaining([
+    expect.objectContaining({ value: '150.5', unit: 'joules', from_tick: 1, citation_id: diaryId }),
+    expect.objectContaining({ value: '8', unit: 'points', from_tick: 1, until_tick: 5, citation_id: diaryId }),
+    expect.objectContaining({ value: '5', unit: 'points', from_tick: 5, citation_id: diaryId }),
+    expect.objectContaining({ value: '20.75', unit: 'credits', from_tick: 1, citation_id: diaryId }),
+  ]))
+  await createEntry(page, 'Finish the marsh survey', 'Goal')
+  const goalId = new URL(page.url()).searchParams.get('entry')!
+  await fact(page, 'Goal owner', 'Field surveyor', { reference: true, from: 2 })
+  await fact(page, 'Priority', '4', { from: 2, until: 5, citation })
+  await fact(page, 'Priority', '8', { from: 5, citation })
+  await facts.getByRole('link', { name: 'Field surveyor', exact: true }).click()
+  await showTime(page, 5)
+  await page.getByRole('region', { name: 'Goals', exact: true }).getByRole('link', { name: 'Finish the marsh survey', exact: true }).click()
+  expect(new URL(page.url()).searchParams.get('entry')).toBe(goalId)
+  await expect(facts.getByRole('region', { name: 'Mind and goals', exact: true })).toContainText('8')
+  const priority = (await readWiki(page, '/entries/' + goalId, { at: 5 })).article!.assertions!.filter(record => record.field === 'priority')
+  expect(priority).toMatchObject([
+    { value: 4, from_tick: 2, until_tick: 5, citation_id: diaryId },
+    { value: 8, from_tick: 5, until_tick: null, citation_id: diaryId },
+  ])
 })
 
 test('reopens ordered method steps and their timeline evidence from both directions', async ({ page }, info) => {
@@ -1656,6 +1839,55 @@ test('reports contradictory lifespan facts and clears the finding after correcti
   await page.reload()
   await expect(endpoint).toContainText('12')
   await expect(findings).toContainText('No findings')
+})
+
+test('keeps nonliving creation, destruction and species extinction independent', async ({ page }) => {
+  test.setTimeout(75_000)
+  await openWiki(page, 'Material history')
+  await page.getByRole('navigation', { name: 'Wiki sections' }).getByRole('link', { name: 'Timeline', exact: true }).click()
+  await page.getByRole('button', { name: 'Calendar settings' }).click()
+  await page.getByLabel('Days per year').fill('10')
+  await page.getByRole('button', { name: 'Save calendar' }).click()
+  await expect(page.getByRole('button', { name: 'Save calendar' })).toHaveCount(0)
+  await createEntry(page, 'Signal lantern', 'Item')
+  const itemId = new URL(page.url()).searchParams.get('entry')!
+  await fact(page, 'Creation time', '2', { from: 1 })
+  await fact(page, 'Destruction time', '25', { from: 5 })
+  const identity = page.getByRole('region', { name: 'Facts at the selected time' }).getByRole('region', { name: 'Identity and classification' })
+  await showTime(page, 12)
+  await expect(identity).toContainText('1 year')
+  await showTime(page, 42)
+  await page.reload()
+  await expect(identity).toContainText('2 years')
+  const item = (await readWiki(page, '/entries/' + itemId, { at: 42 })).article!
+  expect(item.age_years).toBe(2)
+  expect(item.assertions).toEqual(expect.arrayContaining([
+    expect.objectContaining({ field: 'creation_tick', value: 2, from_tick: 1 }),
+    expect.objectContaining({ field: 'destruction_tick', value: 25, from_tick: 5 }),
+  ]))
+
+  await createEntry(page, 'Distant marsh fern', 'Species')
+  const speciesId = new URL(page.url()).searchParams.get('entry')!
+  await fact(page, 'Creation time', '3', { from: 1 })
+  await page.getByRole('button', { name: 'Record fact', exact: true }).click()
+  const form = page.getByRole('form', { name: 'Record fact' })
+  await form.getByRole('combobox', { name: 'Field', exact: true }).selectOption({ label: 'Extinction date window' })
+  await form.getByLabel('Earliest possible time').fill('30')
+  await form.getByLabel('Latest possible time').fill('39')
+  await form.getByLabel('Effective from', { exact: true }).fill('7')
+  await form.getByRole('button', { name: 'Save fact' }).click()
+  await expect(form).toHaveCount(0)
+  await showTime(page, 7)
+  await page.reload()
+  await expect(identity).toContainText('Extinction date window')
+  await expect(identity).toContainText('30')
+  await expect(identity).toContainText('39')
+  const species = (await readWiki(page, '/entries/' + speciesId, { at: 7 })).article!
+  expect(species.assertions).toEqual(expect.arrayContaining([
+    expect.objectContaining({ field: 'creation_tick', value: 3, from_tick: 1 }),
+    expect.objectContaining({ field: 'extinction_window', value: '30:39', from_tick: 7 }),
+  ]))
+  expect(species.assertions?.some(row => row.field === 'extinction_tick')).toBe(false)
 })
 
 test('opens dated capability contexts and relationships from their linked articles', async ({ page }, info) => {
@@ -2598,6 +2830,7 @@ test('authors and inspects the Cedar Gate timeline through ordinary Wiki control
   await createEntry(page, 'Watch', 'Group')
   await createEntry(page, 'Harbor Guild', 'Group')
   await createEntry(page, 'Harbor shift log', 'Source')
+  await createEntry(page, 'Left ankle', 'Body part')
   const sections = page.getByRole('navigation', { name: 'Wiki sections' })
   await sections.getByRole('link', { name: 'Places', exact: true }).click()
 
@@ -2655,7 +2888,8 @@ test('authors and inspects the Cedar Gate timeline through ordinary Wiki control
   const health = page.getByRole('form', { name: 'New health record' })
   await health.getByLabel('Entry name').fill('Ankle strain')
   await health.getByLabel('Condition start time').fill('5')
-  await health.getByRole('combobox', { name: 'Course status' }).selectOption('Ongoing')
+  await health.getByRole('combobox', { name: 'Affected body part' }).selectOption({ label: 'Left ankle' })
+  await health.getByRole('combobox', { name: 'Course status' }).selectOption('Resolved')
   await health.getByRole('button', { name: 'Save entry' }).click()
   await expect(page.getByRole('heading', { name: 'Ankle strain' })).toBeVisible()
   const healthId = new URL(page.url()).searchParams.get('entry')
@@ -2663,7 +2897,7 @@ test('authors and inspects the Cedar Gate timeline through ordinary Wiki control
   await page.getByRole('button', { name: 'New event', exact: true }).click()
   const bell = page.getByRole('form', { name: 'New event' })
   await bell.getByLabel('Event name').fill('Shift bell')
-  await bell.getByLabel('Event time').fill('12')
+  await bell.getByLabel('Event time').fill('10')
   await bell.getByRole('group', { name: 'Participants' }).getByRole('checkbox', { name: 'Bell keeper', exact: true }).check()
   await bell.getByRole('button', { name: 'Save event', exact: true }).click()
   await expect(page.getByRole('article', { name: 'Shift bell', exact: true })).toBeVisible()
@@ -2673,7 +2907,7 @@ test('authors and inspects the Cedar Gate timeline through ordinary Wiki control
   await event.getByLabel('Event time').fill('4')
   await event.getByRole('combobox', { name: 'Source article' }).selectOption({ label: 'Harbor shift log' })
   for (const [index, [entry, field, value]] of [
-    ['Mira', 'Location', 'Cedar Harbor'], ['Mira', 'Primary affiliation', 'Harbor Guild'], ['Ankle strain', 'Course status', 'Resolved'],
+    ['Mira', 'Location', 'Cedar Harbor'], ['Mira', 'Primary affiliation', 'Harbor Guild'], ['Ankle strain', 'Course status', 'Ongoing'],
   ].entries()) {
     await event.getByRole('button', { name: index ? 'Add another change' : 'Add a state change' }).click()
     const change = event.getByRole('group', { name: 'Change ' + (index + 1), exact: true })
@@ -2683,28 +2917,54 @@ test('authors and inspects the Cedar Gate timeline through ordinary Wiki control
   }
   await event.getByRole('button', { name: 'Save event', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('Ankle strain starts at time 5')
-  await event.getByLabel('Event time').fill('12')
+  expect((await readWiki(page, '/timeline')).timeline?.some(item => item.name === 'Harbor transfer')).toBe(false)
+  await event.getByLabel('Event time').fill('10')
   await event.getByRole('button', { name: 'Save event', exact: true }).click()
   await expect(page.getByRole('article', { name: 'Harbor transfer', exact: true })).toHaveCount(1)
+  const originalTimeline = (await readWiki(page, '/timeline')).timeline!
+  const originalTransfer = originalTimeline.find(item => item.name === 'Harbor transfer')!
+  const originalBell = originalTimeline.find(item => item.name === 'Shift bell')!
+  expect(originalTransfer.tick).toBe(10)
+  expect(originalTransfer.changes).toEqual(expect.arrayContaining([
+    expect.objectContaining({ entry_id: miraId, field: 'located_in', value: expect.any(String) }),
+    expect.objectContaining({ entry_id: healthId, field: 'health_course', previous_value: 'Resolved', value: 'Ongoing' }),
+  ]))
   await sections.getByRole('link', { name: 'Characters', exact: true }).click()
   await openEntry(page, 'Mira', 'Character')
   await showTime(page, 4)
   await expect(atTime.getByRole('link', { name: 'East Tower', exact: true })).toBeVisible()
-  await showTime(page, 11)
+  await showTime(page, 9)
   await expect(atTime.getByRole('link', { name: 'East Tower', exact: true })).toBeVisible()
   await expect(atTime.getByRole('link', { name: 'Watch', exact: true })).toBeVisible()
+  await page.getByRole('region', { name: 'Health records', exact: true }).getByRole('link', { name: 'Ankle strain' }).click()
+  await expect(atTime.getByText('Resolved', { exact: true })).toBeVisible()
+  await showTime(page, 10)
+  await expect(atTime.getByText('Ongoing', { exact: true })).toBeVisible()
+  await sections.getByRole('link', { name: 'Characters', exact: true }).click()
+  await openEntry(page, 'Mira', 'Character')
+  await showTime(page, 10)
+  await expect(atTime.getByRole('link', { name: 'Cedar Harbor', exact: true })).toBeVisible()
+  await expect(atTime.getByRole('link', { name: 'Harbor Guild', exact: true })).toBeVisible()
   const events = page.getByRole('region', { name: 'Dated events' })
   await events.getByRole('button', { name: 'Correct event date' }).click()
   const move = page.getByRole('form', { name: 'Correct event date' })
   await move.getByLabel('Corrected event time').fill('11')
   await move.getByRole('button', { name: 'Save corrected date' }).click()
-  await expect(atTime.getByRole('link', { name: 'Cedar Harbor', exact: true })).toBeVisible()
-  await expect(atTime.getByRole('link', { name: 'Harbor Guild', exact: true })).toBeVisible()
+  await expect(move).toHaveCount(0)
+  const correctedTimeline = (await readWiki(page, '/timeline')).timeline!
+  expect(correctedTimeline.find(item => item.id === originalTransfer.id)).toMatchObject({
+    tick: 11, changes: originalTransfer.changes,
+  })
+  expect(correctedTimeline.find(item => item.id === originalBell.id)).toMatchObject({ tick: 10, changes: [] })
   expect(new URL(page.url()).searchParams.get('entry')).toBe(miraId)
   await expect(events.getByRole('article')).toHaveCount(1)
   await showTime(page, 10)
   await expect(atTime.getByRole('link', { name: 'East Tower', exact: true })).toBeVisible()
   await expect(atTime.getByRole('link', { name: 'Watch', exact: true })).toBeVisible()
+  await showTime(page, 11)
+  await expect(atTime.getByRole('link', { name: 'Cedar Harbor', exact: true })).toBeVisible()
+  await expect(atTime.getByRole('link', { name: 'Harbor Guild', exact: true })).toBeVisible()
+  await showTime(page, 10)
   const height = page.getByRole('region', { name: 'Fact history', exact: true }).getByRole('listitem').filter({ hasText: 'Height (cm)' })
   await height.getByRole('button', { name: 'Correct value' }).click()
   const heightCorrection = page.getByRole('form', { name: 'Correct value' })
@@ -2713,10 +2973,10 @@ test('authors and inspects the Cedar Gate timeline through ordinary Wiki control
   await expect(atTime.getByText('165', { exact: true })).toBeVisible()
   await expect(events.getByRole('article')).toHaveCount(1)
   await page.getByRole('region', { name: 'Health records', exact: true }).getByRole('link', { name: 'Ankle strain' }).click()
-  await expect(atTime).toContainText('Ongoing')
+  await expect(atTime.getByText('Resolved', { exact: true })).toBeVisible()
   await showTime(page, 11)
   await page.reload()
-  await expect(atTime).toContainText('Resolved')
+  await expect(atTime.getByText('Ongoing', { exact: true })).toBeVisible()
   expect(new URL(page.url()).searchParams.get('entry')).toBe(healthId)
   const subject = page.getByRole('region', { name: 'Fact history', exact: true }).getByRole('listitem').filter({ hasText: 'Affected individual' })
   await subject.getByRole('button', { name: 'Correct value' }).click()
@@ -2727,7 +2987,7 @@ test('authors and inspects the Cedar Gate timeline through ordinary Wiki control
   await onset.getByRole('button', { name: 'Save correction' }).click()
   await expect(subject).toContainText('From time 4')
   await sections.getByRole('link', { name: 'Timeline', exact: true }).click()
-  const bellTime = page.getByRole('region', { name: 'Time 12', exact: true })
+  const bellTime = page.getByRole('region', { name: 'Time 10', exact: true })
   const savedBell = bellTime.getByRole('article', { name: 'Shift bell', exact: true })
   await expect(savedBell.getByRole('link', { name: 'Bell keeper', exact: true })).toBeVisible()
   await expect(savedBell.getByText('State changes', { exact: true })).toHaveCount(0)
@@ -2756,6 +3016,35 @@ test('recovers the same Wiki save after the response is lost and the page refres
   await expect(page.getByRole('navigation', { name: 'Wiki entries' }).getByRole('link', { name: 'Recovered record Character' })).toHaveCount(1)
   expect(keys).toHaveLength(2)
   expect(keys[0]).toBe(keys[1])
+})
+
+test('preserves the visible stale Wiki edit until the owner chooses to discard it', async ({ page }) => {
+  await openWiki(page)
+  await createEntry(page, 'Tidal survey memo', 'Place')
+  const bookmark = page.url()
+  const entryId = new URL(bookmark).searchParams.get('entry')!
+  await page.getByRole('button', { name: 'Edit overview', exact: true }).click()
+  const firstOverview = page.getByRole('textbox', { name: 'Overview', exact: true })
+  await firstOverview.fill('Older unsaved memo')
+  const second = await page.context().newPage()
+  try {
+    await second.goto(bookmark)
+    await second.getByRole('button', { name: 'Edit overview', exact: true }).click()
+    await second.getByRole('textbox', { name: 'Overview', exact: true }).fill('Revised survey memo')
+    await second.getByRole('button', { name: 'Save overview' }).click()
+    await expect(second.getByText('Revised survey memo', { exact: true })).toBeVisible()
+  } finally {
+    await second.close()
+  }
+
+  await page.getByRole('button', { name: 'Save overview' }).click()
+  await expect(page.getByRole('alert')).toContainText('The Wiki changed in another tab')
+  await expect(firstOverview).toHaveValue('Older unsaved memo')
+  expect((await readWiki(page, '/entries/' + entryId)).article?.overview).toBe('Revised survey memo')
+  await page.getByRole('button', { name: 'Reload and discard edit' }).click()
+  await expect(firstOverview).toHaveCount(0)
+  await expect(page.getByText('Revised survey memo', { exact: true })).toBeVisible()
+  expect(new URL(page.url()).searchParams.get('entry')).toBe(entryId)
 })
 
 test('uses the redesigned Wiki catalogs, global search, contextual history, and saved bookmarks', async ({ page, browser }, info) => {
@@ -2887,6 +3176,9 @@ test('uses the redesigned Wiki catalogs, global search, contextual history, and 
     await expect(mobileNav).toBeHidden()
     await mobileMenu.tap()
     await expect(mobileMenu).toHaveAttribute('aria-expanded', 'true')
+    for (const section of ['Characters', 'Places', 'Items', 'Vehicles', 'Maps', 'Timeline']) {
+      await expect(mobileNav.getByRole('link', { name: section, exact: true })).toBeVisible()
+    }
     await mobileNav.getByRole('link', { name: 'Vehicles', exact: true }).press('Enter')
     await expect(phone.getByRole('heading', { name: 'Vehicles', exact: true })).toBeVisible()
     await expect(mobileNav).toBeHidden()
@@ -3299,6 +3591,90 @@ test('authors biography, family, and related actions while keeping independent w
   await expect(page.getByRole('region', { name: 'Character event reports' })).toContainText('No event reports learned by this time.')
   await expect(page.getByRole('region', { name: 'World timeline' })).toHaveCount(0)
   await expect(page.getByRole('article', { name: 'Evening bell' })).toHaveCount(0)
+})
+
+test('separates learned class identity, properties and relationship endpoints by observer and date', async ({ page }) => {
+  test.setTimeout(90_000)
+  await openWiki(page, 'Watershed records')
+  await createEntry(page, 'Field witness', 'Character')
+  const witnessId = new URL(page.url()).searchParams.get('entry')!
+  await createEntry(page, 'New colleague', 'Character')
+  const colleagueId = new URL(page.url()).searchParams.get('entry')!
+  await createEntry(page, 'Survey crew class', 'Class')
+  const classId = new URL(page.url()).searchParams.get('entry')!
+  await createEntry(page, 'Willow post', 'Place')
+  const postId = new URL(page.url()).searchParams.get('entry')!
+  await page.getByRole('button', { name: 'New entry', exact: true }).click()
+  const hidden = page.getByRole('form', { name: 'New entry' })
+  await hidden.getByRole('combobox', { name: 'Entry type', exact: true }).selectOption({ label: 'Place' })
+  await hidden.getByLabel('Entry name').fill('Private workshop')
+  await hidden.getByLabel('Author only').check()
+  await hidden.getByRole('button', { name: 'Save entry' }).click()
+  await expect(page.getByRole('heading', { name: 'Private workshop', exact: true })).toBeVisible()
+  const hiddenId = new URL(page.url()).searchParams.get('entry')!
+  await createEntry(page, 'Roving surveyor', 'Character')
+  const subjectId = new URL(page.url()).searchParams.get('entry')!
+  await discover(page, 'Field witness', 2)
+  await discover(page, 'New colleague', 2)
+  await fact(page, 'Class', 'Survey crew class', { reference: true, from: 1 })
+  await fact(page, 'Location', 'Willow post', { reference: true, from: 1 })
+  await fact(page, 'Residence', 'Private workshop', { reference: true, from: 1 })
+  await fact(page, 'Status', 'On duty', { from: 1 })
+  const history = page.getByRole('region', { name: 'Fact history', exact: true })
+  const row = (label: string) => history.getByRole('listitem').filter({ has: page.getByText(label, { exact: true }) })
+
+  for (const [label, time] of [['Class', '3'], ['Location', '6'], ['Status', '7'], ['Residence', '8']]) {
+    await row(label).getByRole('button', { name: 'Record observation' }).click()
+    const observation = page.getByRole('form', { name: 'Record observation' })
+    await observation.getByRole('combobox', { name: 'Observer', exact: true }).selectOption({ label: 'Field witness' })
+    await observation.getByLabel('Learned at', { exact: true }).fill(time)
+    await observation.getByRole('button', { name: 'Save observation' }).click()
+    if (label === 'Residence') {
+      await expect(page.getByRole('alert')).toContainText('Mark this observation author only to reference a protected entry')
+      await observation.getByLabel('Author only').check()
+      await observation.getByRole('button', { name: 'Save observation' }).click()
+    }
+    await expect(observation).toHaveCount(0)
+  }
+  await row('Status').getByRole('button', { name: 'Correct value' }).click()
+  const correction = page.getByRole('form', { name: 'Correct value' })
+  await correction.getByLabel('Value', { exact: true }).fill('Available on call')
+  await correction.getByRole('button', { name: 'Save correction' }).click()
+  await expect(correction).toHaveCount(0)
+  await expect(row('Status')).toContainText('Available on call')
+
+  const subjectPath = '/entries/' + subjectId
+  const early = await readWiki(page, subjectPath, { at: 2, view_as: witnessId })
+  expect(early.article?.observations).toEqual([])
+  expect(early.entries.some(entry => entry.id === classId)).toBe(false)
+  const classOnly = await readWiki(page, subjectPath, { at: 3, view_as: witnessId })
+  expect(classOnly.article?.observations).toMatchObject([{ field: 'character_class', value: classId, learned_at: 3 }])
+  expect(classOnly.entries.some(entry => entry.id === classId)).toBe(true)
+  expect(classOnly.entries.some(entry => entry.id === postId)).toBe(false)
+  const known = await readWiki(page, subjectPath, { at: 8, view_as: witnessId })
+  expect(known.article?.observations).toMatchObject([
+    { field: 'character_class', value: classId, learned_at: 3 },
+    { field: 'located_in', value: postId, learned_at: 6 },
+    { field: 'status', value: 'On duty', learned_at: 7 },
+  ])
+  expect(JSON.stringify(known)).not.toContain(hiddenId)
+  expect(JSON.stringify(known)).not.toContain('Private workshop')
+  const denied = await page.request.get(wikiApi(page) + '/entries/' + hiddenId, { params: { at: 8, view_as: witnessId } })
+  expect(denied.status()).toBe(404)
+  const colleague = await readWiki(page, subjectPath, { at: 8, view_as: colleagueId })
+  expect(colleague.article?.observations).toEqual([])
+  for (const id of [classId, postId, hiddenId]) expect(colleague.entries.some(entry => entry.id === id)).toBe(false)
+
+  await showAs(page, 'Field witness', 8)
+  const knowledge = page.getByRole('region', { name: 'Character knowledge', exact: true })
+  await expect(knowledge.getByText('On duty', { exact: true })).toBeVisible()
+  await expect(knowledge).not.toContainText('Available on call')
+  await expect(knowledge).not.toContainText('Private workshop')
+  await expect(knowledge.getByRole('link', { name: 'Survey crew class', exact: true })).toBeVisible()
+  await knowledge.getByRole('link', { name: 'Willow post', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Willow post', exact: true })).toBeVisible()
+  expect(new URL(page.url()).searchParams.get('view_as')).toBe(witnessId)
+  expect(new URL(page.url()).searchParams.get('at')).toBe('8')
 })
 
 test('keeps event reports separate from the author timeline and other characters', async ({ page }, info) => {

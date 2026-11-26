@@ -6,6 +6,39 @@ The **Prior build** column describes the W1 implementation at `fc9e0e3`. **Omitt
 
 The [current gap inventory](CGS_Wiki_Current_Coverage.md) compares the running build with the original diagrams and documented reference workflows. It records the outstanding authored fields and the dependencies for their evaluated and rendered uses.
 
+### W1 evidence for the remaining authoring cases
+
+The following entries isolate the remaining cases from the broader design rows. Each dated value uses the existing `record_fact` command and the article read at the selected time. Its row, qualifier, effective interval and citation are stored in PostgreSQL in `WikiAssertion`. Close a row after the browser write, dated reopen and saved-value check. The other groups retain their existing evidence and checks.
+
+| Source and check | Record and expected read | Evidence case |
+| --- | --- | --- |
+| Wiki p. 2, creation of a nonliving entity, CORE-02 | `creation_tick` is an exact in-world time on the Item. It differs from the time the author records it. | Item lifecycle through Items and its History. |
+| Wiki p. 2, destruction of a nonliving entity, CORE-02/14 | `destruction_tick` is a separate exact ending on that same Item. Age stops changing after a known endpoint. | Item lifecycle at and after destruction. |
+| Wiki p. 2, extinction, CORE-02/12 | `extinction_window` is a bounded or explicitly unknown ending on Species. A bounded window supplies no exact date by itself. | Species lifecycle at both authored dates. |
+| Wiki p. 2, width, CORE-05/06 | `width_cm` is an exact nonnegative decimal in centimeters, separately overridable on an individual. | Species definition and compatible individuals. |
+| Wiki p. 2, length, CORE-05/06 | `length_cm` is an exact nonnegative decimal in centimeters, independent of width and height. | Same species definition and individual comparison. |
+| Wiki p. 2, mass under physical characteristics, CORE-05/06 | `mass_kg` is an exact nonnegative decimal in kilograms. Weight has its own authored scale and dated fact. | Definition default and individual comparison. |
+| Wiki p. 2, distribution of physical characteristics, CORE-06 | `physical_distribution` stores a weighted discrete set with a Trait and recorded unit. `physical_measure` on the individual can override its inherited default independently of the distribution. | Species population and two dated individuals. |
+| Wiki p. 2, average power rating, CORE-06 | `power_average` is a Trait-qualified decimal on Species. | Species population and saved fact. |
+| Wiki p. 2, power rating distribution, CORE-06 | `power_distribution` stores weighted exact outcomes and a unit on that separate power scale. | Species population and saved weights. |
+| Wiki p. 2, powers and abilities, CORE-06 | `typical_ability` is a repeatable same-world Ability link on a definition. Acquisition remains independently authored. | Species profile and individual learned abilities. |
+| Wiki p. 2, average personality, CORE-06 | `personality_average` describes the population on a named Trait. `personality` on an individual has its own value and date. | Species population and individual Mind and goals histories. |
+| Brainstorm p. 2, body parts, CORE-05/16 | `anatomy` links an applicable Body part. The species default can appear on an individual with inheritance evidence. | Species → individual → part. |
+| Brainstorm p. 2, bodily functions, CORE-05/16 | `body_function` is a repeatable dated link with an inverse view on the function. | Species → function and inverse. |
+| Brainstorm p. 2, emotional state, CORE-05/16 | `mood` is the existing Emotional state slot. It has its own interval and source. | Character Mind and goals before, at and after a change. |
+| Brainstorm p. 2, mood, CORE-05/16 | `reported_mood` is the separate Mood slot. It can continue when Emotional state changes. | Same character at both dates. |
+| Brainstorm p. 2, mental state, CORE-05/16 | `mental_state` is a separate authored value, with independent evidence and dates. | Character Mind and goals and Fact history. |
+| Brainstorm p. 2, energy, CORE-04/16 | `resource_amount` is an exact independently dated decimal qualified by a named Resource. Record its unit and source. | Character with a dated energy balance alongside stamina. |
+| Brainstorm p. 2, stamina, CORE-04/16 | A distinct Resource ID qualifies stamina. Changing that amount leaves energy unchanged. | Same character across the effective boundary. |
+| Brainstorm pp. 2, 4–8 and CGS goal hierarchy, CORE-16 | `priority` is a dated integer on Goal. A citation can explain who set the priority. | Goal reopened from the actor with its dated priority. |
+| Brainstorm p. 2, known classes, CORE-15 | A Class identity learned via a typed classification observation is distinct from knowing the subject. Project both eligible endpoints only when knowledge permits. | Subject History and two character viewpoints. |
+| Brainstorm p. 2, known properties, CORE-15 | A learned scalar is a frozen observation. A later canonical correction leaves the earlier captured value available to its observer. | Same scoped article and Django read across learning and correction. |
+| Brainstorm p. 2, known entities and relationships, CORE-15 | A learned reference captures the typed relationship and its eligible endpoint. Protected endpoints and private observations stay out of the scoped directory and article response. | Subject and target bookmarks, projection JSON and history. |
+| Wiki pp. 1–2 and owner timeline case, W1-04 | One event owns the move and ankle condition change. Correcting the exact time from 10 to 11 updates both assertion intervals and preserves their IDs. An independent bell remains at 10. | Timeline and both related articles at times 9, 10 and 11, plus Django readback. |
+| Wiki p. 2 Things and the vehicle continuity requirement, NAV-04 and W1-06 | A historical `WikiEntry` and its dated `item_type` assertions can supply one identity to both catalogs. A disputed classification stays in Items for review with its original intervals. | Seed both cases before catalog metadata exists. Reopen Items, Vehicles and History after migration and compare IDs and assertions. |
+| Owner's browser access and recovery requirements, NAV-09 and W1-06 | Account membership grants read or write through Django. Read/Build presentation and an author's fictional viewpoint keep their separate responsibilities. | Authorized owner, read-only member and unrelated account exercise the applicable UI and service. |
+| Owner's browser usability requirements and inventory item 145, NAV-08/09 | A saved article has one stable ID and an edit counter. A stale submission neither replaces a newer value nor silently clears the visible unsaved form. | Open the same article in two tabs. Save in the second tab, reject the first tab's stale save, then reload that tab with the explicit discard action and verify the newer value. |
+
 ## Entity, organism, and item fields
 
 | Lucidchart field | Prior build | CGS representation and reason | Target pass and check |

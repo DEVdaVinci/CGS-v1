@@ -13,8 +13,9 @@ from cgs.worlds.services import create_world
 
 
 def seed():
-    if connection.settings_dict["NAME"] != "cgs_w1_legacy":
-        raise ValueError("Use the disposable cgs_w1_legacy PostgreSQL database.")
+    database = connection.settings_dict["NAME"]
+    if database != "cgs_w1_legacy" and not database.startswith("cgs_w1_legacy_acceptance_"):
+        raise ValueError("Use the designated disposable legacy PostgreSQL database.")
     base = ("worlds", "0005_wiki_foundation")
     executor = MigrationExecutor(connection)
     if {name for app, name in executor.loader.applied_migrations if app == "worlds"} != {
@@ -46,10 +47,19 @@ def seed():
         quay = entries.create(wiki=wiki, kind="place", name="Archive quay")
         crew = entries.create(wiki=wiki, kind="group", name="Archive crew")
         worker = entries.create(wiki=wiki, kind="person", name="Archive worker")
+        ferry = entries.create(
+            id=UUID("00000000-0000-4000-8000-000000000202"), wiki=wiki, kind="item", name="Archive ferry",
+        )
+        cart = entries.create(
+            id=UUID("00000000-0000-4000-8000-000000000203"), wiki=wiki, kind="item", name="Archive handcart",
+        )
         event = apps.get_model("worlds", "WikiEvent").objects.create(
             id=UUID("00000000-0000-4000-8000-000000000201"), wiki=wiki, tick=8, name="Archive arrival", source="Old ledger",
         )
         facts.create(entry=crew, field="located_in", value=str(quay.pk), from_tick=2, source="Ambiguous ledger entry")
+        facts.create(entry=ferry, field="item_type", value="Vehicle", from_tick=3, source="Ferry registry")
+        facts.create(entry=cart, field="item_type", value="Vehicle", from_tick=1, until_tick=4, source="Equipment list")
+        facts.create(entry=cart, field="item_type", value="Tool", from_tick=4, source="Later inventory")
         previous = facts.create(entry=worker, field="located_in", value=str(quay.pk), from_tick=2, until_tick=8, closed_by=event)
         facts.create(entry=worker, field="located_in", value=str(place.pk), from_tick=8, opened_by=event)
         apps.get_model("worlds", "WikiObservation").objects.create(
