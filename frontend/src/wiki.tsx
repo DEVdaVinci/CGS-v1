@@ -302,6 +302,8 @@ function ArticleOverview({ article, display, onEditVariant }: {
     'alias', 'epithet', 'title', 'species', 'character_class', 'nationality', 'parent', 'sibling',
     'birth_tick', 'birth_window', 'death_tick', 'death_window', 'birthplace', 'origin',
     'creation_tick', 'creation_window', 'destruction_tick', 'destruction_window', 'extinction_tick', 'extinction_window',
+    'role_category', 'definition_issuer', 'status_duration',
+    'source_medium', 'source_tick', 'source_creator', 'source_custodian', 'source_person', 'source_locator',
   ]
   const identity = identityFields.flatMap((key) => {
     const records = article.assertions?.filter((fact) => fact.field === key && fact.until_tick === null) ?? []
@@ -368,7 +370,7 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
   const edit = display.navigationLocked ? undefined : onEdit
   const values = (article.values ?? []).filter((item) => item.state !== 'unknown' || item.field === 'death_tick')
   const summary = values.find((item) => item.field === 'description')
-  const specificType = values.find((item) => ['place_type', 'group_type', 'item_type', 'ability_type'].includes(item.field))
+  const specificType = values.find((item) => ['place_type', 'group_type', 'item_type', 'ability_type', 'role_category'].includes(item.field))
   const articleKind = !article.entry.catalog_type && specificType?.state === 'value'
     ? specificType.value : entryLabel(article.entry)
   const firstLocation = isWikiActor(article.entry) ? article.assertions?.find((fact) => fact.field === 'located_in') : undefined
@@ -949,7 +951,8 @@ export function Wiki({ account, worldId, onAuthError }: {
     {section === 'maps' && <button className="button primary" type="button" disabled={navigationLocked}
       onClick={() => beginEdit({ kind: 'map-image' })}>New map</button>}
     {directory?.create?.map(({ type, label }, index) => <button key={type}
-      className={index === 0 && section !== 'maps' ? 'button primary' : 'button secondary'} type="button" disabled={navigationLocked}
+      className={index === 0 && section !== 'maps' && !directory.chooser ? 'button primary' : 'button secondary'}
+      type="button" disabled={navigationLocked}
       onClick={() => beginEdit({ kind: 'create', fixedTemplate: type })}>{label}</button>)}
     {directory?.chooser && <button className="button primary" type="button" disabled={navigationLocked}
       onClick={() => beginEdit({ kind: 'create', chooser: directory.chooser })}>{directory.chooser.label}</button>}

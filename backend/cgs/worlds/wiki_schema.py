@@ -219,6 +219,13 @@ FIELDS = {
                   targets=("relation", "relation_def"), inverse="Term sets"),
         WikiField("term_party", "Applies to", ("rel_term",), section=RELATIONSHIPS,
                   choices=("First party", "Second party", "Whole relationship")),
+        WikiField("role_category", "Definition type", ("role",), section=IDENTITY,
+                  choices=("Role", "Profession", "Rank", "Title", "Office")),
+        WikiField("parent_role", "Parent role or title", ("role",), "reference", "role", section=RELATIONSHIPS,
+                  many=True, acyclic=True, inverse="Subordinate definitions"),
+        WikiField("definition_issuer", "Issuing authority", ("role", "status_def"), "reference", section=IDENTITY,
+                  targets=(*ACTORS, "group"), inverse="Issued definitions"),
+        WikiField("status_duration", "Typical duration (world time units)", ("status_def",), "integer", section=IDENTITY),
         WikiField("role_duty", "Duty or expectation", DECLARATION_KINDS, section=RELATIONSHIPS, many=True),
         WikiField("declared_authority", "Declared authority", DECLARATION_KINDS, section=RELATIONSHIPS, many=True),
         WikiField("authority_scope", "Where authority applies", DECLARATION_KINDS, "reference",
@@ -382,6 +389,11 @@ FIELDS = {
         WikiField("source_locator", "Locator", ("source",), section="Source details"),
         WikiField("source_excerpt", "Excerpt", ("source",), section="Source details"),
         WikiField("source_person", "Recorded person", ("source",), "reference", section="Source details", targets=ACTORS),
+        WikiField("source_tick", "Created or recorded at time", ("source",), "integer", section="Source details"),
+        WikiField("source_creator", "Creator or reporter", ("source",), "reference", section="Source details",
+                  targets=(*ACTORS, "group"), inverse="Sources created or reported"),
+        WikiField("source_custodian", "Custodian", ("source",), "reference", section="Source details",
+                  targets=(*ACTORS, "group", "place"), inverse="Sources held"),
     )
 }
 

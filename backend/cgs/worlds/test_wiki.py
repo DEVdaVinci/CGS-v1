@@ -745,6 +745,71 @@ class WikiTests(TransactionTestCase):
             self.assertEqual(response.json()["field_errors"][0]["code"], code)
         self.assertFalse(WikiEntry.objects.filter(name="Invalid set").exists())
 
+    def test_role_status_and_source_profiles_keep_their_dated_relationships(self):
+        from .models import WikiAssertion
+
+        authority = self.entry("Survey board", "group")
+        archive = self.entry("Survey archive")
+        actor = self.entry("Len", "person")
+        other = self.entry("Nadya", "person")
+        occupation = self.entry("Surveyor", "role", initial_at=0, initial_values=[
+            {"field": "role_category", "value": "Profession"},
+            {"field": "definition_issuer", "value": authority},
+        ])
+        office = self.entry("Survey coordinator", "role", initial_at=2, initial_values=[
+            {"field": "role_category", "value": "Office"}, {"field": "parent_role", "value": occupation},
+        ])
+        title = self.entry("Council member", "role")
+        self.fact(title, "role_category", "Title")
+        self.fact(actor, "membership", authority)
+        self.fact(actor, "job", occupation, 1, until_tick=10, qualifier_id=authority)
+        self.fact(actor, "role", office, 2, until_tick=14, qualifier_id=authority)
+        self.fact(actor, "title", title, 3, until_tick=8, qualifier_id=authority)
+        self.fact(actor, "status", "On shift")
+        certified = self.entry("Survey qualified", "status_def")
+        review = self.entry("Review pending", "status_def")
+        requirement = self.entry("Field assessment", "requirement")
+        self.fact(certified, "status_duration", 6)
+        self.fact(certified, "definition_issuer", authority)
+        self.fact(certified, "retain_requirement", requirement)
+        self.fact(actor, "assigned_status", certified, 3, until_tick=6)
+        self.fact(actor, "assigned_status", review, 6)
+        earlier = self.values(actor, 4)
+        self.assertEqual((earlier["membership"], earlier["job"], earlier["role"], earlier["title"], earlier["assigned_status"]),
+                         (authority, occupation, office, title, certified))
+        later = self.values(actor, 9)
+        self.assertNotIn("title", later)
+        self.assertEqual((later["membership"], later["job"], later["role"], later["assigned_status"], later["status"]),
+                         (authority, occupation, office, review, "On shift"))
+        self.assertNotIn("job", self.values(actor, 10))
+        self.assertEqual(self.values(certified, 6)["status_duration"], 6)
+        self.assertEqual(self.values(certified, 6)["retain_requirement"], requirement)
+        self.assertFalse(any(item["field"] == "parent_role" for item in self.article(occupation, 1)["incoming_links"]))
+        self.assertIn(office, {item["entry_id"] for item in self.article(occupation, 2)["incoming_links"]})
+        cycle = self.post({
+            "op": "record_fact", "entry_id": occupation, "field": "parent_role", "value": office, "from_tick": 2,
+        })
+        self.assertEqual(cycle.json()["field_errors"][0]["code"], "RELATIONSHIP_CYCLE")
+
+        source = self.entry("Survey interview", "source")
+        self.fact(source, "source_medium", "Recording", 4)
+        self.fact(source, "source_tick", 1, 4)
+        self.fact(source, "source_creator", other, 4)
+        self.fact(source, "source_custodian", archive, 4)
+        self.fact(source, "source_person", actor, 4)
+        self.fact(source, "source_locator", "Interview notebook no. 2", 4)
+        facts = WikiAssertion.objects.filter(entry_id=source).values_list("field", "value", "from_tick")
+        self.assertEqual(set(facts), {
+            ("source_medium", "Recording", 4), ("source_tick", 1, 4), ("source_creator", other, 4),
+            ("source_custodian", archive, 4), ("source_person", actor, 4),
+            ("source_locator", "Interview notebook no. 2", 4),
+        })
+        self.assertEqual(self.article(archive, 4)["incoming_links"][0]["entry_id"], source)
+        wrong_creator = self.post({
+            "op": "record_fact", "entry_id": source, "field": "source_creator", "value": archive, "from_tick": 5,
+        })
+        self.assertEqual(wrong_creator.json()["field_errors"][0]["code"], "INVALID_REFERENCE")
+
     def test_qualified_changes_and_inverse_ownership_are_independent(self):
         mira = self.entry("Mira", "person")
         borrower = self.entry("Ivo", "person")

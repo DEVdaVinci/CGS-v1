@@ -32,11 +32,14 @@ const navigation: { title: string; destinations: Destination[] }[] = [
   { title: 'World tools', destinations: [
     { key: 'maps', label: 'Maps', create: [{ type: 'map', label: 'Add map reference' }] },
     { key: 'timeline', label: 'Timeline' },
-    { key: 'definitions', label: 'Definitions', chooser: {
-      label: 'New definition', types: ['class', 'role', 'status_def', 'ability', 'resource', 'resource_mv', 'body_part', 'body_fn', 'trait',
-        'goal', 'milestone', 'requirement', 'method', 'method_step', 'value_def', 'preference', 'motivation',
-        'behavior', 'process', 'skill', 'context', 'relation_def', 'relation', 'rel_term', 'era'],
-    } },
+    { key: 'definitions', label: 'Definitions',
+      create: [{ type: 'role', label: 'New role or title' }, { type: 'status_def', label: 'New status definition' }],
+      chooser: {
+        label: 'New definition', types: ['class', 'role', 'status_def', 'ability', 'resource', 'resource_mv', 'body_part', 'body_fn', 'trait',
+          'goal', 'milestone', 'requirement', 'method', 'method_step', 'value_def', 'preference', 'motivation',
+          'behavior', 'process', 'skill', 'context', 'relation_def', 'relation', 'rel_term', 'era'],
+      },
+    },
     { key: 'sources', label: 'Sources', create: [{ type: 'source', label: 'New source' }] },
     { key: 'media', label: 'Media', chooser: {
       label: 'New media reference', types: ['image', 'model_3d', 'texture', 'animation'],

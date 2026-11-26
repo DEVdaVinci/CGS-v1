@@ -68,6 +68,10 @@ export function Actions({ busy, onCancel, submit }: Pick<FormActions, 'busy' | '
 
 const dimensions = ['height_cm', 'width_cm', 'length_cm', 'mass_kg']
 const definitionDefaults = ['appearance', ...dimensions, 'inherits_from', 'typical_ability', 'typical_item']
+const definitionTerms = [
+  'role_duty', 'declared_authority', 'declared_limitation',
+  'acquire_requirement', 'retain_requirement', 'declared_capability', 'authority_scope',
+]
 const biography = [
   'alias', 'epithet', 'birth_tick', 'birth_window', 'death_tick', 'death_window', 'birthplace', 'origin', 'species',
   'nationality', 'parent', 'sibling',
@@ -81,6 +85,8 @@ const initialKeys: Partial<Record<WikiKind, string[]>> = {
   place: ['place_type', 'located_in'],
   item: ['item_type', 'creation_tick', 'creation_window', 'destruction_tick', 'destruction_window', ...dimensions],
   group: ['group_type'],
+  role: ['role_category', 'definition_issuer', 'parent_role', ...definitionTerms],
+  status_def: ['definition_issuer', 'status_duration', ...definitionTerms],
   ability: ['ability_type'],
   territory: ['landscape'],
   era: ['era_start', 'era_end'],
@@ -100,8 +106,6 @@ const initialKeys: Partial<Record<WikiKind, string[]>> = {
   preference: ['preference_holder', 'preferred_entry', 'avoided_entry'],
   motivation: ['motivation_subject', 'motivation_value', 'motivation_preference'],
   behavior: ['behavior_capability', 'behavior_target', 'behavior_context', 'behavior_grant', 'behavior_goal'],
-  role: ['role_duty', 'declared_authority', 'declared_limitation'],
-  status_def: ['role_duty', 'declared_authority', 'declared_limitation'],
   context: ['context_actor', 'context_capability', 'context_circumstance', 'context_probability'],
   relation_def: [
     'relationship_direction', 'first_party_role', 'second_party_role', 'allowed_first_party_kind', 'allowed_second_party_kind',
@@ -109,7 +113,7 @@ const initialKeys: Partial<Record<WikiKind, string[]>> = {
   ],
   relation: ['relationship_type', 'first_party', 'second_party', 'first_party_role', 'second_party_role'],
   rel_term: ['term_for', 'term_party', 'acquire_requirement', 'retain_requirement', 'declared_capability', 'authority_scope'],
-  source: ['source_medium', 'source_locator', 'source_excerpt', 'source_person'],
+  source: ['source_medium', 'source_tick', 'source_creator', 'source_custodian', 'source_person', 'source_locator', 'source_excerpt'],
 }
 
 export function WikiEntryForm({ fixedTemplate, chooser, entries, fields, ownerId, ...actions }: FormActions & {
