@@ -293,7 +293,7 @@ export function WorldOverview({ accountId, worldId, onAuthError }: {
       </div>
       {world && (
         <>
-          {wikiAccess ? <WikiHome worldId={world.id} worldName={world.name} home={home} actions={<>
+          {wikiAccess ? <WikiHome worldId={world.id} worldName={world.name} home={home} canCreate={canEdit} actions={<>
             <a className="button primary" href={wikiHref(world.id)}>Open Wiki</a>
             {canEdit && <a className="button secondary" href={wikiHref(world.id) + '?edit_home=1'}>Edit world home</a>}
             <a className="button secondary" href={'/worlds/' + world.id + '/draft/'}>{canEdit ? 'Edit draft' : 'View draft'}</a>

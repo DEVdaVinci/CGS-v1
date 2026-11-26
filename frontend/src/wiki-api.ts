@@ -37,8 +37,19 @@ export function formatTimeWindow(value: WikiValue) {
 }
 export type WikiSection = 'overview' | 'all' | 'characters' | 'organisms' | 'places' | 'groups'
   | 'items' | 'vehicles' | 'maps' | 'library' | 'definitions' | 'media' | 'timeline' | 'sources'
+export const wikiHistoryPanels = {
+  facts: { label: 'Facts and state', needsDate: true, placeOnly: false },
+  relationships: { label: 'Relationships', needsDate: true, placeOnly: false },
+  hierarchy: { label: 'Place hierarchy', needsDate: true, placeOnly: true },
+  layout: { label: 'Layout and routes', needsDate: true, placeOnly: true },
+  events: { label: 'Related events', needsDate: false, placeOnly: false },
+  evidence: { label: 'Claims and evidence', needsDate: false, placeOnly: false },
+  findings: { label: 'Consistency findings', needsDate: false, placeOnly: false },
+} as const
+export type WikiHistoryPanel = keyof typeof wikiHistoryPanels
 export type WikiLocation = {
   at: number | null; viewAs: string; entryId: string; section?: WikiSection; eventId?: string; history?: boolean
+  historyPanel?: WikiHistoryPanel
 }
 export type WikiAssertion = {
   id: string; field: string; value: WikiValue; from_tick: number; until_tick: number | null
@@ -280,7 +291,7 @@ export type WikiAttempt = { key: string; edit: number; command: WikiCommand; loc
 
 const wikiPath = (worldId: string) => '/worlds/' + encodeURIComponent(worldId) + '/wiki'
 
-export function wikiHref(worldId: string, { at = null, viewAs = '', entryId = '', section, eventId, history }: Partial<WikiLocation> = {}, hash = '') {
+export function wikiHref(worldId: string, { at = null, viewAs = '', entryId = '', section, eventId, history, historyPanel }: Partial<WikiLocation> = {}, hash = '') {
   const params = new URLSearchParams()
   if (at !== null) params.set('at', String(at))
   if (viewAs) params.set('view_as', viewAs)
@@ -288,6 +299,7 @@ export function wikiHref(worldId: string, { at = null, viewAs = '', entryId = ''
   if (section && section !== 'overview') params.set('section', section)
   if (section === 'timeline' && eventId) params.set('event', eventId)
   if (entryId && history) params.set('tab', 'history')
+  if (entryId && history && historyPanel && !viewAs) params.set('panel', historyPanel)
   return wikiPath(worldId) + '/' + (params.size ? '?' + params : '') + hash
 }
 

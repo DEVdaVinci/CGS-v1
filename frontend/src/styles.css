@@ -381,6 +381,31 @@ a { color: var(--accent); }
 }
 .wiki-section-actions { margin: 0.8rem 0; }
 .wiki-article-tabs { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-top: 0.9rem; }
+.wiki-article-jumps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  margin-top: 0.65rem;
+  padding: 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f1f5eb;
+}
+.wiki-article-jumps a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.35rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 650;
+  text-underline-offset: 0.15em;
+}
+.wiki-article-jumps a:hover, .wiki-article-jumps a[aria-current="location"] { background: #dce9d9; }
+.wiki-history-start > p { margin: 0.75rem 0 0; }
+.wiki-history-start input, .wiki-history-target { scroll-margin-top: 1rem; }
+.wiki-history-target:focus-visible { outline: 2px solid var(--accent); outline-offset: 0.2rem; }
 
 .wiki-history-controls { margin: 0.85rem 0; }
 .wiki-history-controls fieldset {
@@ -412,6 +437,8 @@ a { color: var(--accent); }
 }
 
 .wiki-article { padding: clamp(0.9rem, 2.5vw, 2rem); }
+.wiki-directory-filters { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+.wiki-directory-filters > .field { flex: 1 1 12rem; min-width: 0; }
 .wiki-page-title, .wiki-catalog .wiki-card-heading h2 { font-size: clamp(1.65rem, 3vw, 2.35rem); }
 .wiki-related-directory { margin-top: 0.9rem; }
 .wiki-catalog .field, .wiki-related-directory .field { max-width: 25rem; }
@@ -804,7 +831,7 @@ a { color: var(--accent); }
 .home-masthead .secondary { background: #183329dc; border-color: #c8dac59c; color: #fffdf4; }
 .home-masthead .secondary:hover { background: #36594b; color: #fffdf4; border-color: #d6e4d3; }
 .home-masthead :focus-visible { outline-color: #fff4c6; }
-.wiki-workspace .home-masthead { min-height: clamp(13rem, 25vw, 19rem); }
+.world-home > .home-masthead { min-height: clamp(13rem, 25vw, 19rem); }
 .world-library .creation-panel { margin-top: 1.2rem; }
 .world-library > .notice { margin-top: 0.9rem; }
 .world-library-list { margin-top: clamp(1.2rem, 3vw, 2rem); }
@@ -820,14 +847,15 @@ a { color: var(--accent); }
 .world-filter { display: flex; align-items: center; min-width: 0; gap: 0.45rem; }
 .world-filter .field { flex: 1 1 auto; min-width: 0; }
 .world-filter input { min-width: 0; }
-.world-home-columns {
+.world-home-workspace, .world-home-columns {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(11.5rem, 0.85fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: clamp(0.7rem, 2vw, 1.5rem);
-  margin-top: clamp(0.85rem, 3vw, 1.65rem);
+  margin-top: clamp(0.75rem, 2vw, 1.25rem);
 }
-.world-home-articles { display: grid; gap: 0.9rem; min-width: 0; }
+.world-home-workspace--build { grid-template-columns: minmax(0, 1.8fr) minmax(14rem, 1fr); }
+.world-home-columns--featured { grid-template-columns: minmax(0, 1.8fr) minmax(14rem, 1fr); }
 .home-index { min-width: 0; padding: clamp(0.85rem, 2.5vw, 1.45rem); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
 .home-index-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11.5rem), 1fr)); gap: 0.5rem; }
 .home-index-link {
@@ -846,8 +874,16 @@ a { color: var(--accent); }
 .home-index-link:hover, .home-featured a:hover { background: #eaf1e5; }
 .home-index-link span:not([aria-hidden]), .home-featured span { grid-column: 1; color: var(--quiet); font-size: 0.85rem; }
 .home-index-link span[aria-hidden] { grid-column: 2; grid-row: 1; color: var(--accent); }
-.home-tools h2 { margin-bottom: 0.6rem; }
-.home-tools .home-index-link + .home-index-link { margin-top: 0.45rem; }
+.home-tools h2, .home-create h2 { margin-bottom: 0.65rem; }
+.home-tool-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+  gap: 0.5rem;
+}
+.home-tool-grid .home-index-link { height: 100%; }
+.home-create-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
+.home-create-links .button { min-width: 0; padding-inline: 0.55rem; text-align: center; }
+.home-create-links .button:last-child { grid-column: 1 / -1; }
 .home-featured {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 11.5rem), 1fr));
@@ -913,7 +949,7 @@ a { color: var(--accent); }
 .world-card-arrow { grid-column: 2; grid-row: 1; align-self: start; color: var(--accent); }
 
 @media (max-width: 680px) {
-  .world-home-columns, .sign-in-landing { grid-template-columns: minmax(0, 1fr); }
+  .world-home-workspace--build, .world-home-columns--featured, .sign-in-landing { grid-template-columns: minmax(0, 1fr); }
   .world-filter { width: 100%; }
   .home-masthead { min-height: 13.5rem; }
 }

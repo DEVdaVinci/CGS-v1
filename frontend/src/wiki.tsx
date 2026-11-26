@@ -2,9 +2,9 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, type SignedInSession } from './api'
 import { WorkspaceLink } from './home-masthead'
 import {
-  causalPhases, getWiki, isWikiActor, readWikiAttempt, saveWikiChange, storeWikiAttempt, wikiHref,
+  causalPhases, getWiki, isWikiActor, readWikiAttempt, saveWikiChange, storeWikiAttempt, wikiHistoryPanels, wikiHref,
   type WikiArticle, type WikiAttempt, type WikiCommand, type WikiEntry, type WikiEntryTemplate, type WikiKind,
-  type WikiFinding, type WikiLinkedFact, type WikiLocation, type WikiSection, type WikiValue, type WikiView,
+  type WikiFinding, type WikiHistoryPanel, type WikiLinkedFact, type WikiLocation, type WikiSection, type WikiValue, type WikiView,
 } from './wiki-api'
 import { fieldName, formatFieldValue, kindLabel, type ArticleEdit, WikiCalendarForm, WikiEditForm, WikiEntryForm, WikiEventForm, WikiEventReportForm, WikiEvidenceForm } from './wiki-forms'
 import { WikiGroupForm, WikiOrganizeForm } from './wiki-event-outline'
@@ -12,10 +12,12 @@ import { isLayoutEdit, WikiLayoutForm, WikiLayoutPanel, type LayoutEdit } from '
 import { type MapView, WikiMapImageForm, WikiMapPanel } from './wiki-map'
 import { CharacterEventReports, WikiTimeline, type TimelineEdit } from './wiki-timeline'
 import {
-  entryLabel, sectionFor, sections, WikiDirectory, WikiHistoryControls, WikiHome, WikiIntroductionForm, WikiNavigation, WikiSearch,
+  entryLabel, sectionFor, sections, wikiHomeCreate, WikiDirectory, WikiHistoryControls, WikiHome, WikiIntroductionForm, WikiNavigation, WikiSearch,
 } from './wiki-workspace'
 
 const validId = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/
+const panelKeys = Object.keys(wikiHistoryPanels) as WikiHistoryPanel[]
+const panelId = (panel: WikiHistoryPanel) => 'wiki-history-' + panel
 type WikiEdit = ArticleEdit | TimelineEdit | LayoutEdit
   | { kind: 'create'; fixedTemplate?: WikiEntryTemplate; ownerId?: string; chooser?: { label: string; types: WikiEntryTemplate[] } }
   | { kind: 'calendar' } | { kind: 'world-introduction' }
@@ -33,6 +35,8 @@ function initialLocation(): WikiLocation {
   const requested = params.get('section')
   const section = requested === 'library' ? 'library'
     : sections.find((item) => item.key === requested)?.key ?? (entryId ? 'all' : 'overview')
+  const history = params.get('tab') === 'history'
+  const requestedPanel = params.get('panel')
   return {
     // Older character-view bookmarks could omit their original zero date.
     at: at ?? (viewAs ? 0 : null),
@@ -40,7 +44,8 @@ function initialLocation(): WikiLocation {
     viewAs,
     section,
     eventId: validId.test(eventId) ? eventId : '',
-    history: params.get('tab') === 'history',
+    history,
+    historyPanel: history && entryId && !viewAs ? panelKeys.find((panel) => panel === requestedPanel) : undefined,
   }
 }
 
@@ -359,16 +364,16 @@ function ArticleOverview({ article, display, onEditVariant }: {
 function PlaceHierarchy({ article, display }: { article: WikiArticle; display: Display }) {
   const path = article.place_path ?? []
   const territories = article.enclosing_territories ?? []
-  if (!path.length && !article.place_path_needs_review) return null
   return <section className="wiki-block" aria-label="Place hierarchy">
     <h2>Place hierarchy</h2>
-    <ol className="wiki-place-path" aria-label="Enclosing places">
+    {path.length > 0 && <ol className="wiki-place-path" aria-label="Enclosing places">
       {path.map((id, index) => <li key={id}>
         {index > 0 && <span aria-hidden="true">›</span>}
         <EntryReference {...display} id={id} at={display.view.at} />
       </li>)}
-      <li>{path.length > 0 && <span aria-hidden="true">›</span>}{article.entry.name}</li>
-    </ol>
+      <li><span aria-hidden="true">›</span>{article.entry.name}</li>
+    </ol>}
+    {!path.length && !article.place_path_needs_review && <p className="muted">No enclosing places recorded at this time.</p>}
     {article.place_path_needs_review && <p className="muted">Review the recorded parent links to complete this path.</p>}
     {territories.length > 0 && <section className="wiki-fact-section" aria-label="Enclosing territories">
       <h3>Enclosing territories</h3>
@@ -380,17 +385,18 @@ function PlaceHierarchy({ article, display }: { article: WikiArticle; display: D
   </section>
 }
 
-function Article({ article, display, breadcrumbs, history, historyControls, onShowHistory, onShowOverview, onEdit, onTimeline, onGoal, onTermSet, onLayoutEdit, mapPanel }: {
+function Article({ article, display, breadcrumbs, history, historyPanel, historyControls, historyHref, onShowHistory, onShowOverview, onEdit, onTimeline, onCreateRelated, onLayoutEdit, mapPanel }: {
   article: WikiArticle; display: Display; onEdit?: (edit: ArticleEdit) => void
   breadcrumbs: ReactNode
-  history: boolean; historyControls: ReactNode; onShowHistory: () => void; onShowOverview: () => void
+  history: boolean; historyPanel?: WikiHistoryPanel; historyControls: ReactNode
+  historyHref: (panel: WikiHistoryPanel) => string; onShowHistory: (panel?: WikiHistoryPanel) => void; onShowOverview: () => void
   onTimeline: (eventId: string) => void
-  onGoal: (ownerId: string) => void
-  onTermSet: (ownerId: string) => void
+  onCreateRelated: (type: WikiEntryTemplate, ownerId: string) => void
   onLayoutEdit?: (edit: LayoutEdit) => void
   mapPanel?: ReactNode
 }) {
   const { view } = display
+  const isPlace = article.entry.kind === 'place'
   const edit = display.navigationLocked ? undefined : onEdit
   const values = (article.values ?? []).filter((item) => item.state !== 'unknown' || item.field === 'death_tick')
   const summary = values.find((item) => item.field === 'description')
@@ -428,7 +434,7 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
             <button className="button secondary" type="button" onClick={() => edit({ kind: 'event' })}>Record dated change</button>
             <button className="button secondary" type="button" onClick={() => edit({ kind: 'claim' })}>Record claim</button>
             {(article.entry.kind === 'relation' || article.entry.kind === 'relation_def') && (
-              <button className="button secondary" type="button" onClick={() => onTermSet(article.entry.id)}>New term set</button>
+              <button className="button secondary" type="button" onClick={() => onCreateRelated('rel_term', article.entry.id)}>New term set</button>
             )}
             {!article.entry.author_only && view.entries.some((entry) => isWikiActor(entry) && entry.id !== article.entry.id) &&
               <button className="button secondary" type="button" onClick={() => edit({ kind: 'discovery' })}>Record discovery</button>}
@@ -437,7 +443,14 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
       </header>
       {!view.viewpoint && <nav className="wiki-article-tabs" aria-label="Article views">
         <button className="button secondary" type="button" aria-pressed={!history} disabled={display.navigationLocked} onClick={onShowOverview}>Overview</button>
-        <button className="button secondary" type="button" aria-pressed={history} disabled={display.navigationLocked} onClick={onShowHistory}>History</button>
+        <button className="button secondary" type="button" aria-pressed={history} disabled={display.navigationLocked} onClick={() => onShowHistory()}>History</button>
+      </nav>}
+      {!view.viewpoint && <nav className="wiki-article-jumps" aria-label="Article navigation">
+        {panelKeys.filter((key) => isPlace || !wikiHistoryPanels[key].placeOnly).map((key) => (
+          <WorkspaceLink key={key} href={historyHref(key)} disabled={display.navigationLocked}
+            aria-current={history && historyPanel === key ? 'location' : undefined}
+            onFollow={() => onShowHistory(key)}>{wikiHistoryPanels[key].label}</WorkspaceLink>
+        ))}
       </nav>}
       {article.entry.classification_needs_review && <p className="notice wiki-message">
         Review this item's dated vehicle classifications in History.
@@ -446,27 +459,31 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
         onEditVariant={edit && isWikiActor(article.entry)
           ? () => edit({ kind: 'variant-origin', originId: article.variant_of_id ?? undefined }) : undefined} />}
       {!view.viewpoint && (!history || !article.image_map) && mapPanel}
-      {(history || view.viewpoint) && historyControls}
+      {(history || view.viewpoint) && <div className="wiki-history-start">
+        {!view.viewpoint && view.at === null && historyPanel && wikiHistoryPanels[historyPanel].needsDate &&
+          <p className="muted">Choose a time to view {wikiHistoryPanels[historyPanel].label.toLowerCase()}.</p>}
+        {historyControls}
+      </div>}
       {!view.viewpoint && history && (
         <>
           {view.at !== null && <>
           {summary?.state === 'value' && <section className="wiki-block" aria-label="Description at the selected time">
             <h2>Description at time {view.at}</h2><p className="wiki-prose">{summary.value}</p>
           </section>}
-          <section className="wiki-block" aria-label="Facts at the selected time">
+          <section className="wiki-block wiki-history-target" id={panelId('facts')} tabIndex={-1} aria-label="Facts at the selected time">
             <h2>Facts at time {view.at}</h2>
             {Array.from(factSections, ([section, firstField]) => {
               const group = facts.filter((item) =>
                 (view.fields.find((field) => field.key === item.field)?.section || 'Overview') === section)
               const identity = section === 'Identity and classification' && article.age_years !== undefined
-              const showGoal = section === 'Mind and goals' && isWikiActor(article.entry) && edit
+              const showGoal = section === 'Mind and goals' && isWikiActor(article.entry)
               const locationHistory = section === 'Spatial relationships' ? firstLocation : undefined
               if (!group.length && !edit && !identity && !locationHistory) return null
               return <section className="wiki-fact-section" aria-label={section} key={section}>
                 <div className="wiki-card-heading">
                   <h3>{section}</h3>
                   {edit && <div className="form-actions">
-                    {showGoal && <button type="button" className="button secondary" onClick={() => onGoal(article.entry.id)}>New goal</button>}
+                    {showGoal && <button type="button" className="button secondary" onClick={() => onCreateRelated('goal', article.entry.id)}>New goal</button>}
                     <button type="button" className="button secondary" onClick={() => edit({ kind: 'fact', field: firstField })}>Add fact</button>
                   </div>}
                 </div>
@@ -504,7 +521,12 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
               </section>
             })}
           </section>
+          <div className="wiki-history-target" id={panelId('relationships')} tabIndex={-1}>
+          {historyPanel === 'relationships' && <h2>Relationships</h2>}
           {article.family && <Family family={article.family} display={display} onEdit={edit} />}
+          {historyPanel === 'relationships' && !article.family && !related.size && <p className="muted">
+            No incoming links recorded at this time. Outgoing links appear under Facts and state.
+          </p>}
           {Array.from(related, ([label, links]) => (
             <section className="wiki-block" key={label} aria-label={label}>
               <h2>{label}</h2>
@@ -524,6 +546,7 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
               ))}</ul>
             </section>
           ))}
+          </div>
           {article.learned_abilities && (
             <section className="wiki-block" aria-label="Learned abilities">
               <div className="wiki-card-heading">
@@ -546,7 +569,8 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
               ) : <p className="muted">No abilities learned by time {view.at}.</p>}
             </section>
           )}
-          {article.place_path && <PlaceHierarchy article={article} display={display} />}
+          {isPlace && <div className="wiki-history-target" id={panelId('hierarchy')} tabIndex={-1}>
+          <PlaceHierarchy article={article} display={display} />
           {article.contents && (
             <section className="wiki-block" aria-label="Here at the selected time">
               <h2>Here at time {view.at}</h2>
@@ -562,16 +586,19 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
               </div>
             </section>
           )}
-          {article.layout && <WikiLayoutPanel layout={article.layout} entries={view.entries}
+          </div>}
+          {article.layout && <div className="wiki-history-target" id={panelId('layout')} tabIndex={-1}>
+            <WikiLayoutPanel layout={article.layout} entries={view.entries}
             onEdit={display.navigationLocked ? undefined : onLayoutEdit}
-            onOpen={(id) => { if (!display.navigationLocked) display.openEntry(id) }} />}
+            onOpen={(id) => { if (!display.navigationLocked) display.openEntry(id) }} />
+          </div>}
           </>}
-          {article.entry.kind === 'place' && view.at === null &&
+          {isPlace && view.at === null && !historyPanel &&
             <p className="muted wiki-block">Choose a date above to view or edit the measured layout.</p>}
           {article.legacy_location_review && <p className="notice wiki-message">
             Review this group's legacy location. The old record may describe headquarters or physical whereabouts.
           </p>}
-          <section className="wiki-block" aria-label="Consistency findings">
+          <section className="wiki-block wiki-history-target" id={panelId('findings')} tabIndex={-1} aria-label="Consistency findings">
             <h2>Consistency findings</h2>
             {(article.findings ?? []).length === 0 ? <p className="muted">No findings from the current timeline and evidence checks.</p> : (
               <ul className="wiki-findings">
@@ -623,12 +650,14 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
               </ul>
             )}
           </section>
+          <div className="wiki-history-target" id={panelId('events')} tabIndex={-1}>
           <WikiTimeline key={article.entry.id} events={article.events ?? []} enclosing={article.event_ancestors ?? []}
             entryHref={display.entryHref}
             entries={view.entries} fields={view.fields} onFocus={onTimeline}
             onOpen={display.navigationLocked ? undefined : display.openEntry}
             onCorrectDate={edit && ((event) => edit({ kind: 'correct-date', event }))} />
-          <section className="wiki-block" aria-label="Attributed claims">
+          </div>
+          <section className="wiki-block wiki-history-target" id={panelId('evidence')} tabIndex={-1} aria-label="Attributed claims">
             <h2>Attributed claims</h2>
             {(article.claims ?? []).length === 0 ? <p className="muted">No claims recorded.</p> : (
               <ul className="wiki-records">
@@ -729,6 +758,7 @@ export function Wiki({ account, worldId, onAuthError }: {
   const mapViews = useRef(new Map<string, MapView>())
   const pinGuard = useRef(false)
   const homeRequested = useRef(new URLSearchParams(window.location.search).get('edit_home') === '1')
+  const createRequested = useRef(new URLSearchParams(window.location.search).get('create'))
 
   const { at, entryId, viewAs } = location
   const timeline = location.section === 'timeline'
@@ -814,14 +844,17 @@ export function Wiki({ account, worldId, onAuthError }: {
   }, [pinEditing])
 
   useEffect(() => {
-    if (!view || !homeRequested.current) return
+    if (!view || (!homeRequested.current && !createRequested.current)) return
+    const launch = wikiHomeCreate.find(({ key, section: destination }) => key === createRequested.current && section === destination)
+    const edit = homeRequested.current && section === 'overview' ? { kind: 'world-introduction' } as const : launch?.edit
     homeRequested.current = false
-    if (section === 'overview' && view.can_edit && !navigationLocked) {
+    createRequested.current = null
+    if (edit && view.can_edit && !view.viewpoint && !entryId && at === null && !navigationLocked) {
       setBuildMode(wikiMode(modeKey, true))
-      setEditing({ kind: 'world-introduction' })
+      setEditing(edit)
       focusContent.current = true
     }
-  }, [modeKey, navigationLocked, section, view])
+  }, [at, entryId, modeKey, navigationLocked, section, view])
 
   useEffect(() => {
     if (view && focusContent.current) {
@@ -831,17 +864,27 @@ export function Wiki({ account, worldId, onAuthError }: {
   }, [view, location, editing])
 
   useEffect(() => {
-    if (view && /^#(?:section|wiki-record)-/.test(window.location.hash)) {
-      document.getElementById(window.location.hash.slice(1))?.scrollIntoView()
+    if (!view || editing) return
+    const hash = window.location.hash
+    if (/^#(?:section|wiki-record)-/.test(hash)) {
+      document.getElementById(hash.slice(1))?.scrollIntoView()
+      return
     }
-  }, [view])
+    const panel = location.historyPanel
+    if (!panel || view.viewpoint || !activeArticle || (wikiHistoryPanels[panel].placeOnly && activeArticle.entry.kind !== 'place')) return
+    const target = wikiHistoryPanels[panel].needsDate && at === null
+      ? content.current?.querySelector<HTMLInputElement>('.wiki-history-start input[name="at"]')
+      : document.getElementById(panelId(panel))
+    target?.focus({ preventScroll: true })
+    target?.scrollIntoView({ block: 'start' })
+  }, [activeArticle, at, editing, location, view])
 
   function navigate(next: WikiLocation) {
     setNotice('')
     setSaveError('')
     focusContent.current = true
     const url = wikiHref(worldId, next)
-    if (url !== window.location.pathname + window.location.search) {
+    if (url !== window.location.pathname + window.location.search + window.location.hash) {
       window.history.pushState(null, '', url)
       window.scrollTo(0, 0)
     }
@@ -964,7 +1007,7 @@ export function Wiki({ account, worldId, onAuthError }: {
   }
 
   function showOverview() {
-    navigate({ ...location, at: null, viewAs: '', history: false })
+    navigate({ ...location, at: null, viewAs: '', history: false, historyPanel: undefined })
   }
 
   const actions = {
@@ -1053,7 +1096,8 @@ export function Wiki({ account, worldId, onAuthError }: {
                   <WikiIntroductionForm {...actions} home={view.world_home} entries={view.entries} coverIds={view.home_cover_ids ?? []} />
                 </div>
               ) : section === 'overview' ? (
-                <WikiHome worldId={worldId} worldName={view.world_name} home={view.world_home} entries={view.entries} disabled={navigationLocked}
+                <WikiHome worldId={worldId} worldName={view.world_name} home={view.world_home} entries={view.entries}
+                  canCreate={canBuild} disabled={navigationLocked}
                   sectionHref={sectionHref} entryHref={(entry) => articleHref(entry, sectionFor(entry))} onSelect={selectSection}
                   onEntry={(entry) => openArticle(entry, sectionFor(entry))}
                   actions={canBuild && <button className="button secondary" type="button" disabled={navigationLocked}
@@ -1127,20 +1171,22 @@ export function Wiki({ account, worldId, onAuthError }: {
                               onFollow={() => selectSection(section)}>{directory?.label ?? 'Library'}</WorkspaceLink>
                           </nav>}
                           history={showingHistory}
+                          historyPanel={location.historyPanel}
+                          historyHref={(panel) => wikiHref(worldId, { ...location, section, history: true, historyPanel: panel })}
                           historyControls={<WikiHistoryControls location={location} entries={view.entries} viewpoint={view.viewpoint}
                             disabled={navigationLocked} onChange={(time, observer) => navigate({
                               ...location, section, at: time, viewAs: observer, history: true,
                               entryId: observer && activeArticle.entry.author_only ? '' : entryId,
+                              historyPanel: observer ? undefined : location.historyPanel,
                             })} />}
-                          onShowHistory={() => navigate({ ...location, section, history: true })}
+                          onShowHistory={(panel) => navigate({ ...location, section, history: true, historyPanel: panel })}
                           onShowOverview={showOverview}
                           display={{ view, navigationLocked, openEntry, entryHref }}
                           onTimeline={(eventId) => {
                             setEventTime('')
                             navigate({ ...location, section: 'timeline', entryId: '', eventId })
                           }}
-                          onGoal={(ownerId) => beginEdit({ kind: 'create', fixedTemplate: 'goal', ownerId })}
-                          onTermSet={(ownerId) => beginEdit({ kind: 'create', fixedTemplate: 'rel_term', ownerId })}
+                          onCreateRelated={(fixedTemplate, ownerId) => beginEdit({ kind: 'create', fixedTemplate, ownerId })}
                           onLayoutEdit={canBuild ? beginEdit : undefined}
                           mapPanel={activeArticle.entry.kind === 'map' && <WikiMapPanel key={activeArticle.entry.id}
                             entry={activeArticle.entry} map={activeArticle.image_map} worldId={worldId} entries={view.entries}

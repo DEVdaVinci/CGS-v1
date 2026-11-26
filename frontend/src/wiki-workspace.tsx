@@ -48,6 +48,24 @@ const navigation: { title: string; destinations: Destination[] }[] = [
 ]
 export const sections = navigation.flatMap(({ destinations }) => destinations)
 
+export const wikiHomeCreate = [
+  { key: 'character', label: 'New character', section: 'characters', edit: { kind: 'create', fixedTemplate: 'person' } },
+  { key: 'place', label: 'New place', section: 'places', edit: { kind: 'create', fixedTemplate: 'place' } },
+  { key: 'item', label: 'New item', section: 'items', edit: { kind: 'create', fixedTemplate: 'item' } },
+  { key: 'vehicle', label: 'New vehicle', section: 'vehicles', edit: { kind: 'create', fixedTemplate: 'vehicle' } },
+  { key: 'map', label: 'New map', section: 'maps', edit: { kind: 'map-image' } },
+  { key: 'event', label: 'New event', section: 'timeline', edit: { kind: 'new-event' } },
+  { key: 'entry', label: 'More entry types', section: 'all', edit: { kind: 'create' } },
+] as const
+
+const worldToolDetails: Partial<Record<WikiSection, string>> = {
+  maps: 'Image maps and linked pins',
+  timeline: 'Nested events and dated changes',
+  definitions: 'Classes, roles, goals, and relationships',
+  sources: 'Records, citations, and evidence',
+  media: 'Images, models, and other references',
+}
+
 export function sectionFor(entry: WikiEntry): WikiSection {
   if (entry.kind === 'person') return 'characters'
   if (entry.kind === 'organism' || entry.kind === 'species') return 'organisms'
@@ -88,19 +106,19 @@ export function WikiNavigation({ section, disabled, hrefFor, onSelect }: {
   )
 }
 
-export function WikiHome({ worldId, worldName, home, entries, sectionHref, entryHref, onSelect, onEntry, actions, disabled }: {
+export function WikiHome({ worldId, worldName, home, entries, sectionHref, entryHref, onSelect, onEntry, actions, canCreate, disabled }: {
   worldId: string; worldName: string; home?: WikiWorldHome; entries?: WikiEntry[]
   sectionHref?: (section: WikiSection) => string; entryHref?: (entry: WikiEntry) => string
-  onSelect?: (section: WikiSection) => void; onEntry?: (entry: WikiEntry) => void; actions?: ReactNode; disabled?: boolean
+  onSelect?: (section: WikiSection) => void; onEntry?: (entry: WikiEntry) => void; actions?: ReactNode; canCreate?: boolean; disabled?: boolean
 }) {
   const hrefFor = sectionHref ?? ((section) => wikiHref(worldId, { section }))
   const articleHref = entryHref ?? ((entry) => wikiHref(worldId, { entryId: entry.id, section: sectionFor(entry) }))
-  function catalogLink(key: WikiSection, label: string) {
-    const count = entries?.filter((entry) => inDirectory(entry, key)).length
+  function catalogLink(key: WikiSection, label: string, detail?: string) {
+    const count = detail ? undefined : entries?.filter((entry) => inDirectory(entry, key)).length
     return <WorkspaceLink key={key} className="home-index-link" href={hrefFor(key)} disabled={disabled}
       onFollow={onSelect && (() => onSelect(key))}>
       <strong>{label}</strong>
-      {count !== undefined && key !== 'timeline' && <span>{count} {count === 1 ? 'article' : 'articles'}</span>}
+      {detail ? <span>{detail}</span> : count !== undefined && <span>{count} {count === 1 ? 'article' : 'articles'}</span>}
       <span aria-hidden="true">↗</span>
     </WorkspaceLink>
   }
@@ -108,28 +126,37 @@ export function WikiHome({ worldId, worldName, home, entries, sectionHref, entry
     <section className="world-home" aria-label="World Wiki overview">
       <HomeMasthead title={worldName} introduction={home?.introduction}
         cover={home?.cover_map_id ? mapImageUrl(worldId, home.cover_map_id) : undefined}>{actions}</HomeMasthead>
-      <div className="world-home-columns">
-        <div className="world-home-articles">
-          {Boolean(home?.featured.length) && <section className="home-index" aria-labelledby="featured-title">
-            <h2 id="featured-title">Featured articles</h2>
-            <ul className="home-featured">{home?.featured.map((entry) => (
-              <li key={entry.id}><WorkspaceLink href={articleHref(entry)} disabled={disabled} onFollow={onEntry && (() => onEntry(entry))}>
-                <span>{entryLabel(entry)}</span><strong>{entry.name}</strong>
-              </WorkspaceLink></li>
-            ))}</ul>
-          </section>}
-          <section className="home-index" aria-labelledby="world-catalog-title">
-            <div className="home-index-heading">
-              <h2 id="world-catalog-title">Explore the Wiki</h2>
-              <WorkspaceLink href={hrefFor('all')} disabled={disabled} onFollow={onSelect && (() => onSelect('all'))}>All articles</WorkspaceLink>
-            </div>
-            <div className="home-index-grid">{navigation[1].destinations.map(({ key, label }) => catalogLink(key, label))}</div>
-          </section>
-        </div>
+      <div className={canCreate ? 'world-home-workspace world-home-workspace--build' : 'world-home-workspace'}>
         <section className="home-index home-tools" aria-labelledby="world-tools-title">
           <h2 id="world-tools-title">World tools</h2>
-          {navigation[2].destinations.map(({ key, label }) => catalogLink(key, label))}
+          <div className="home-tool-grid">
+            {navigation[2].destinations.map(({ key, label }) => catalogLink(key, label, worldToolDetails[key]))}
+          </div>
         </section>
+        {canCreate && <section className="home-index home-create" aria-labelledby="world-create-title">
+          <h2 id="world-create-title">Create in this world</h2>
+          <div className="home-create-links">{wikiHomeCreate.map(({ key, label, section }) => (
+            <WorkspaceLink key={key} className="button secondary" disabled={disabled}
+              href={wikiHref(worldId, { section }) + '&create=' + key}>{label}</WorkspaceLink>
+          ))}</div>
+        </section>}
+      </div>
+      <div className={home?.featured.length ? 'world-home-columns world-home-columns--featured' : 'world-home-columns'}>
+        <section className="home-index" aria-labelledby="world-catalog-title">
+          <div className="home-index-heading">
+            <h2 id="world-catalog-title">Explore the Wiki</h2>
+            <WorkspaceLink href={hrefFor('all')} disabled={disabled} onFollow={onSelect && (() => onSelect('all'))}>All articles</WorkspaceLink>
+          </div>
+          <div className="home-index-grid">{navigation[1].destinations.map(({ key, label }) => catalogLink(key, label))}</div>
+        </section>
+        {Boolean(home?.featured.length) && <section className="home-index" aria-labelledby="featured-title">
+          <h2 id="featured-title">Featured articles</h2>
+          <ul className="home-featured">{home?.featured.map((entry) => (
+            <li key={entry.id}><WorkspaceLink href={articleHref(entry)} disabled={disabled} onFollow={onEntry && (() => onEntry(entry))}>
+              <span>{entryLabel(entry)}</span><strong>{entry.name}</strong>
+            </WorkspaceLink></li>
+          ))}</ul>
+        </section>}
       </div>
     </section>
   )
@@ -228,9 +255,13 @@ export function WikiDirectory({ section, entries, currentId, disabled, hrefFor, 
   onOpen: (entry: WikiEntry) => void; onPlaces: () => void; actions?: ReactNode
 }) {
   const [filter, setFilter] = useState('')
+  const [type, setType] = useState('')
   const available = entries.filter((entry) => inDirectory(entry, section))
   const query = filter.trim().toLowerCase()
-  const results = available.filter((entry) => entry.name.toLowerCase().includes(query))
+  const showTypes = section === 'definitions' || section === 'all'
+  const types = showTypes ? [...new Set(available.map(entryLabel))].sort((first, second) => first.localeCompare(second)) : []
+  const selectedType = types.includes(type) ? type : ''
+  const results = available.filter((entry) => (!selectedType || entryLabel(entry) === selectedType) && entry.name.toLowerCase().includes(query))
   return (
     <nav className={currentId ? 'wiki-directory wiki-related-directory' : 'wiki-directory wiki-catalog'} aria-label="Wiki entries">
       <div className="wiki-card-heading">
@@ -241,12 +272,20 @@ export function WikiDirectory({ section, entries, currentId, disabled, hrefFor, 
         Open an image map or a saved reference. Open a place to view its measured layout in History.{' '}
         <button className="wiki-reference" type="button" disabled={disabled} onClick={onPlaces}>Open Places</button>
       </p>}
-      {available.length > 0 && <label className="field">Find an entry
-        <input type="search" value={filter} onChange={(event) => setFilter(event.target.value)} disabled={disabled} />
-      </label>}
+      {available.length > 0 && <div className="wiki-directory-filters">
+        <label className="field">Find an entry
+          <input type="search" value={filter} onChange={(event) => setFilter(event.target.value)} disabled={disabled} />
+        </label>
+        {(types.length > 1 || selectedType) && <label className="field">Article type
+          <select value={selectedType} disabled={disabled} onChange={(event) => setType(event.target.value)}>
+            <option value="">All types</option>
+            {types.map((entryType) => <option key={entryType} value={entryType}>{entryType}</option>)}
+          </select>
+        </label>}
+      </div>}
       {results.length > 0
         ? <EntryList entries={results} currentId={currentId} disabled={disabled} hrefFor={hrefFor} onOpen={onOpen} />
-        : <p className="muted">{query ? 'No matching entries.' : 'No articles in this section yet.'}</p>}
+        : <p className="muted">{query || selectedType ? 'No matching entries.' : 'No articles in this section yet.'}</p>}
     </nav>
   )
 }
