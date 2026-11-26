@@ -1,0 +1,14 @@
+**
+!backend/
+!backend/**
+!frontend/
+!frontend/**
+**/.env
+**/.env.*
+backend/media/
+backend/media/**
+**/__pycache__/
+**/node_modules/
+**/dist/
+**/test-results/
+**/playwright-report/

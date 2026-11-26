@@ -1,0 +1,47 @@
+x-backend: &backend
+  image: cgs-backend:local
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+  environment:
+    CGS_SECRET_KEY: ${CGS_SECRET_KEY:?Copy .env.example to .env}
+    CGS_DEBUG: "1"
+    CGS_DB_HOST: db
+    CGS_DB_NAME: ${CGS_DB_NAME:?Set CGS_DB_NAME}
+    CGS_DB_USER: ${CGS_DB_USER:?Set CGS_DB_USER}
+    CGS_DB_PASSWORD: ${CGS_DB_PASSWORD:?Set CGS_DB_PASSWORD}
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: ${CGS_DB_NAME:?Set CGS_DB_NAME}
+      POSTGRES_USER: ${CGS_DB_USER:?Set CGS_DB_USER}
+      POSTGRES_PASSWORD: ${CGS_DB_PASSWORD:?Set CGS_DB_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+  migrate:
+    <<: *backend
+    command: ["python", "manage.py", "migrate", "--noinput"]
+    depends_on:
+      db:
+        condition: service_healthy
+  api:
+    <<: *backend
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - wiki-media:/workspace/backend/media
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-data:
+  wiki-media:
