@@ -20,6 +20,15 @@ export const kindLabel: Record<WikiKind, string> = {
   value_def: 'Value', preference: 'Preference', motivation: 'Motivation',
 }
 
+export function formatFieldValue(field: WikiField | undefined, value: WikiValue) {
+  switch (field?.value_kind) {
+    case 'distribution': return formatDistribution(value)
+    case 'time_window': return formatTimeWindow(value)
+    case 'entry_kind': return kindLabel[value as WikiKind] ?? value
+    default: return value
+  }
+}
+
 export type ArticleEdit =
   | { kind: 'fact'; field?: string }
   | { kind: 'claim' | 'event' }
@@ -83,7 +92,10 @@ const initialKeys: Partial<Record<WikiKind, string[]>> = {
   role: ['role_duty', 'declared_authority', 'declared_limitation'],
   status_def: ['role_duty', 'declared_authority', 'declared_limitation'],
   context: ['context_actor', 'context_capability', 'context_circumstance', 'context_probability'],
-  relation_def: ['first_party_role', 'second_party_role', 'role_duty'],
+  relation_def: [
+    'relationship_direction', 'first_party_role', 'second_party_role', 'allowed_first_party_kind', 'allowed_second_party_kind',
+    'first_party_limit', 'second_party_limit', 'role_duty',
+  ],
   relation: ['relationship_type', 'first_party', 'second_party', 'first_party_role', 'second_party_role'],
   source: ['source_medium', 'source_locator', 'source_excerpt', 'source_person'],
 }
@@ -242,7 +254,7 @@ export function ValueInput({
       {field.choices.length ? (
         <select name={name} defaultValue={initial ?? ''} required={required}>
           <option value="">{required ? 'Choose a value' : 'Choose later'}</option>
-          {field.choices.map((choice) => <option key={choice}>{choice}</option>)}
+          {field.choices.map((choice) => <option key={choice} value={choice}>{formatFieldValue(field, choice)}</option>)}
         </select>
       ) : field.value_kind === 'integer' ? (
         <input name={name} type="number" min={0} max={Number.MAX_SAFE_INTEGER} step={1} defaultValue={initial} required={required} />
@@ -480,8 +492,7 @@ export function EventContextFields({ worldId, entries, fields, at, event, events
     const definition = fields.find((field) => field.key === fact.field)
     const name = entries.find((item) => item.id === fact.value)?.name
     const qualifier = entries.find((item) => item.id === fact.qualifier_id)?.name
-    const value = definition?.value_kind === 'distribution' ? formatDistribution(fact.value)
-      : definition?.value_kind === 'time_window' ? formatTimeWindow(fact.value) : name ?? fact.value
+    const value = name ?? formatFieldValue(definition, fact.value)
     return [definition?.label ?? fact.field, qualifier, value, 'from time ' + fact.from_tick].filter((part) => part != null).join(' · ')
   }
 
@@ -857,7 +868,7 @@ function CausalAccountForm({ entry, entries, fields, at, account, propositions, 
   function label(belief: WikiProposition) {
     const entryName = (id: string) => entries.find((item) => item.id === id)?.name ?? id
     const field = fields.find((item) => item.key === belief.field)
-    const value = field?.target_kinds.length ? entryName(String(belief.value)) : belief.value
+    const value = field?.target_kinds.length ? entryName(String(belief.value)) : formatFieldValue(field, belief.value)
     return [entryName(belief.subject_id), field?.label ?? belief.field, value, 'from time ' + belief.from_tick].join(' · ')
   }
 

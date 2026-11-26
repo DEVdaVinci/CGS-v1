@@ -500,3 +500,25 @@ Verify that a late report about an earlier location appears when it is learned a
 | Build and upgrade | The isolated `index-CUyiWAv4.js` build passed 71 Django tests, 34 Chrome scenarios and the pending migration check. Migration 0025 was rehearsed on a disposable PostgreSQL copy with all original fields preserved across 39 tables. Date windows and sightings use existing storage. The regression test for the draft editor now waits for the confirmed save before reloading. |
 
 W1 and complete Wiki acceptance remain open. The [coverage inventory](CGS_Wiki_Current_Coverage.md) lists the remaining field, workflow and release checks.
+
+## Relationship type policies
+
+Brainstorm p. 2 provides named relationship meanings, participants and terms. The owner confirmed that authors define relationship meanings for the group links in Wiki p. 2. W1 CORE-03/14 and inventory items 23 and 29 apply. From a **Relationship type** article's History, an author can record its direction, the permitted Wiki kinds for each named party, and an optional maximum number of active relationships for an entity in each role. The policies have effective dates and sources. An empty type list or limit leaves that part unrestricted. A mutually described relationship keeps the author's two editable party slots and the same inverse links.
+
+At a date with a single active relationship type and applicable party, Django checks the explicit endpoint kind and counts active relationship records of that type in the named role. Unknown or conflicting inputs are handled by the existing evidence and conflict workflows. Each provable mismatch creates a persisted finding on the affected Relationship article. The finding gives the role, actual value, expected kind or limit, exact overlap and links to the assertions involved. A change to the definition or either relationship party rechecks the affected intervals. An ordinary author can still save and see how to correct the issue. Arbitrary acquisition, duration, and consequence rules remain W2.
+
+Verify two unrelated meanings with different permitted classes. Save a disallowed endpoint and resolve its finding after reload. Write two overlapping relationships for a capped role, compare a date before and after the overlap, then change the policy for a later date and preserve the earlier finding. Check another type, a foreign target, a missing or conflicting party, and the existing unconfigured relationships.
+
+### Verification of relationship policies
+
+- Chrome created a typed allowance in the Relationship type editor. It reopened the saved mismatch after reload, followed the exact policy assertion in the related article, returned to the relationship, and corrected the actual first party. The finding cleared and the corrected link survived reload. The rendered finding showed actual and allowed types and its effective date.
+- Django checked both sides of the overlap, a future limit change, independent relationship types, unconfigured or incomplete records, persisted actual and maximum counts, and historical findings that resolve after correction. Existing typed reference checks continue to reject foreign endpoints.
+- The isolated `index--LaatwJC.js` candidate passed 72 Django tests, 35 Chrome scenarios and the pending migration check. Migration 0026 preserved the original fields across 39 PostgreSQL tables. An existing finding retained its identity and received only the empty details object. Broader catalog filters and group subtype rules are tracked in W3. General-purpose authored rule evaluation remains W2.
+
+## Biography, names and affiliations
+
+Wiki p. 2 names **Nick names / Epithets** and **Title(s)**. The owner also identified births, origin, family, nationality and dated residence as separate world information. W1 CORE-01/03/09/14 and inventory items 1–4 apply. In **Characters → New character**, **Organisms & species → New organism**, and global **New entry**, keep the existing stable actor ID and share the biography controls. Add a repeatable, independently dated Epithet alongside the original Alias field. Keep formal titles as reusable scoped Title links, including titles on non-actor articles.
+
+In an article **Overview**, the **At a glance** panel exposes recorded names, classification, title and biography links with their recorded start times. Multiple current open-ended names or affiliations can appear as separate rows. History remains the place for selecting a date and reading changed or ended statements. Nationality has an inverse on its referenced group or place. A dated end or correction reuses the original actor and its other links.
+
+Verify adding names from both creation paths, repeatable epithets, a non-person title, two nationalities and a later ended nationality, plus links from a subject event after an actor rename. Open an Organism and verify independently dated birth, origin, residence and physical whereabouts. Search by aliases remains W3 item 94.

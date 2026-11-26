@@ -15,7 +15,7 @@ export type WikiField = {
   key: string
   label: string
   kinds: WikiKind[]
-  value_kind: 'text' | 'integer' | 'decimal' | 'reference' | 'distribution' | 'time_window'
+  value_kind: 'text' | 'integer' | 'decimal' | 'reference' | 'distribution' | 'time_window' | 'entry_kind'
   target_kind: WikiKind | null
   choices: string[]
   section: string
@@ -84,8 +84,14 @@ export type WikiEvent = {
 
 export type WikiLearnedAbility = { id: string; ability_id: string; learned_at: number; source: string }
 export type WikiFinding = {
-  id: string; code: 'CANON_CONFLICT' | 'LIFESPAN_CONFLICT' | 'DATE_OUTSIDE_WINDOW' | 'OBSERVATION_SOURCE_CHANGED'; field: string
+  id: string; field: string
+  code: 'CANON_CONFLICT' | 'LIFESPAN_CONFLICT' | 'DATE_OUTSIDE_WINDOW' | 'OBSERVATION_SOURCE_CHANGED'
+    | 'RELATIONSHIP_PARTY_KIND' | 'RELATIONSHIP_PARTY_LIMIT'
   record_ids: string[]; from_tick: number; until_tick: number | null
+  details?: { relationship_type_id: string } & (
+    { actual_kind: WikiKind; allowed_kinds: WikiKind[] } | { actual_count: number; maximum_count: number }
+  )
+  record_entries?: Record<string, string>
 }
 export type WikiEffectiveValue = {
   field: string; qualifier_id?: string; default_sources?: string[]; unit?: string

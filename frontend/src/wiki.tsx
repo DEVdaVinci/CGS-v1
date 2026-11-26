@@ -2,12 +2,11 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, type SignedInSession } from './api'
 import { WorkspaceLink } from './home-masthead'
 import {
-  causalPhases, formatTimeWindow, getWiki, isWikiActor, readWikiAttempt, saveWikiChange, storeWikiAttempt, wikiHref,
+  causalPhases, getWiki, isWikiActor, readWikiAttempt, saveWikiChange, storeWikiAttempt, wikiHref,
   type WikiArticle, type WikiAttempt, type WikiCommand, type WikiEntry, type WikiEntryTemplate, type WikiKind,
-  type WikiLinkedFact, type WikiLocation, type WikiSection, type WikiValue, type WikiView,
+  type WikiFinding, type WikiLinkedFact, type WikiLocation, type WikiSection, type WikiValue, type WikiView,
 } from './wiki-api'
-import { kindLabel, type ArticleEdit, WikiCalendarForm, WikiEditForm, WikiEntryForm, WikiEventForm, WikiEvidenceForm } from './wiki-forms'
-import { formatDistribution } from './wiki-distribution'
+import { formatFieldValue, kindLabel, type ArticleEdit, WikiCalendarForm, WikiEditForm, WikiEntryForm, WikiEventForm, WikiEvidenceForm } from './wiki-forms'
 import { WikiGroupForm, WikiOrganizeForm } from './wiki-event-outline'
 import { isLayoutEdit, WikiLayoutForm, WikiLayoutPanel, type LayoutEdit } from './wiki-layout'
 import { type MapView, WikiMapImageForm, WikiMapPanel } from './wiki-map'
@@ -83,8 +82,7 @@ function EntryReference({ id, at, view, openEntry, entryHref, navigationLocked }
 function ValueText({ field, value, unit, ...display }: Display & { field: string; value: WikiValue; unit?: string | null }) {
   const definition = display.view.fields.find((item) => item.key === field)
   if (definition?.target_kinds.length && typeof value === 'string') return <EntryReference {...display} id={value} />
-  const text = definition?.value_kind === 'distribution' ? formatDistribution(value)
-    : definition?.value_kind === 'time_window' ? formatTimeWindow(value) : value
+  const text = formatFieldValue(definition, value)
   return <><span>{text}</span>
     {unit ? ' ' + unit : definition?.uses_unit && <small className="muted"> · Unit unspecified</small>}
   </>
@@ -92,6 +90,25 @@ function ValueText({ field, value, unit, ...display }: Display & { field: string
 
 function times(from: number, until: number | null) {
   return until === null ? 'From time ' + from : 'From time ' + from + ' until time ' + until
+}
+
+function findingExplanation(finding: WikiFinding) {
+  const interval = times(finding.from_tick, finding.until_tick)
+  const details = finding.details
+  if (details && 'actual_kind' in details) {
+    const allowed = details.allowed_kinds.map((kind) => kindLabel[kind]).join(', ')
+    return kindLabel[details.actual_kind] + ' is outside the permitted types (' + allowed + '). ' + interval + '.'
+  }
+  if (details && 'maximum_count' in details) {
+    return 'This party has ' + details.actual_count + ' active relationships of this type. The limit is '
+      + details.maximum_count + '. ' + interval + '.'
+  }
+  switch (finding.code) {
+    case 'CANON_CONFLICT': return 'Conflicting canon values. ' + interval + '.'
+    case 'LIFESPAN_CONFLICT': return 'The recorded end precedes the start. Both dates apply ' + interval.toLowerCase() + '.'
+    case 'DATE_OUTSIDE_WINDOW': return 'The exact date is outside the recorded date window. Both apply ' + interval.toLowerCase() + '.'
+    default: return 'The source of a recorded observation changed. Review the recorded evidence.'
+  }
 }
 
 function LastSightings({ article, display }: { article: WikiArticle; display: Display }) {
@@ -486,17 +503,18 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
                 {article.findings?.map((finding) => (
                   <li key={finding.id}>
                     <strong>{fieldLabel(view, finding.field)}. </strong>
-                    {finding.code === 'CANON_CONFLICT'
-                      ? 'Conflicting canon values. ' + times(finding.from_tick, finding.until_tick) + '.'
-                      : finding.code === 'LIFESPAN_CONFLICT'
-                        ? 'The recorded end precedes the start. Both dates apply ' + times(finding.from_tick, finding.until_tick).toLowerCase() + '.'
-                        : finding.code === 'DATE_OUTSIDE_WINDOW'
-                          ? 'The exact date is outside the recorded date window. Both apply ' + times(finding.from_tick, finding.until_tick).toLowerCase() + '.'
-                        : 'The source of a recorded observation changed. Review the recorded evidence.'}
+                    {findingExplanation(finding)}
+                    {finding.details && <p>Relationship type <EntryReference {...display}
+                      id={finding.details.relationship_type_id} at={finding.from_tick} /></p>}
                     {' '}
-                    {finding.record_ids.map((id, index) => (
-                      <a key={id} href={'#wiki-record-' + id}>Record {index + 1}</a>
-                    ))}
+                    {finding.record_ids.map((id, index) => {
+                      const owner = finding.record_entries?.[id]
+                      const otherArticle = owner && owner !== article.entry.id
+                      const prefix = otherArticle ? display.entryHref(owner, finding.from_tick) : ''
+                      return <a key={id} href={prefix + '#wiki-record-' + id}>
+                        Record {index + 1}{otherArticle && ' in ' + entryName(view, owner)}
+                      </a>
+                    })}
                   </li>
                 ))}
               </ul>

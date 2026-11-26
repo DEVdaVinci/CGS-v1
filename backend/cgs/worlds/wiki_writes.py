@@ -21,6 +21,7 @@ from .wiki_events import (
 )
 from .wiki_layouts import save_connection, save_layout, save_waypoint
 from .wiki_maps import attach_map_image, remove_map_pin, save_map_pin
+from .wiki_relationships import RELATIONSHIP_FINDING_CODES, refresh_relationship_findings
 from .wiki_schema import (
     ACTORS, DATE_WINDOW_FIELDS, ENTITY_KINDS, EVENT_PERFORMERS, EXACT_DATE_FIELDS, FIELDS, LIFESPAN_START_FIELDS,
 )
@@ -705,8 +706,8 @@ def _refresh_findings(affected, edit_counter):
             )
             open_keys.append(key)
         WikiFinding.objects.filter(entry_id=entry_id, field=field, resolved_at_edit__isnull=True).exclude(
-            key__in=open_keys
-        ).update(resolved_at_edit=edit_counter)
+            code__in=RELATIONSHIP_FINDING_CODES,
+        ).exclude(key__in=open_keys).update(resolved_at_edit=edit_counter)
 
 
 def save_wiki_change(world_id, account_id, request_key, payload):
@@ -733,6 +734,7 @@ def save_wiki_change(world_id, account_id, request_key, payload):
             check_hierarchies(wiki, affected)
             wiki.edit_counter += 1
             _refresh_findings(affected, wiki.edit_counter)
+            refresh_relationship_findings(wiki, affected, wiki.edit_counter)
             wiki.save(update_fields=["edit_counter"])
             receipt = MutationReceipt.objects.create(
                 **receipt_scope, input_digest=digest, response_status=200, world=world,

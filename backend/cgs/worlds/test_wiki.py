@@ -1500,6 +1500,63 @@ class WikiTests(TransactionTestCase):
         self.assertEqual(invalid.status_code, 422)
         self.assertEqual(self.values(relationship, 4)["relationship_type"], definition)
 
+    def test_relationship_policies_keep_exact_overlaps_and_recheck_affected_assignments(self):
+        office = self.entry("Survey office", "group")
+        person = self.entry("Surveyor", "person")
+        first_place = self.entry("North station")
+        second_place = self.entry("South station")
+        definition = self.entry("Station oversight", "relation_def")
+        other_type = self.entry("Schedules maintenance", "relation_def")
+        self.fact(definition, "relationship_direction", "Directed")
+        allowed = self.fact(definition, "allowed_first_party_kind", "group", 2)
+        self.fact(definition, "allowed_second_party_kind", "place")
+        cap = self.fact(definition, "first_party_limit", 1, 4, until_tick=10)
+        self.fact(definition, "first_party_limit", 2, 10)
+
+        def relationship(name, relationship_type, first, second=None):
+            record = self.entry(name, "relation")
+            link = self.fact(record, "relationship_type", relationship_type)
+            party = self.fact(record, "first_party", first)
+            if second is not None:
+                self.fact(record, "second_party", second)
+            return record, link, party
+
+        north, _, _ = relationship("North oversight", definition, office, first_place)
+        alternate, _, _ = relationship("Maintenance plan", other_type, office, second_place)
+        incomplete, _, _ = relationship("Open oversight draft", definition, office)
+        south = self.entry("South oversight", "relation")
+        type_assertion = self.fact(south, "relationship_type", definition)
+        wrong_party = self.fact(south, "first_party", person, until_tick=6)
+        self.fact(south, "second_party", second_place)
+        self.fact(south, "first_party", office, 6)
+
+        issues = self.article(south, 12)["findings"]
+        self.assertEqual([(row["code"], row["from_tick"], row["until_tick"]) for row in issues], [
+            ("RELATIONSHIP_PARTY_KIND", 2, 6), ("RELATIONSHIP_PARTY_LIMIT", 6, 10),
+        ])
+        kind_issue, limit_issue = issues
+        self.assertEqual(kind_issue["details"], {
+            "relationship_type_id": definition, "actual_kind": "person", "allowed_kinds": ["group"],
+        })
+        self.assertEqual(kind_issue["record_entries"], {
+            allowed: definition, wrong_party: south, type_assertion: south,
+        })
+        self.assertEqual(limit_issue["details"]["actual_count"], 2)
+        self.assertEqual(limit_issue["details"]["maximum_count"], 1)
+        self.assertEqual(self.article(north, 12)["findings"][0]["from_tick"], 6)
+        self.assertFalse(self.article(alternate, 12)["findings"])
+        self.assertFalse(self.article(incomplete, 12)["findings"])
+
+        self.apply({"op": "correct_fact", "assertion_id": wrong_party, "value": office})
+        self.assertEqual(
+            [(row["code"], row["from_tick"], row["until_tick"]) for row in self.article(south, 12)["findings"]],
+            [("RELATIONSHIP_PARTY_LIMIT", 4, 6), ("RELATIONSHIP_PARTY_LIMIT", 6, 10)],
+        )
+        self.apply({"op": "correct_fact", "assertion_id": cap, "value": 2})
+        self.assertFalse(self.article(south, 12)["findings"])
+        self.assertFalse(self.article(north, 12)["findings"])
+        self.assertTrue(WikiFinding.objects.filter(pk=limit_issue["id"], resolved_at_edit=self.edit).exists())
+
     def test_anatomy_and_weight_keep_separate_definitions_state_and_units(self):
         actor = self.entry("Surveyor", "person")
         organism = self.entry("Mangrove climber", "organism")

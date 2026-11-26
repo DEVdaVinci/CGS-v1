@@ -595,6 +595,7 @@ class WikiFinding(CreatedRecord):
     key = models.CharField(max_length=100, unique=True)
     code = models.CharField(max_length=32)
     record_ids = models.JSONField()
+    details = models.JSONField(default=dict, db_default=models.Value({}, output_field=models.JSONField()), blank=True)
     from_tick = models.PositiveBigIntegerField()
     until_tick = models.PositiveBigIntegerField(null=True)
     resolved_at_edit = models.PositiveBigIntegerField(null=True)

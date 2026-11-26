@@ -17,6 +17,10 @@ VISUAL_ASSETS = ("image", "model_3d", "texture", "animation", "map")
 PHYSICAL_ENTITIES = (*ACTORS, *DEFINITIONS, "item", "place")
 RESOURCE_HOLDERS = (*ACTORS, "group", "place", "item")
 DECLARATION_KINDS = ("role", "status_def", "relation_def", "relation")
+RELATIONSHIP_ROLES = (
+    ("first_party", "allowed_first_party_kind", "first_party_limit"),
+    ("second_party", "allowed_second_party_kind", "second_party_limit"),
+)
 NONLIVING = ("item", "place", "group", "culture", "territory", *VISUAL_ASSETS)
 LIFESPAN_START_FIELDS = {
     "death_tick": "birth_tick",
@@ -197,6 +201,16 @@ FIELDS = {
                   targets=ENTITY_KINDS, inverse="Relationships as second party"),
         WikiField("first_party_role", "First party's role", ("relation", "relation_def"), section=RELATIONSHIPS),
         WikiField("second_party_role", "Second party's role", ("relation", "relation_def"), section=RELATIONSHIPS),
+        WikiField("relationship_direction", "Direction", ("relation_def",), section=RELATIONSHIPS,
+                  choices=("Directed", "Mutual")),
+        WikiField("allowed_first_party_kind", "Allowed first party type", ("relation_def",), "entry_kind",
+                  section=RELATIONSHIPS, choices=ENTITY_KINDS, many=True),
+        WikiField("allowed_second_party_kind", "Allowed second party type", ("relation_def",), "entry_kind",
+                  section=RELATIONSHIPS, choices=ENTITY_KINDS, many=True),
+        WikiField("first_party_limit", "First party's maximum active relationships", ("relation_def",), "integer",
+                  section=RELATIONSHIPS),
+        WikiField("second_party_limit", "Second party's maximum active relationships", ("relation_def",), "integer",
+                  section=RELATIONSHIPS),
         WikiField("role_duty", "Duty or expectation", DECLARATION_KINDS, section=RELATIONSHIPS, many=True),
         WikiField("declared_authority", "Declared authority", DECLARATION_KINDS, section=RELATIONSHIPS, many=True),
         WikiField("authority_scope", "Where authority applies", DECLARATION_KINDS, "reference",
