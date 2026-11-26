@@ -6,7 +6,7 @@ import {
   type WikiArticle, type WikiAttempt, type WikiCommand, type WikiEntry, type WikiEntryTemplate, type WikiKind,
   type WikiFinding, type WikiLinkedFact, type WikiLocation, type WikiSection, type WikiValue, type WikiView,
 } from './wiki-api'
-import { formatFieldValue, kindLabel, type ArticleEdit, WikiCalendarForm, WikiEditForm, WikiEntryForm, WikiEventForm, WikiEventReportForm, WikiEvidenceForm } from './wiki-forms'
+import { fieldName, formatFieldValue, kindLabel, type ArticleEdit, WikiCalendarForm, WikiEditForm, WikiEntryForm, WikiEventForm, WikiEventReportForm, WikiEvidenceForm } from './wiki-forms'
 import { WikiGroupForm, WikiOrganizeForm } from './wiki-event-outline'
 import { isLayoutEdit, WikiLayoutForm, WikiLayoutPanel, type LayoutEdit } from './wiki-layout'
 import { type MapView, WikiMapImageForm, WikiMapPanel } from './wiki-map'
@@ -64,7 +64,8 @@ function fieldLabel(view: WikiView, key: string, kind?: WikiKind) {
   if (key === 'located_in' && kind === 'place') return 'Part of'
   if (key === 'located_in' && kind === 'group') return 'Legacy location'
   if (key === 'located_in' && kind) return 'Location at this time'
-  return view.fields.find((field) => field.key === key)?.label ?? key
+  const field = view.fields.find((item) => item.key === key)
+  return field ? (kind ? fieldName(field, kind) : field.label) : key
 }
 
 function entryName(view: WikiView, id: string) {
@@ -419,14 +420,28 @@ function Article({ article, display, breadcrumbs, history, historyControls, onSh
                   {identity && <div><dt>Age</dt><dd>{article.age_years === null ? 'Unknown at this time' : article.age_years + ' years'}</dd></div>}
                   {group.map((item) => (
                     <div key={[item.field, item.qualifier_id, item.state === 'value' ? item.value : item.state].join(':')}>
-                      <dt>{fieldLabel(view, item.field, article.entry.kind)}
+                      <dt>{item.field === 'actual_rating' && item.default_sources?.length
+                        ? 'Power rating default' : fieldLabel(view, item.field, article.entry.kind)}
                         {item.qualifier_id && <> · <EntryReference {...display} id={item.qualifier_id} /></>}
                       </dt>
                       <dd>{item.state === 'value' ? <ValueText {...display} field={item.field} value={item.value} unit={item.unit} />
-                        : item.state === 'conflict' ? <span className="wiki-conflict">Conflicting values</span>
+                        : item.state === 'conflict' ? <span className="wiki-conflict">
+                          {item.default_candidates ? 'Conflicting inherited values' : 'Conflicting values'}
+                        </span>
                         : <span className="muted">Unknown at this time</span>}
-                        {item.default_sources?.length ? <small className="wiki-default-source">From {item.default_sources.map((id) =>
-                          <EntryReference {...display} id={id} key={id} />)}</small> : null}
+                        {item.default_candidates ? <>
+                          <ul className="wiki-default-candidates" aria-label="Contributing defaults">
+                            {item.default_candidates.map((candidate) => <li key={JSON.stringify([candidate.value, candidate.unit])}>
+                              <ValueText {...display} field={item.field} value={candidate.value} unit={candidate.unit} />
+                              <small className="wiki-default-source">From {candidate.source_ids.map((id) => (
+                                <EntryReference {...display} id={id} at={view.at} key={id} />
+                              ))}</small>
+                            </li>)}
+                          </ul>
+                          {edit && <button type="button" className="button secondary"
+                            onClick={() => edit({ kind: 'fact', field: item.field, qualifierId: item.qualifier_id })}>Record override</button>}
+                        </> : item.default_sources?.length ? <small className="wiki-default-source">From {item.default_sources.map((id) =>
+                          <EntryReference {...display} id={id} at={view.at} key={id} />)}</small> : null}
                       </dd>
                     </div>
                   ))}

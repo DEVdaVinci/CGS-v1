@@ -30,8 +30,13 @@ export function formatFieldValue(field: WikiField | undefined, value: WikiValue)
   }
 }
 
+export function fieldName(field: WikiField, kind: WikiKind) {
+  if (field.key === 'actual_rating' && (kind === 'class' || kind === 'species')) return 'Power rating default'
+  return field.label
+}
+
 export type ArticleEdit =
-  | { kind: 'fact'; field?: string }
+  | { kind: 'fact'; field?: string; qualifierId?: string }
   | { kind: 'claim' | 'event' }
   | { kind: 'rename' | 'overview' | 'sections' }
   | { kind: 'variant-origin'; originId?: string }
@@ -62,6 +67,7 @@ export function Actions({ busy, onCancel, submit }: Pick<FormActions, 'busy' | '
 }
 
 const dimensions = ['height_cm', 'width_cm', 'length_cm', 'mass_kg']
+const definitionDefaults = ['appearance', ...dimensions, 'inherits_from', 'typical_ability', 'typical_item']
 const biography = [
   'alias', 'epithet', 'birth_tick', 'birth_window', 'death_tick', 'death_window', 'birthplace', 'origin', 'species',
   'nationality', 'parent', 'sibling',
@@ -70,6 +76,8 @@ const entryTemplates: WikiEntryTemplate[] = [...Object.keys(kindLabel) as WikiKi
 const initialKeys: Partial<Record<WikiKind, string[]>> = {
   person: [...biography, 'character_class', 'appearance', 'background', ...dimensions],
   organism: [...biography, 'character_class', 'appearance', 'background', ...dimensions],
+  class: definitionDefaults,
+  species: definitionDefaults,
   place: ['place_type', 'located_in'],
   item: ['item_type', 'creation_tick', 'creation_window', 'destruction_tick', 'destruction_window', ...dimensions],
   group: ['group_type'],
@@ -121,6 +129,7 @@ export function WikiEntryForm({ fixedTemplate, chooser, entries, fields, ownerId
     if (field.key === 'located_in' && kind === 'place') return 'Parent place'
     if (field.key === 'parent') return 'Parents'
     if (field.key === 'sibling') return 'Siblings'
+    if (field.key === 'inherits_from') return 'Parent definitions'
     return field.label
   }
 
@@ -180,7 +189,8 @@ export function WikiEntryForm({ fixedTemplate, chooser, entries, fields, ownerId
           <summary>{kind === 'person' || kind === 'organism' ? 'Family and nationality' : 'Linked entries'}</summary>
           <div className="wiki-event-links">{linkedFields.map((field) => (
             <EntryChoices key={field.key} label={initialLabel(field)} name={field.key} initial={[]}
-              entries={entries.filter((entry) => field.target_kinds.includes(entry.kind))} />
+              entries={entries.filter((entry) => field.target_kinds.includes(entry.kind)
+                && (field.key !== 'inherits_from' || entry.kind === kind))} />
           ))}</div>
         </details>}
       </fieldset>}
@@ -325,8 +335,9 @@ export function optionalTime(values: FormData, name: string) {
   return value ? Number(value) : null
 }
 
-function CanonicalForm({ mode, fact, claim, initialField, entry, fields, entries, at, ...actions }: EntryFormProps & {
+function CanonicalForm({ mode, fact, claim, initialField, initialQualifier, entry, fields, entries, at, ...actions }: EntryFormProps & {
   mode: 'fact' | 'claim' | 'correct' | 'correct-claim'; fact?: WikiAssertion; claim?: WikiClaim; initialField?: string
+  initialQualifier?: string
 }) {
   const record = fact ?? claim
   const isStatement = mode === 'claim' || mode === 'correct-claim'
@@ -366,17 +377,18 @@ function CanonicalForm({ mode, fact, claim, initialField, entry, fields, entries
   return (
     <form className="wiki-form" aria-label={title} onSubmit={submit}>
       <h2>{title}</h2>
-      {record ? <p className="muted">{field.label}{fact && ' from time ' + fact.from_tick}</p> : (
+      {record ? <p className="muted">{fieldName(field, entry.kind)}{fact && ' from time ' + fact.from_tick}</p> : (
         <label className="field">Field
           <select value={fieldKey} onChange={(event) => setFieldKey(event.target.value)}>
             {validFields.map((item) => <option key={item.key} value={item.key}>
-              {item.key === 'located_in' && entry.kind === 'place' ? 'Parent place' : item.label}
+              {item.key === 'located_in' && entry.kind === 'place' ? 'Parent place' : fieldName(item, entry.kind)}
             </option>)}
           </select>
         </label>
       )}
       <ValueInput key={fieldKey} field={field} entries={entries} entryId={entry.id} name="value" initial={record?.value} />
-      {!record && <QualifierInput key={'qualifier-' + fieldKey} field={field} entries={entries} name="qualifier_id" />}
+      {!record && <QualifierInput key={'qualifier-' + fieldKey} field={field} entries={entries} name="qualifier_id"
+        initial={fieldKey === initialField ? initialQualifier : undefined} />}
       {record?.qualifier_id && <p className="muted">{entries.find((item) => item.id === record.qualifier_id)?.name}</p>}
       {field.uses_unit && (record ? <>
         <p className="muted">{record.unit ? 'Recorded unit is ' + record.unit + '.' : 'This measurement has no recorded unit.'}</p>
@@ -761,7 +773,8 @@ export function WikiEditForm({ edit, overview, sections, propositions, ...props 
   if (edit.kind === 'proposition') return <PropositionForm {...props} record={edit.record} />
   if (edit.kind === 'causal-account') return <CausalAccountForm {...props} account={edit.account} propositions={propositions ?? []} />
   if (edit.kind === 'event-report') return <WikiEventReportForm {...props} event={edit.event} report={edit.report} />
-  return <CanonicalForm {...props} mode={edit.kind} initialField={edit.kind === 'fact' ? edit.field : undefined} />
+  if (edit.kind === 'fact') return <CanonicalForm {...props} mode="fact" initialField={edit.field} initialQualifier={edit.qualifierId} />
+  return <CanonicalForm {...props} mode={edit.kind} />
 }
 
 function DiscoveryForm({ entry, entries, discovery, ...actions }: EntryFormProps & { discovery?: WikiDiscovery }) {

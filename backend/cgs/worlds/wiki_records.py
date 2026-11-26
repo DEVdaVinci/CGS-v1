@@ -78,17 +78,24 @@ def _describe_values(entry, slots, own):
     values_by_field = defaultdict(list)
     for slot, candidates in slots.items():
         field, qualifier_id, _ = slot
-        values = {(value, unit) for value, unit, _ in candidates}
+        sources_by_value = defaultdict(set)
+        for value, unit, source in candidates:
+            sources_by_value[(value, unit)].add(source)
         item = {"field": field, "state": "conflict"}
         if qualifier_id:
             item["qualifier_id"] = str(qualifier_id)
-        if len(values) == 1:
-            value, unit = next(iter(values))
+        if len(sources_by_value) == 1:
+            value, unit = next(iter(sources_by_value))
             item.update(state="value", value=value)
             if unit is not None:
                 item["unit"] = unit
         if slot not in own or any(source != str(entry.id) for _, _, source in candidates):
             item["default_sources"] = sorted({source for _, _, source in candidates})
+            if item["state"] == "conflict":
+                ordered = sorted(sources_by_value.items(), key=lambda candidate: (str(candidate[0][0]), candidate[0][1] or ""))
+                item["default_candidates"] = [
+                    {"value": value, "unit": unit, "source_ids": sorted(sources)} for (value, unit), sources in ordered
+                ]
         values_by_field[field].append(item)
     result = []
     for field, definition in FIELDS.items():

@@ -590,6 +590,91 @@ class WikiTests(TransactionTestCase):
         self.assertEqual(invalid.status_code, 422)
         self.assertEqual(invalid.json()["field_errors"][0]["code"], "RELATIONSHIP_CYCLE")
 
+    def test_definition_candidates_keep_values_units_and_all_contributing_sources(self):
+        from .models import WikiAssertion
+
+        scale = self.entry("Survey rating", "trait")
+        self.fact(scale, "unit", "points")
+        base = self.entry("Surveyor", "class")
+        advanced = self.entry("Night surveyor", "class")
+        alternate = self.entry("Ship surveyor", "class")
+        combined = self.entry("Field inspector", "class")
+        species = self.entry("Harbor folk", "species")
+        actor = self.entry("Layla", "person")
+        other = self.entry("Mir", "organism")
+        badge = self.entry("Registered novice", "role")
+        pack = self.entry("Service pack", "item")
+        self.fact(base, "actual_rating", "2.75", qualifier_id=scale)
+        self.fact(alternate, "actual_rating", "2.75", qualifier_id=scale)
+        self.fact(advanced, "actual_rating", "5.25", qualifier_id=scale)
+        self.fact(combined, "inherits_from", base)
+        self.fact(combined, "inherits_from", alternate)
+        self.fact(combined, "inherits_from", advanced, 4)
+        for person in (actor, other):
+            self.fact(person, "character_class", combined)
+            self.fact(person, "species", species)
+        self.fact(actor, "registered_rating", badge)
+        self.fact(species, "physical_measure", "10.25", qualifier_id=scale)
+        self.fact(species, "physical_average", "10.5", qualifier_id=scale)
+        self.fact(species, "typical_item", pack)
+        self.fact(species, "typical_item_share", "0.75", 1, qualifier_id=pack, source="Equipment census")
+
+        def rating(entry, time):
+            return next(value for value in self.article(entry, time)["values"] if value["field"] == "actual_rating")
+
+        agreeing = rating(actor, 3)
+        self.assertEqual(agreeing["value"], "2.75")
+        self.assertEqual(set(agreeing["default_sources"]), {base, alternate})
+        self.assertNotIn("default_candidates", agreeing)
+        self.assertEqual(rating(actor, 4)["default_candidates"], [
+            {"value": "2.75", "unit": "points", "source_ids": sorted([base, alternate])},
+            {"value": "5.25", "unit": "points", "source_ids": [advanced]},
+        ])
+        self.fact(actor, "actual_rating", "4.25", 4, until_tick=6, qualifier_id=scale)
+        self.assertEqual(rating(actor, 5)["value"], "4.25")
+        self.assertNotIn("default_sources", rating(actor, 5))
+        self.assertEqual(rating(other, 5)["state"], "conflict")
+        self.assertEqual(rating(actor, 6)["state"], "conflict")
+        self.assertEqual(self.values(actor, 5)["registered_rating"], badge)
+        self.assertEqual(self.values(actor, 5)["physical_measure"], "10.25")
+        self.assertNotIn("physical_average", self.values(actor, 5))
+        self.assertEqual(self.values(species, 5)["physical_average"], "10.5")
+        self.assertEqual(self.values(species, 5)["typical_item_share"], "0.75")
+        share = WikiAssertion.objects.get(entry_id=species, field="typical_item_share")
+        self.assertEqual((str(share.qualifier_id), share.from_tick, share.source), (pack, 1, "Equipment census"))
+        self.assertEqual(self.article(pack)["incoming_links"][0]["entry_id"], species)
+        invalid = self.post({
+            "op": "record_fact", "entry_id": species, "field": "typical_item_share", "value": "1.01",
+            "qualifier_id": pack, "from_tick": 2,
+        })
+        self.assertEqual(invalid.json()["field_errors"][0]["code"], "INVALID_VALUE")
+
+    def test_capability_measures_keep_their_own_sources_and_effective_periods(self):
+        actor = self.entry("Edda", "person")
+        skill = self.entry("Review survey notes", "skill")
+        context = self.entry("Review on ferry", "context")
+        unit = self.entry("Survey index", "trait")
+        first_source = self.entry("Survey workbook", "source")
+        second_source = self.entry("Cross-check report", "source")
+        self.fact(unit, "unit", "index units")
+        self.fact(context, "context_actor", actor)
+        self.fact(context, "context_capability", skill)
+        fields = ("processing_speed", "mental_bandwidth", "processing_efficiency",
+                  "processing_cost", "processing_overload", "emotional_stress")
+        for index, field in enumerate(fields, start=1):
+            self.fact(context, field, str(index), 2, qualifier_id=unit, citation_id=first_source,
+                      **({"until_tick": 5} if field == "processing_cost" else {}))
+        self.fact(context, "processing_cost", "7.25", 5, qualifier_id=unit, citation_id=second_source)
+        earlier = self.values(context, 4)
+        later = self.values(context, 5)
+        self.assertEqual({field: earlier[field] for field in fields}, {field: str(i + 1) for i, field in enumerate(fields)})
+        self.assertEqual({field for field in fields if earlier[field] != later[field]}, {"processing_cost"})
+        self.assertEqual(later["processing_cost"], "7.25")
+        costs = [fact for fact in self.article(context, 5)["assertions"] if fact["field"] == "processing_cost"]
+        self.assertEqual([(fact["unit"], fact["citation_id"], fact["from_tick"], fact["until_tick"]) for fact in costs],
+                         [("index units", first_source, 2, 5), ("index units", second_source, 5, None)])
+        self.assertEqual(self.article(actor, 5)["incoming_links"][0]["entry_id"], context)
+
     def test_qualified_changes_and_inverse_ownership_are_independent(self):
         mira = self.entry("Mira", "person")
         borrower = self.entry("Ivo", "person")

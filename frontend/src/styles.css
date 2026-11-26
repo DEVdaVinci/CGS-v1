@@ -624,6 +624,8 @@ a { color: var(--accent); }
 .wiki-fact-section h3 { margin: 0; font-size: 1rem; color: var(--ink); }
 .wiki-fact-section .wiki-facts:empty { display: none; }
 .wiki-default-source { display: flex; gap: 0.35rem; flex-wrap: wrap; color: var(--quiet); margin-top: 0.22rem; }
+.wiki-default-candidates { margin: 0.45rem 0 0.65rem; padding-left: 1.2rem; }
+.wiki-default-candidates li + li { margin-top: 0.35rem; }
 .wiki-timeline-filters, .wiki-place-contents {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));

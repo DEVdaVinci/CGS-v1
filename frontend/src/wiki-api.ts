@@ -97,6 +97,7 @@ export type WikiFinding = {
 }
 export type WikiEffectiveValue = {
   field: string; qualifier_id?: string; default_sources?: string[]; unit?: string
+  default_candidates?: { value: WikiValue; unit: string | null; source_ids: string[] }[]
 } & ({ state: 'value'; value: WikiValue } | { state: 'unknown' | 'conflict' })
 export type WikiLinkedFact = {
   id: string; entry_id: string; field: string; label: string; qualifier_id: string | null
