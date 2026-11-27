@@ -1,7 +1,7 @@
 from collections import Counter, defaultdict, deque
 
 from django.db import transaction
-from django.db.models import Prefetch, Q
+from django.db.models import Exists, Func, OuterRef, Prefetch, Q, TextField
 
 from cgs.api import resource_unavailable
 
@@ -17,7 +17,13 @@ from .wiki_maps import describe_image_map
 from .wiki_records import (
     causal_accounts_for, derived_age, effective_values, family_links, incoming_links, observation_visible, propositions_for,
 )
-from .wiki_schema import ACTORS, FIELDS, NONLIVING
+from .wiki_schema import ACTORS, FIELDS, NONLIVING, RELATIONSHIPS, SPATIAL
+
+
+RELATIONSHIP_FIELDS = tuple(
+    field.key for field in FIELDS.values()
+    if field.target_kinds and field.section in (RELATIONSHIPS, SPATIAL)
+)
 
 
 def _describe_entry(entry, *, author=False):
@@ -53,7 +59,15 @@ def search_wiki(world_id, account_id, query):
     with transaction.atomic():
         _scoped_read()
         wiki_access(world_id, account_id, writing=True)
-        directory = WikiEntry.objects.filter(wiki_id=world_id, name__icontains=query).order_by("name", "id")
+        alias_text = Func("value", template="(%(expressions)s #>> '{}')", output_field=TextField())
+        matches = {"entry_id": OuterRef("pk"), "field": "alias"}
+        assertions = WikiAssertion.objects.filter(**matches).alias(alias_text=alias_text).filter(alias_text__icontains=query)
+        claims = WikiClaim.objects.filter(**matches).alias(alias_text=alias_text).filter(alias_text__icontains=query)
+        directory = WikiEntry.objects.filter(wiki_id=world_id).filter(
+            Q(name__icontains=query)
+            | Exists(assertions)
+            | Exists(claims)
+        ).order_by("name", "id")
         return {"entries": list(_describe_catalog(directory, list(directory)).values())}
 
 
@@ -146,6 +160,8 @@ def _serialize_claim(claim):
         "source": claim.source, "citation_id": _id(claim.citation_id), "author_only": claim.author_only,
         "qualifier_id": _id(claim.qualifier_id),
     }
+    if claim.anchor_event_id:
+        data["anchor_event_id"] = str(claim.anchor_event_id)
     citations = [str(entry.pk) for entry in claim.additional_citations.all() if entry.pk != claim.citation_id]
     if citations:
         data["additional_citation_ids"] = citations
@@ -358,6 +374,7 @@ def _article_events(entry):
     linked = world_events.filter(
         Q(opened_assertions__entry=entry) | Q(closed_assertions__entry=entry)
         | Q(links__entry=entry) | Q(ability=entry) | Q(performed_by=entry) | Q(cause_assertions__entry=entry)
+        | Q(anchored_claims__entry=entry)
     ).distinct()
     direct = {str(event_id) for event_id in linked.values_list("id", flat=True)}
     if not direct:
@@ -378,6 +395,28 @@ def _article_events(entry):
         [event for event in records if event["id"] in direct],
         [event for event in records if event["id"] not in direct],
     )
+
+
+def _relationship_history(entry):
+    matches = Q(entry=entry) | Q(value=str(entry.pk))
+    filters = {"entry__wiki_id": entry.wiki_id, "field__in": RELATIONSHIP_FIELDS}
+    history = []
+    for model, start, end in ((WikiAssertion, "from_tick", "until_tick"), (WikiClaim, "start_tick", "end_tick")):
+        is_claim = model is WikiClaim
+        fields = ["id", "entry_id", "field", "value", "qualifier_id", "citation_id", start, end]
+        if is_claim:
+            fields += ["tick", "anchor_event_id"]
+        records = model.objects.filter(matches, **filters).order_by(start, "field", "id").values(*fields)
+        for record in records:
+            outgoing = record["entry_id"] == entry.pk
+            history.append({
+                "id": str(record["id"]), "field": record["field"], "outgoing": outgoing,
+                "other_id": record["value"] if outgoing else str(record["entry_id"]),
+                "qualifier_id": _id(record["qualifier_id"]), "citation_id": _id(record["citation_id"]),
+                "kind": "claim" if is_claim else "fact", "start": record[start], "end": record[end],
+                "tick": record.get("tick"), "anchor_event_id": _id(record.get("anchor_event_id")),
+            })
+    return history
 
 
 def _author_article(entry, at, identity):
@@ -437,6 +476,7 @@ def _author_article(entry, at, identity):
             .order_by("name", "id").values_list("id", flat=True)
         ]
     if at is None:
+        article["relationship_history"] = _relationship_history(entry)
         return article
     values = effective_values(entry, facts, at)
     article.update(values=values, propositions=propositions_for(entry, at), incoming_links=incoming_links(entry, at))

@@ -6,6 +6,10 @@
 
 Before the next Wiki sprint, apply the [UI-first direction](CGS_Wiki_Reference_Design.md#design-authority) to the visible deliverable and tie it to the W2 checks. The [approval rules](../AGENTS.md#user-instructions-and-approval) govern any proposed change to the owner's requested sequence, scope or design.
 
+At W2 design, review the [Solo Leveling structural audit](CGS_Wiki_Series_Benchmark.md#structural-audit-and-revision-plan). It identifies open cases for known facts and effects with incomplete dates, and gives concrete reader and author checks for W3 and W5.
+
+The [bounded light novel check](CGS_Wiki_Series_Benchmark.md#light-novel-storage-and-media-readiness-check) adds verified gaps for event-relative state and learning, typed objectives and progress, and work-specific provenance and depiction. Use the findings in the existing W2 rule input, W3 authoring, W4 extraction, and W5 downstream read checkpoints. The anime sample has a separate evidence scope.
+
 Use the [full-stack delivery table](CGS_Wiki_Reference_Design.md#delivery-order-and-proof) for the UI, Django and PostgreSQL work in each Wiki pass. Keep the [source trace and decisions](CGS_Wiki_Reference_Design.md#source-trace-and-design-decisions) current for each delivered or deferred type, field, relationship and reference behavior.
 
 ## How to read a completion report

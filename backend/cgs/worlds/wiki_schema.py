@@ -657,6 +657,7 @@ class CorrectEvent(StrictSerializer):
 
 class RecordClaim(StateValue):
     op = serializers.ChoiceField(choices=("record_claim",))
+    anchor_event_id = WikiRef(allow_null=True, required=False)
     speaker_id = WikiRef(allow_null=True, required=False)
     citation_id = WikiRef(allow_null=True, required=False)
     additional_citation_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)
@@ -670,6 +671,7 @@ class RecordClaim(StateValue):
 class CorrectClaim(StrictSerializer):
     op = serializers.ChoiceField(choices=("correct_claim",))
     claim_id = WikiRef()
+    anchor_event_id = WikiRef(allow_null=True, required=False)
     value = serializers.JSONField()
     citation_id = WikiRef(allow_null=True, required=False)
     additional_citation_ids = serializers.ListField(child=WikiRef(), max_length=40, required=False)

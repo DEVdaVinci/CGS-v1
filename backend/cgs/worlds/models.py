@@ -498,6 +498,9 @@ class WikiAssertion(CreatedRecord):
 class WikiClaim(CreatedRecord):
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
     entry = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT)
+    anchor_event = models.ForeignKey(
+        WikiEvent, on_delete=models.RESTRICT, null=True, related_name="anchored_claims",
+    )
     speaker = models.ForeignKey(WikiEntry, null=True, on_delete=models.RESTRICT, related_name="wiki_testimony")
     field = models.CharField(max_length=32)
     qualifier = models.ForeignKey(WikiEntry, on_delete=models.RESTRICT, null=True, related_name="+")

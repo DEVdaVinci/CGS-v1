@@ -414,6 +414,12 @@ def _save_claim_citations(wiki, claim, command):
         claim.additional_citations.remove(claim.citation_id)
 
 
+def _claim_anchor(wiki, event_id):
+    if event_id is None:
+        return None
+    return _in_world(WikiEvent.objects.filter(wiki=wiki).exclude(node_kind=WikiEvent.Kind.GROUP), event_id)
+
+
 def _record_claim(wiki, command):
     entry = entry_for(wiki, command["entry_id"])
     speaker = _actor_for(wiki, command["speaker_id"]) if command.get("speaker_id") else None
@@ -423,6 +429,7 @@ def _record_claim(wiki, command):
     dates = _claim_dates(command)
     claim = WikiClaim.objects.create(
         **_value_arguments(entry, command, dates["tick"]), **dates,
+        anchor_event=_claim_anchor(wiki, command.get("anchor_event_id")),
         speaker=speaker, citation=citation, source=command["source"], author_only=command["author_only"],
     )
     _save_claim_citations(wiki, claim, command)
@@ -437,6 +444,8 @@ def _correct_claim(wiki, command):
     claim.author_only = command.get("author_only", claim.author_only)
     if "citation_id" in command:
         claim.citation = _citation(wiki, command["citation_id"])
+    if "anchor_event_id" in command:
+        claim.anchor_event = _claim_anchor(wiki, command["anchor_event_id"])
     if not claim.speaker_id and not claim.citation_id:
         reject("CLAIM_ATTRIBUTION_REQUIRED", "Keep a source article for this claim while its speaker is unknown.")
     if command.get("bind_unit"):
@@ -445,7 +454,7 @@ def _correct_claim(wiki, command):
             reject("UNIT_UNAVAILABLE", "Choose an exact statement time with one applicable unit before rebinding it.")
     for name, value in dates.items():
         setattr(claim, name, value)
-    claim.save(update_fields=["value", "source", "author_only", "citation", "recorded_unit", "unit_source", *dates])
+    claim.save(update_fields=["value", "source", "author_only", "citation", "anchor_event", "recorded_unit", "unit_source", *dates])
     _save_claim_citations(wiki, claim, command)
     return claim.pk, {_field_of(claim)}
 

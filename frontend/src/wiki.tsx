@@ -572,10 +572,34 @@ function Article({ article, display, breadcrumbs, history, historyPanel, history
               </section>
             })}
           </section>
+          </>}
           <div className="wiki-history-target" id={panelId('relationships')} tabIndex={-1}>
-          {historyPanel === 'relationships' && <h2>Relationships</h2>}
+          {(historyPanel === 'relationships' || Boolean(article.relationship_history?.length)) && <h2>Relationships</h2>}
+          {article.relationship_history && (
+            article.relationship_history.length ? <ul className="wiki-records" aria-label="Recorded relationships">
+              {article.relationship_history.map((link) => (
+                <li className="wiki-record" key={link.id}>
+                  <div>
+                    <strong>{fieldLabel(view, link.field)}</strong> · <EntryReference {...display} id={link.other_id} />
+                    {link.qualifier_id && <> · <EntryReference {...display} id={link.qualifier_id} /></>}
+                    <p className="muted">
+                      {link.outgoing ? 'From this article' : 'To this article'} · {link.kind === 'fact'
+                        ? times(link.start!, link.end)
+                        : link.tick !== null ? 'Claim at time ' + link.tick : link.start !== null
+                          ? 'Claim between time ' + link.start + ' and ' + link.end : 'Claim · date unknown'}
+                    </p>
+                    {link.citation_id && <p>Source article <EntryReference {...display} id={link.citation_id} at={null} /></p>}
+                    {link.anchor_event_id && <button type="button" className="wiki-reference"
+                      disabled={display.navigationLocked} onClick={() => onTimeline(link.anchor_event_id!)}>
+                      Related event
+                    </button>}
+                  </div>
+                </li>
+              ))}
+            </ul> : historyPanel === 'relationships' && <p className="muted">No relationships recorded.</p>
+          )}
           {article.family && <Family family={article.family} display={display} onEdit={edit} />}
-          {historyPanel === 'relationships' && !article.family && !related.size && <p className="muted">
+          {historyPanel === 'relationships' && view.at !== null && !article.family && !related.size && <p className="muted">
             No incoming links recorded at this time. Outgoing links appear under Facts and state.
           </p>}
           {Array.from(related, ([label, links]) => (
@@ -598,6 +622,7 @@ function Article({ article, display, breadcrumbs, history, historyPanel, history
             </section>
           ))}
           </div>
+          {view.at !== null && <>
           {article.learned_abilities && (
             <section className="wiki-block" aria-label="Learned abilities">
               <div className="wiki-card-heading">
@@ -728,6 +753,10 @@ function Article({ article, display, breadcrumbs, history, historyPanel, history
                         {claim.additional_citation_ids.map((id) => <li key={id}><EntryReference {...display} id={id} at={null} /></li>)}
                       </ul> : null}
                       {claim.source && <p className="muted">Source: {claim.source}</p>}
+                      {claim.anchor_event_id && <button type="button" className="wiki-reference"
+                        disabled={display.navigationLocked} onClick={() => onTimeline(claim.anchor_event_id!)}>
+                        {article.events?.find((event) => event.id === claim.anchor_event_id)?.name ?? 'Related event'}
+                      </button>}
                     </div>
                     {edit && <div className="form-actions">
                       <button className="button secondary" type="button" onClick={() => edit({ kind: 'correct-claim', claim })}>Correct claim</button>

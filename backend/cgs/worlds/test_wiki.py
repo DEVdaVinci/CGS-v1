@@ -76,6 +76,55 @@ class WikiTests(TransactionTestCase):
     def values(self, entry, at):
         return {item["field"]: item.get("value", item["state"]) for item in self.article(entry, at)["values"]}
 
+    def test_alias_search_and_relationship_history_with_an_undated_event(self):
+        subject = self.entry("Amara Bell", "person")
+        parent = self.entry("Rene Bell", "person")
+        source = self.entry("Family papers", "source")
+        event = self.apply({
+            "op": "record_event", "name": "Read family papers", "tick": None, "date_precision": "unknown",
+        })
+        parent_claim = self.apply({
+            "op": "record_claim", "entry_id": subject, "field": "parent", "value": parent,
+            "tick": None, "date_precision": "unknown", "citation_id": source, "anchor_event_id": event,
+        })
+        alias = 'Amara "Blue" Bell'
+        self.fact(subject, "alias", alias)
+        self.apply({
+            "op": "record_claim", "entry_id": subject, "field": "alias", "value": alias,
+            "tick": None, "date_precision": "unknown", "citation_id": source,
+        })
+        results = self.browser.get(self.path + "/search", {"q": '"blue"'}).json()["entries"]
+        self.assertEqual([item["id"] for item in results], [subject])
+
+        def overview(entry_id):
+            return self.browser.get(self.path + "/entries/" + entry_id, {"overview": "true"}).json()["article"]
+
+        outgoing = overview(subject)
+        self.assertEqual(outgoing["relationship_history"], [{
+            "id": parent_claim, "field": "parent", "outgoing": True, "other_id": parent,
+            "qualifier_id": None, "citation_id": source, "kind": "claim", "start": None, "end": None,
+            "tick": None, "anchor_event_id": event,
+        }])
+        self.assertEqual(next(item for item in outgoing["claims"] if item["id"] == parent_claim)["anchor_event_id"], event)
+        self.assertEqual([item["id"] for item in outgoing["events"]], [event])
+        incoming = overview(parent)["relationship_history"][0]
+        self.assertEqual((incoming["outgoing"], incoming["other_id"]), (False, subject))
+        self.assertEqual(self.article(subject)["family"]["parents"], [])
+        self.assertNotIn("relationship_history", self.article(subject))
+
+        invalid_group = self.apply({"op": "record_event_group", "name": "Archive"})
+        _, foreign = create_world(self.owner.pk, uuid4(), "Unrelated archive")
+        other_wiki = WikiWorld.objects.create(world_id=foreign["world"]["id"])
+        foreign_event = WikiEvent.objects.create(wiki=other_wiki, name="Open foreign archive", date_precision="unknown")
+        correction = {"op": "correct_claim", "claim_id": parent_claim, "value": parent}
+        self.assertEqual(self.post({**correction, "anchor_event_id": invalid_group}).status_code, 422)
+        self.assertEqual(self.post({**correction, "anchor_event_id": str(foreign_event.pk)}).status_code, 422)
+        self.apply(correction)
+        self.assertEqual(overview(subject)["relationship_history"][0]["anchor_event_id"], event)
+        self.apply({**correction, "anchor_event_id": None})
+        self.assertIsNone(overview(subject)["relationship_history"][0]["anchor_event_id"])
+        self.assertEqual(overview(subject)["events"], [])
+
     def upload_map(self, content, *, key=None, browser=None, token=None):
         return (browser or self.browser).post(
             self.path + "/maps/uploads",

@@ -41,7 +41,7 @@ export type WikiSection = 'overview' | 'all' | 'characters' | 'organisms' | 'pla
 export const wikiHistoryPanels = {
   facts: { label: 'Facts and state', needsDate: true, placeOnly: false },
   health: { label: 'Health records', needsDate: true, placeOnly: false },
-  relationships: { label: 'Relationships', needsDate: true, placeOnly: false },
+  relationships: { label: 'Relationships', needsDate: false, placeOnly: false },
   hierarchy: { label: 'Place hierarchy', needsDate: true, placeOnly: true },
   layout: { label: 'Layout and routes', needsDate: true, placeOnly: true },
   events: { label: 'Related events', needsDate: false, placeOnly: false },
@@ -65,6 +65,7 @@ export type WikiClaim = {
   date_precision: EventDatePrecision; start_tick: number | null; end_tick: number | null
   author_only: boolean; source: string
   citation_id: string | null
+  anchor_event_id?: string
   additional_citation_ids?: string[]
   qualifier_id?: string | null
   unit?: string | null
@@ -182,6 +183,11 @@ export type WikiArticle = {
   values?: WikiEffectiveValue[]
   assertions?: WikiAssertion[]
   claims?: WikiClaim[]
+  relationship_history?: {
+    id: string; field: string; other_id: string; outgoing: boolean; kind: 'fact' | 'claim'
+    start: number | null; end: number | null; tick: number | null
+    citation_id: string | null; qualifier_id: string | null; anchor_event_id: string | null
+  }[]
   events?: WikiEvent[]
   event_ancestors?: WikiEvent[]
   family?: {
@@ -266,10 +272,11 @@ export type WikiCommand =
   | { op: 'correct_event_date'; event_id: string; tick: number }
   | ({
     op: 'record_claim'; speaker_id: string | null; source: string; citation_id?: string | null; additional_citation_ids?: string[]
+    anchor_event_id?: string | null
   } & FieldChange & ClaimDate)
   | ({
     op: 'correct_claim'; claim_id: string; value: WikiValue; source: string; citation_id: string | null
-    additional_citation_ids?: string[]; author_only: boolean; bind_unit?: boolean
+    additional_citation_ids?: string[]; author_only: boolean; bind_unit?: boolean; anchor_event_id?: string | null
   } & ClaimDate)
   | {
     op: 'record_observation'; observer_id: string; source_id: string; source_kind: 'assertion' | 'claim'

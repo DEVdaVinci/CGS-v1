@@ -403,7 +403,10 @@ function CanonicalForm({ mode, fact, claim, initialField, initialQualifier, entr
       date_precision: precision, tick: optionalTime(values, 'tick'),
       start_tick: optionalTime(values, 'statement_start'), end_tick: optionalTime(values, 'statement_end'),
     }
-    const supporting = isStatement ? { additional_citation_ids: values.getAll('additional_citations').map(String) } : {}
+    const supporting = isStatement ? {
+      additional_citation_ids: values.getAll('additional_citations').map(String),
+      anchor_event_id: String(values.get('anchor_event_id') ?? '') || null,
+    } : {}
     if (claim) return actions.onSave({ op: 'correct_claim', claim_id: claim.id, ...details, ...dates, ...unit, ...supporting })
     const qualifier = String(values.get('qualifier_id') ?? '')
     const change = {
@@ -447,6 +450,12 @@ function CanonicalForm({ mode, fact, claim, initialField, initialQualifier, entr
       </> : <p className="muted">An exact date records the unit from the selected definition.</p>)}
       {mode === 'claim' && <PersonSelect name="speaker_id" label="Speaker" entries={entries} optional />}
       {isStatement && <>
+        <label className="field">Related event<select name="anchor_event_id" defaultValue={claim?.anchor_event_id ?? ''}>
+          <option value="">No related event</option>
+          {relatedEvents?.filter((event) => event.node_kind !== 'group').map((event) => (
+            <option key={event.id} value={event.id}>{event.name}</option>
+          ))}
+        </select></label>
         <label className="field">Statement date precision<select value={precision} onChange={(change) => setPrecision(change.target.value as EventDatePrecision)}>
           <option value="exact">Exact time</option><option value="bounded">Approximate range</option><option value="unknown">Unknown</option>
         </select></label>
