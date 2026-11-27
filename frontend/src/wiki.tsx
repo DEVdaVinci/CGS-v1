@@ -129,6 +129,24 @@ function findingExplanation(finding: WikiFinding) {
   }
 }
 
+function findingEvidenceLabel(view: WikiView, article: WikiArticle, finding: WikiFinding, id: string, index: number) {
+  const fact = article.assertions?.find((candidate) => candidate.id === id)
+  if (fact) {
+    const field = view.fields.find((candidate) => candidate.key === fact.field)
+    const value = field?.target_kinds.length && typeof fact.value === 'string'
+      ? entryName(view, fact.value) ?? 'Unavailable entry'
+      : String(formatFieldValue(field, fact.value))
+    const text = value.length > 64 ? value.slice(0, 63) + '…' : value
+    return fieldLabel(view, fact.field) + ' · ' + text + (fact.unit ? ' ' + fact.unit : '') + ' · Time ' + fact.from_tick
+  }
+  const field = finding.record_fields?.[id]
+  const owner = finding.record_entries?.[id]
+  if (field && owner) return fieldLabel(view, field) + ' in ' + (entryName(view, owner) ?? 'linked article')
+  const observation = article.observations.find((candidate) => candidate.id === id)
+  if (observation) return 'Observation · ' + fieldLabel(view, observation.field) + ' · Learned at time ' + observation.learned_at
+  return 'Record ' + (index + 1)
+}
+
 function LastSightings({ article, display }: { article: WikiArticle; display: Display }) {
   const sightings = article.last_sightings ?? []
   if (!sightings.length) return null
@@ -641,15 +659,15 @@ function Article({ article, display, breadcrumbs, history, historyPanel, history
                     {findingExplanation(finding)}
                     {finding.details && <p>Relationship type <EntryReference {...display}
                       id={finding.details.relationship_type_id} at={finding.from_tick} /></p>}
-                    {' '}
-                    {finding.record_ids.map((id, index) => {
-                      const owner = finding.record_entries?.[id]
-                      const otherArticle = owner && owner !== article.entry.id
-                      const prefix = otherArticle ? display.entryHref(owner, finding.from_tick) : ''
-                      return <a key={id} href={prefix + '#wiki-record-' + id}>
-                        Record {index + 1}{otherArticle && ' in ' + entryName(view, owner)}
-                      </a>
-                    })}
+                    <div className="wiki-finding-evidence">
+                      {finding.record_ids.map((id, index) => {
+                        const owner = finding.record_entries?.[id]
+                        const prefix = owner && owner !== article.entry.id ? display.entryHref(owner, finding.from_tick) : ''
+                        return <a key={id} href={prefix + '#wiki-record-' + id}>
+                          {findingEvidenceLabel(view, article, finding, id, index)}
+                        </a>
+                      })}
+                    </div>
                   </li>
                 ))}
               </ul>

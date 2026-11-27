@@ -388,11 +388,11 @@ def _author_article(entry, at, identity):
     events, event_ancestors = _article_events(entry)
     findings = list(WikiFinding.objects.filter(entry=entry, resolved_at_edit__isnull=True).order_by("from_tick", "id"))
     evidence = {record_id for finding in findings if finding.details for record_id in finding.record_ids}
-    record_entries = {
-        str(record_id): str(owner)
-        for record_id, owner in WikiAssertion.objects.filter(
+    linked_assertions = {
+        str(record_id): (str(owner), field)
+        for record_id, owner, field in WikiAssertion.objects.filter(
             entry__wiki_id=entry.wiki_id, pk__in=evidence,
-        ).values_list("id", "entry_id")
+        ).values_list("id", "entry_id", "field")
     }
     observations = [_serialize_observation(item, author=True) for item in _observations_about(entry)]
     article = {
@@ -415,8 +415,10 @@ def _author_article(entry, at, identity):
                 "record_ids": finding.record_ids, "from_tick": finding.from_tick, "until_tick": finding.until_tick,
                 **({
                     "details": finding.details,
-                    "record_entries": {record_id: record_entries[record_id] for record_id in finding.record_ids
-                                       if record_id in record_entries},
+                    "record_entries": {record_id: linked_assertions[record_id][0] for record_id in finding.record_ids
+                                       if record_id in linked_assertions},
+                    "record_fields": {record_id: linked_assertions[record_id][1] for record_id in finding.record_ids
+                                      if record_id in linked_assertions},
                 } if finding.details else {}),
             }
             for finding in findings

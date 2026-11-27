@@ -2419,6 +2419,9 @@ class WikiTests(TransactionTestCase):
         self.assertEqual(kind_issue["record_entries"], {
             allowed: definition, wrong_party: south, type_assertion: south,
         })
+        self.assertEqual(kind_issue["record_fields"], {
+            allowed: "allowed_first_party_kind", wrong_party: "first_party", type_assertion: "relationship_type",
+        })
         self.assertEqual(limit_issue["details"]["actual_count"], 2)
         self.assertEqual(limit_issue["details"]["maximum_count"], 1)
         self.assertEqual(self.article(north, 12)["findings"][0]["from_tick"], 6)

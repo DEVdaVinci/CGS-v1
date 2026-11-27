@@ -553,7 +553,7 @@ a { color: var(--accent); }
   overflow-wrap: anywhere;
 }
 
-.wiki-findings a + a { margin-left: 0.55rem; }
+.wiki-finding-evidence { display: flex; flex-wrap: wrap; gap: 0.3rem 0.7rem; margin-top: 0.4rem; }
 .wiki-conflict { color: #762c25; font-weight: 630; }
 .wiki-reference {
   padding: 0;

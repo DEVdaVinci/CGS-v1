@@ -113,6 +113,7 @@ export type WikiFinding = {
     { actual_kind: WikiKind; allowed_kinds: WikiKind[] } | { actual_count: number; maximum_count: number }
   )
   record_entries?: Record<string, string>
+  record_fields?: Record<string, string>
 }
 export type WikiEffectiveValue = {
   field: string; qualifier_id?: string; default_sources?: string[]; unit?: string

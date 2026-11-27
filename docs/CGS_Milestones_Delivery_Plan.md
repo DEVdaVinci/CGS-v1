@@ -2,7 +2,7 @@
 
 [Read the quick reference](CGS_Milestones_Quick_Reference.md)
 
-**Current position** — The working foundation and W1 workspace include saved article sections and maps, character variants, dated relationship and physical records, goal plans, scoped causal accounts, lifecycle precision and historical observations and beliefs. W1 has verified the named spatial, forward-retiming and legacy scenarios. Its remaining source reconciliation, profile and relationship cases, and scope and recovery checks govern progression to W2. [Current W1 gate](CGS_W1_Core_Worldbuilding.md#current-w1-gate-after-dated-belief-changes) · [Verified and remaining work](CGS_Wiki_Current_Coverage.md)
+**Current position** — The working foundation and W1 workspace include saved maps and articles, dated physical and relationship fields, structured goals and actor knowledge, and findings linked to named evidence. The W1 source audit governs progression to W2. [Current W1 gate](CGS_W1_Core_Worldbuilding.md#latest-w1-acceptance-results) · [Verified and remaining work](CGS_Wiki_Current_Coverage.md)
 
 Before the next Wiki sprint, apply the [UI-first direction](CGS_Wiki_Reference_Design.md#design-authority) to the visible deliverable and reconcile it with the open W1 checks. The [approval rules](../AGENTS.md#user-instructions-and-approval) govern any proposed change to the owner's requested sequence, scope or design.
 
@@ -46,7 +46,7 @@ Author-facing revision browsing, branching, and restoration are scheduled after 
 
 The [W1 implementation plan](CGS_W1_Core_Worldbuilding.md) contains the record and browser contracts, build order, and verification cases for this milestone. The [Lucidchart field trace](CGS_Wiki_Field_Trace.md) records each named source field, its prior coverage, and the reason for the representation or schedule.
 
-**Status and finish line** — Partial. The acceptance pass verified the exact forward move and condition retiming, typed knowledge boundaries, legacy vehicle continuity, and map restart. Field-level source reconciliation and the remaining profile, evidence and workspace cases still determine W1 readiness. [Verified cases](CGS_W1_Core_Worldbuilding.md#w1-acceptance-sprint-results) · [Remaining W1 checks](CGS_W1_Core_Worldbuilding.md#remaining-w1-gate-items-after-this-pass)
+**Status and finish line** — Partial. The cumulative checks cover the spatial and dated-change cases, source and viewpoint cases, legacy continuity, and the named profile, risk and recovery workflows. W1-01 remains open for source reconciliation and trace completeness. [Verified and open checks](CGS_W1_Core_Worldbuilding.md#latest-w1-acceptance-results)
 
 **What you will see in the browser**
 
