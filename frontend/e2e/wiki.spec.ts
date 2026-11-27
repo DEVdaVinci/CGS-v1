@@ -4518,3 +4518,263 @@ test('opens exact article history panels and filters an authorized catalog by ty
   expect(dimensions!.x + dimensions!.width).toBeLessThanOrEqual(390)
   if (process.env.CGS_E2E_CAPTURE === '1') await page.screenshot({ path: info.outputPath('place-overview-tools-mobile.png') })
 })
+
+test('preserves qualified physical traits, item links and ability domains', async ({ page }) => {
+  test.setTimeout(120_000)
+  await openWiki(page, 'Field inventory')
+  page.setDefaultTimeout(8_000)
+
+  const ids: Record<string, string> = {}
+  const urls: Record<string, string> = {}
+  for (const [name, kind] of [
+    ['Survey ledger', 'Source'], ['Station discipline', 'Class'], ['Maker mark', 'Trait'],
+    ['Right hand', 'Body part'], ['Survey use', 'Role or title'], ['Supply cart', 'Item'],
+    ['Ash board', 'Item'], ['Survey gauge', 'Item'], ['Station inspector', 'Character'],
+  ]) {
+    await createEntry(page, name, kind)
+    urls[name] = page.url()
+    ids[name] = new URL(page.url()).searchParams.get('entry')!
+  }
+  const fromLedger = { from: 2, citation: 'Survey ledger' }
+  const facts = page.getByRole('region', { name: 'Facts at the selected time' })
+  const openRecord = async (name: string) => {
+    await page.goto(urls[name])
+    await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
+  }
+  const savedFacts = async (name: string) => (await readWiki(page, '/entries/' + ids[name], { at: 4 })).article!.assertions!
+  const citedFact = (field: string, value: string | number, extra = {}) => expect.objectContaining({
+    field, value, from_tick: 2, citation_id: ids['Survey ledger'], ...extra,
+  })
+
+  await openRecord('Station discipline')
+  await fact(page, 'Physical trait', 'Striped badge', {
+    ...fromLedger, qualifier: { label: 'Trait', entry: 'Maker mark' },
+  })
+  await fact(page, 'Inventory quantity', '3', {
+    ...fromLedger, qualifier: { label: 'Item', entry: 'Ash board' },
+  })
+  await openRecord('Station inspector')
+  await fact(page, 'Additional class', 'Station discipline', { ...fromLedger, reference: true })
+  await fact(page, 'Physical function', 'Can hold the gauge', {
+    ...fromLedger, until: 5, qualifier: { label: 'Body part', entry: 'Right hand' },
+  })
+  await fact(page, 'Physical condition', 'Knuckle bruising', {
+    ...fromLedger, until: 5, qualifier: { label: 'Body part', entry: 'Right hand' },
+  })
+  await fact(page, 'Related item', 'Survey gauge', {
+    ...fromLedger, reference: true, until: 5, qualifier: { label: 'Role or title', entry: 'Survey use' },
+  })
+  await showTime(page, 4)
+  await page.reload()
+  await expect(facts).toContainText('Striped badge')
+  await expect(facts).toContainText('Can hold the gauge')
+  await expect(facts).toContainText('Knuckle bruising')
+  await expect(facts.getByRole('link', { name: 'Survey gauge', exact: true })).toBeVisible()
+  const inventory = facts.getByRole('region', { name: 'Resources and inventory' }).locator('dl > div')
+    .filter({ hasText: 'Inventory quantity' })
+  await expect(inventory.getByRole('link', { name: 'Ash board', exact: true })).toBeVisible()
+  await expect(inventory.locator('dd')).toContainText('3')
+  expect(await savedFacts('Station inspector')).toEqual(expect.arrayContaining([
+    citedFact('extra_class', ids['Station discipline']),
+    citedFact('functionality', 'Can hold the gauge', { until_tick: 5, qualifier_id: ids['Right hand'] }),
+    citedFact('condition', 'Knuckle bruising', { until_tick: 5, qualifier_id: ids['Right hand'] }),
+    citedFact('item_affiliation', ids['Survey gauge'], { until_tick: 5, qualifier_id: ids['Survey use'] }),
+  ]))
+  expect(await savedFacts('Station discipline')).toEqual(expect.arrayContaining([
+    citedFact('physical_trait', 'Striped badge', { qualifier_id: ids['Maker mark'] }),
+    citedFact('inventory', 3, { qualifier_id: ids['Ash board'] }),
+  ]))
+  await showTime(page, 5)
+  await expect(facts).toContainText('Striped badge')
+  await expect(facts).not.toContainText('Can hold the gauge')
+  await expect(facts).not.toContainText('Knuckle bruising')
+  await expect(facts.getByRole('link', { name: 'Survey gauge', exact: true })).toHaveCount(0)
+
+  await openRecord('Survey gauge')
+  await fact(page, 'Contained in item', 'Supply cart', { ...fromLedger, reference: true, until: 5 })
+  await fact(page, 'Material or component', 'Ash board', { ...fromLedger, reference: true })
+  await fact(page, 'Title', 'Survey use', { ...fromLedger, reference: true })
+  await showTime(page, 4)
+  await expect(page.getByRole('region', { name: 'Related entries', exact: true })
+    .getByRole('link', { name: 'Station inspector', exact: true })).toBeVisible()
+  const itemFacts = await savedFacts('Survey gauge')
+  expect(itemFacts).toEqual(expect.arrayContaining([
+    citedFact('item_container', ids['Supply cart'], { until_tick: 5 }), citedFact('material', ids['Ash board']),
+    citedFact('title', ids['Survey use']),
+  ]))
+  expect(itemFacts.some(row => ['owner', 'possessor'].includes(row.field))).toBe(false)
+  await openRecord('Survey use')
+  await showTime(page, 4)
+  await expect(page.getByRole('region', { name: 'Title holders', exact: true })
+    .getByRole('link', { name: 'Survey gauge', exact: true })).toBeVisible()
+  await openRecord('Supply cart')
+  await showTime(page, 4)
+  const beforeCycle = await savedFacts('Supply cart')
+  await page.getByRole('button', { name: 'Record fact', exact: true }).click()
+  const container = page.getByRole('form', { name: 'Record fact' })
+  await container.getByRole('combobox', { name: 'Field', exact: true }).selectOption({ label: 'Contained in item' })
+  await container.getByRole('combobox', { name: 'Value', exact: true }).selectOption({ label: 'Survey gauge' })
+  await container.getByLabel('Effective from').fill('3')
+  await container.getByRole('button', { name: 'Save fact', exact: true }).click()
+  await expect(container.getByRole('combobox', { name: 'Value', exact: true })).toHaveValue(ids['Survey gauge'])
+  await expect(page.getByRole('alert').filter({ hasText: /cycle/i })).toBeVisible()
+  expect(await savedFacts('Supply cart')).toEqual(beforeCycle)
+  await container.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await page.getByRole('region', { name: 'Contents', exact: true })
+    .getByRole('link', { name: 'Survey gauge', exact: true }).click()
+  await showTime(page, 5)
+  await expect(facts.getByRole('link', { name: 'Supply cart', exact: true })).toHaveCount(0)
+  await facts.getByRole('link', { name: 'Ash board', exact: true }).click()
+  await expect(page.getByRole('region', { name: 'Used in items', exact: true })
+    .getByRole('link', { name: 'Survey gauge', exact: true })).toBeVisible()
+
+  await createEntry(page, 'Inspection technique', 'Ability')
+  ids['Inspection technique'] = new URL(page.url()).searchParams.get('entry')!
+  await fact(page, 'Ability type', 'Technique', { ...fromLedger, choice: true })
+  const domains = ['Physical', 'Mental', 'Financial']
+  for (const domain of domains) await fact(page, 'Ability domain', domain, { ...fromLedger, choice: true })
+  await showTime(page, 4)
+  await page.reload()
+  for (const domain of domains) await expect(facts).toContainText(domain)
+  expect(await savedFacts('Inspection technique')).toEqual(expect.arrayContaining([
+    citedFact('ability_type', 'Technique'), ...domains.map(domain => citedFact('ability_domain', domain)),
+  ]))
+  await openRecord('Station inspector')
+  await showTime(page, 2)
+  const learned = page.getByRole('region', { name: 'Learned abilities', exact: true })
+  await learned.getByRole('button', { name: 'Record learned ability', exact: true }).click()
+  const acquisition = page.getByRole('form', { name: 'Record learned ability' })
+  await acquisition.getByRole('combobox', { name: 'Ability definition', exact: true })
+    .selectOption({ label: 'Inspection technique' })
+  await acquisition.getByLabel('Learned at').fill('3')
+  await acquisition.getByLabel('Source (optional)').fill('Survey ledger')
+  await acquisition.getByRole('button', { name: 'Save learned ability', exact: true }).click()
+  await expect(acquisition).toHaveCount(0)
+  await showTime(page, 4)
+  await page.reload()
+  await expect(learned).toContainText('Learned at time 3 · Survey ledger')
+  const actorPath = '/entries/' + ids['Station inspector']
+  expect((await readWiki(page, actorPath, { at: 2 })).article!.learned_abilities).toEqual([])
+  expect((await readWiki(page, actorPath, { at: 4 })).article!.learned_abilities).toContainEqual(expect.objectContaining({
+    ability_id: ids['Inspection technique'], learned_at: 3, source: 'Survey ledger',
+  }))
+  await learned.getByRole('button', { name: 'Inspection technique', exact: true }).click()
+  expect(new URL(page.url()).searchParams.get('entry')).toBe(ids['Inspection technique'])
+})
+
+test('reopens independent society, territory and map associations from Wiki page two', async ({ page }) => {
+  test.setTimeout(120_000)
+  await openWiki(page, 'Atlas inventory')
+  page.setDefaultTimeout(8_000)
+
+  const urls: Record<string, string> = {}
+  const ids: Record<string, string> = {}
+  for (const [name, kind] of [
+    ['Estuary atlas', 'Map reference'], ['Outer marsh', 'Territory'], ['Survey pier', 'Place'],
+    ['High dunes', 'Place'], ['Tide traditions', 'Culture'], ['Coastal society', 'Group'],
+    ['Northeast nation', 'Group'], ['Rowan', 'Character'],
+  ]) {
+    await createEntry(page, name, kind)
+    urls[name] = page.url()
+    ids[name] = new URL(page.url()).searchParams.get('entry')!
+  }
+  const openRecord = async (name: string) => {
+    await page.goto(urls[name])
+    await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
+  }
+  const expectLinks = async (region: string, names: string[]) => {
+    const links = page.getByRole('region', { name: region, exact: true })
+    for (const name of names) await expect(links.getByRole('link', { name, exact: true })).toBeVisible()
+  }
+  const atThree = { from: 3, reference: true }
+  const facts = page.getByRole('region', { name: 'Facts at the selected time' })
+
+  await fact(page, 'Location', 'Survey pier', atThree)
+  await fact(page, 'Destination', 'High dunes', { ...atThree, until: 6 })
+  await showTime(page, 4)
+  await expectLinks('Facts at the selected time', ['Survey pier', 'High dunes'])
+  await showTime(page, 6)
+  await expectLinks('Facts at the selected time', ['Survey pier'])
+  await expect(facts.getByRole('link', { name: 'High dunes', exact: true })).toHaveCount(0)
+  await openRecord('High dunes')
+  await fact(page, 'Place type', 'Terrain', { from: 3, choice: true })
+  await openRecord('Survey pier')
+  await fact(page, 'Map', 'Estuary atlas', atThree)
+  await fact(page, 'Territory', 'Outer marsh', atThree)
+  await openRecord('Outer marsh')
+  await fact(page, 'Map', 'Estuary atlas', atThree)
+  await fact(page, 'Terrain reference', 'High dunes', atThree)
+  await fact(page, 'Landscape', 'Sheltered flats', { from: 3 })
+  await openRecord('Coastal society')
+  await fact(page, 'Group type', 'Society', { from: 3, choice: true })
+  await fact(page, 'Map', 'Estuary atlas', atThree)
+  await fact(page, 'Territory', 'Outer marsh', atThree)
+  await fact(page, 'Group place', 'Survey pier', atThree)
+  await fact(page, 'Cultural affiliation', 'Tide traditions', { ...atThree, until: 6 })
+  await showTime(page, 4)
+  await page.reload()
+  await expect(facts).toContainText('Society')
+  await expectLinks('Facts at the selected time', ['Estuary atlas', 'Outer marsh', 'Survey pier', 'Tide traditions'])
+  await openRecord('Northeast nation')
+  await fact(page, 'Group type', 'Nation', { from: 3, choice: true })
+  await showTime(page, 4)
+  await expect(facts).toContainText('Nation')
+
+  for (const [name, inverse, names] of [
+    ['Estuary atlas', 'Mapped entries', ['Coastal society', 'Outer marsh', 'Survey pier']],
+    ['Outer marsh', 'Places and groups in this territory', ['Coastal society', 'Survey pier']],
+    ['Survey pier', 'Associated groups', ['Coastal society']],
+    ['Tide traditions', 'Affiliated entries', ['Coastal society']],
+  ] as const) {
+    await openRecord(name)
+    await showTime(page, 4)
+    if (name === 'Outer marsh') {
+      await expect(facts).toContainText('Sheltered flats')
+      await expectLinks('Facts at the selected time', ['High dunes'])
+    }
+    await expectLinks(inverse, [...names])
+  }
+  await showTime(page, 6)
+  await expect(page.getByRole('region', { name: 'Affiliated entries', exact: true })).toHaveCount(0)
+
+  for (const [name, fields] of [
+    ['Rowan', [['located_in', ids['Survey pier']], ['destination', ids['High dunes'], 6]]],
+    ['High dunes', [['place_type', 'Terrain']]],
+    ['Survey pier', [['map', ids['Estuary atlas']], ['territory', ids['Outer marsh']]]],
+    ['Outer marsh', [['map', ids['Estuary atlas']], ['terrain', ids['High dunes']], ['landscape', 'Sheltered flats']]],
+    ['Coastal society', [['group_type', 'Society'], ['territory', ids['Outer marsh']], ['map', ids['Estuary atlas']],
+      ['group_place', ids['Survey pier']], ['culture', ids['Tide traditions'], 6]]],
+    ['Northeast nation', [['group_type', 'Nation']]],
+  ] as const) {
+    const saved = (await readWiki(page, '/entries/' + ids[name], { at: 4 })).article!.assertions
+    expect(saved).toEqual(expect.arrayContaining(fields.map(([field, value, until_tick = null]) =>
+      expect.objectContaining({ field, value, from_tick: 3, until_tick })
+    )))
+  }
+})
+
+test('reopens dated visual descriptions across all supported Wiki types', async ({ page }) => {
+  test.setTimeout(90_000)
+  await openWiki(page, 'Visual descriptions')
+  page.setDefaultTimeout(8_000)
+  const facts = page.getByRole('region', { name: 'Facts at the selected time' })
+  for (const [name, kind, appearance] of [
+    ['Rowan', 'Character', 'Round glasses'], ['Estuary tern', 'Organism', 'White tail feathers'],
+    ['River birds', 'Species', 'Pointed wings'], ['Dock inspectors', 'Class', 'Striped sleeve'],
+    ['Supply cabinet', 'Item', 'Brass clasps'], ['Chart room', 'Place', 'Glass skylight'],
+    ['Flight feather', 'Body part', 'Dark tip'],
+  ]) {
+    await createEntry(page, name, kind)
+    const entryId = new URL(page.url()).searchParams.get('entry')!
+    await fact(page, 'Appearance', appearance, { from: 2, until: 5 })
+    await showTime(page, 4)
+    await page.reload()
+    await expect(facts).toContainText(appearance)
+    const saved = (await readWiki(page, '/entries/' + entryId, { at: 4 })).article!.assertions
+    expect(saved).toContainEqual(expect.objectContaining({
+      field: 'appearance', value: appearance, from_tick: 2, until_tick: 5,
+    }))
+    await showTime(page, 5)
+    await expect(facts).not.toContainText(appearance)
+  }
+})
