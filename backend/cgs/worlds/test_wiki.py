@@ -1192,11 +1192,21 @@ class WikiTests(TransactionTestCase):
                            "tick": 12, "changes": [{"entry_id": milk, "field": "status", "value": "In cart"}]})
         self.apply({"op": "edit_event", "event_id": arrival, "name": "Arrival", "cross_reference_ids": [cart]})
         self.apply({"op": "organize_event", "event_id": cart, "parent_id": help_group, "position": 0})
-        cycle = self.post({"op": "organize_event", "event_id": trip, "parent_id": help_group})
-        self.assertEqual(cycle.json()["field_errors"][0]["code"], "EVENT_CYCLE")
-        out_of_range = self.post({"op": "correct_event_date", "event_id": cart, "tick": 32})
-        self.assertEqual(out_of_range.json()["field_errors"][0]["code"], "EVENT_OUTSIDE_PARENT")
+        _, other = create_world(self.owner.pk, uuid4(), "Unrelated world")
+        foreign_wiki = WikiWorld.objects.create(world_id=other["world"]["id"])
+        foreign_group = WikiEvent.objects.create(wiki=foreign_wiki, name="Other outline", node_kind="group")
         timeline = self.browser.get(self.path + "/timeline", {"at": 12}).json()["timeline"]
+        for attempt, code in (
+            ({"op": "organize_event", "event_id": trip, "parent_id": help_group}, "EVENT_CYCLE"),
+            ({"op": "correct_event_date", "event_id": cart, "tick": 32}, "EVENT_OUTSIDE_PARENT"),
+            ({"op": "organize_event", "event_id": cart, "parent_id": str(foreign_group.pk)}, "INVALID_EVENT"),
+        ):
+            with self.subTest(code=code):
+                reply = self.post(attempt)
+                self.assertEqual((reply.status_code, reply.json()["field_errors"][0]["code"]), (422, code))
+                unchanged = self.browser.get(self.path + "/timeline", {"at": 12}).json()
+                self.assertEqual(unchanged["timeline"], timeline)
+                self.assertEqual(unchanged["edit_counter"], self.edit)
         records = {event["id"]: event for event in timeline}
         self.assertEqual(records[cart]["parent_id"], help_group)
         self.assertEqual(records[cart]["sort_order"], 0)

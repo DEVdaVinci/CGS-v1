@@ -2,9 +2,9 @@
 
 [Read the quick reference](CGS_Milestones_Quick_Reference.md)
 
-**Current position** — The working foundation and W1 workspace include saved maps and articles, dated physical and relationship fields, structured goals and actor knowledge, and findings linked to named evidence. The W1 source audit governs progression to W2. [Current W1 gate](CGS_W1_Core_Worldbuilding.md#latest-w1-acceptance-results) · [Verified and remaining work](CGS_Wiki_Current_Coverage.md)
+**Current position** — W1 Core worldbuilding is complete. The workspace includes saved maps and articles, dated fields and relationships, structured goals and actor knowledge, and findings linked to named evidence. W2 Actions, powers and rule checking is next. [Final W1 acceptance](CGS_W1_Core_Worldbuilding.md#w1-final-acceptance-result) · [Verified and remaining work](CGS_Wiki_Current_Coverage.md)
 
-Before the next Wiki sprint, apply the [UI-first direction](CGS_Wiki_Reference_Design.md#design-authority) to the visible deliverable and reconcile it with the open W1 checks. The [approval rules](../AGENTS.md#user-instructions-and-approval) govern any proposed change to the owner's requested sequence, scope or design.
+Before the next Wiki sprint, apply the [UI-first direction](CGS_Wiki_Reference_Design.md#design-authority) to the visible deliverable and tie it to the W2 checks. The [approval rules](../AGENTS.md#user-instructions-and-approval) govern any proposed change to the owner's requested sequence, scope or design.
 
 Use the [full-stack delivery table](CGS_Wiki_Reference_Design.md#delivery-order-and-proof) for the UI, Django and PostgreSQL work in each Wiki pass. Keep the [source trace and decisions](CGS_Wiki_Reference_Design.md#source-trace-and-design-decisions) current for each delivered or deferred type, field, relationship and reference behavior.
 
@@ -46,7 +46,7 @@ Author-facing revision browsing, branching, and restoration are scheduled after 
 
 The [W1 implementation plan](CGS_W1_Core_Worldbuilding.md) contains the record and browser contracts, build order, and verification cases for this milestone. The [Lucidchart field trace](CGS_Wiki_Field_Trace.md) records each named source field, its prior coverage, and the reason for the representation or schedule.
 
-**Status and finish line** — Partial. The cumulative checks cover the spatial and dated-change cases, source and viewpoint cases, legacy continuity, and the named profile, risk and recovery workflows. W1-01 remains open for source reconciliation and trace completeness. [Verified and open checks](CGS_W1_Core_Worldbuilding.md#latest-w1-acceptance-results)
+**Status and finish line** — Complete. The final acceptance covers source-backed W1 authoring, spatial and temporal relationships, evidence and actor knowledge, the workspace and image map starter, and fresh and migrated data. [Evidence by check](CGS_W1_Core_Worldbuilding.md#w1-acceptance-evidence-by-check) · [Final run](CGS_W1_Core_Worldbuilding.md#w1-final-acceptance-result)
 
 **What you will see in the browser**
 
@@ -76,7 +76,7 @@ The original implementation passes established character records, places and tim
 
 ## W2 Actions, powers, and rule checking
 
-**Status and finish line** — Planned after W1. Completion is browser authoring and explainable validation of the Phase 1 action and rule catalog. P2 executes supported effects in play. Rich physical simulation and unconstrained automation remain later extensions.
+**Status and finish line** — Ready for design after W1 acceptance. Completion is browser authoring and explainable validation of the Phase 1 action and rule catalog. P2 executes supported effects in play. Rich physical simulation and unconstrained automation remain later extensions.
 
 **First deliver the design, then implement it.** Specify action, ability, power, and related skill definitions, actors and targets, requirements, acquisition and progression, costs, activation, effects, exceptions, effective dates, and evidence. A learned ability, a recorded use, and the reusable definition stay independently traceable. Separate acquisition, retention, and use rules. Describe how authors compose typed predicates and effect operations in the browser. For the first supported toolbox include conditional eligibility, resource costs and quantities, bounded formulas, typed value or condition changes, changes to relationships or possessions, and movement between defined places. Specify units, target applicability, ordering, and expected errors. Record capabilities that need finer spatial or simulation semantics, with an example of what the initial toolbox can and cannot express.
 

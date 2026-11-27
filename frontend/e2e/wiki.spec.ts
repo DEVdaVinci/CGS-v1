@@ -2028,6 +2028,14 @@ test('authors a bounded birth and unknown death and corrects a conflicting exact
   await expect(correction).toHaveCount(0)
   await page.reload()
   await expect(birthWindow).toContainText('Between time 4 and 8')
+  const age = page.getByRole('region', { name: 'Identity and classification' }).locator('dl > div')
+    .filter({ has: page.getByText('Age', { exact: true }) })
+  await expect(age.locator('dd')).toHaveText('Unknown at this time')
+  const surveyorId = new URL(page.url()).searchParams.get('entry')!
+  const withoutCalendar = await readWiki(page, '/entries/' + surveyorId, { at: 10 })
+  expect(withoutCalendar.days_per_year).toBeNull()
+  expect(withoutCalendar.article?.age_years).toBeNull()
+  expect(withoutCalendar.article?.assertions).toContainEqual(expect.objectContaining({ field: 'birth_tick', value: 6 }))
   if (process.env.CGS_E2E_CAPTURE === '1') {
     await history.scrollIntoViewIfNeeded()
     await page.screenshot({ path: info.outputPath('lifecycle-dates.png') })
@@ -2653,7 +2661,7 @@ test('authors and reopens separate relationship terms through the participants a
   await expect(facts).toContainText('6 credits')
 })
 
-test('follows dated parentage, derived siblings and independently named relationships', async ({ page }) => {
+test('follows dated parentage, declared and derived siblings, and named relationships', async ({ page }) => {
   test.setTimeout(90_000)
   page.setDefaultTimeout(8_000)
   await openWiki(page)
@@ -2665,10 +2673,13 @@ test('follows dated parentage, derived siblings and independently named relation
   await createEntry(page, 'Mossbird', 'Organism')
   await createEntry(page, 'Tali', 'Character')
   await fact(page, 'Parent', 'Rilla', { reference: true, from: 2 })
+  await createEntry(page, 'Lio', 'Character')
+  const siblingId = new URL(page.url()).searchParams.get('entry')!
   await createEntry(page, 'Ori', 'Character')
   await fact(page, 'Parent', 'Rilla', { reference: true, from: 1 })
   const familyUrl = page.url()
   const childId = new URL(familyUrl).searchParams.get('entry')!
+  await fact(page, 'Sibling', 'Lio', { reference: true, from: 3 })
   await fact(page, 'Other family relationship', 'Rilla', { reference: true, from: 3,
     qualifier: { label: 'Role or title', entry: 'Family caregiver' } })
   await fact(page, 'Personal relationship', 'Mossbird', { reference: true, from: 4,
@@ -2678,6 +2689,17 @@ test('follows dated parentage, derived siblings and independently named relation
   await expect(family.getByRole('link', { name: 'Tali', exact: true })).toHaveCount(0)
   await showTime(page, 2)
   await expect(family.getByRole('listitem').filter({ hasText: 'Tali' })).toContainText('Shared parent Rilla')
+  await expect(family.getByRole('link', { name: 'Lio', exact: true })).toHaveCount(0)
+  await showTime(page, 3)
+  await family.getByRole('link', { name: 'Lio', exact: true }).click()
+  await page.reload()
+  await expect(family.getByRole('link', { name: 'Ori', exact: true })).toBeVisible()
+  expect((await readWiki(page, '/entries/' + siblingId, { at: 3 })).article!.family).toMatchObject({
+    parents: [], siblings: [{ entry_id: childId, declared: true, shared_parent_ids: [] }],
+  })
+  expect((await readWiki(page, '/entries/' + childId, { at: 3 })).article!.assertions).toContainEqual(
+    expect.objectContaining({ field: 'sibling', value: siblingId, from_tick: 3 }),
+  )
   await page.goto(parentUrl)
   await showTime(page, 3)
   await expect(family.getByRole('link', { name: 'Ori', exact: true })).toBeVisible()
@@ -3096,6 +3118,9 @@ test('nests actions and preserves canonical chronology when the outline changes'
   await createEntry(page, 'Market', 'Place')
   await createEntry(page, 'Parking', 'Place')
   await createEntry(page, 'Mira', 'Character')
+  const miraUrl = page.url()
+  const miraId = new URL(miraUrl).searchParams.get('entry')!
+  await createEntry(page, 'Ivo', 'Character')
   await page.getByRole('navigation', { name: 'Wiki sections' }).getByRole('link', { name: 'Timeline' }).click()
   const timeline = page.getByRole('region', { name: 'World timeline' })
   const card = (name: string) => timeline.getByRole('article', { name, exact: true })
@@ -3107,13 +3132,13 @@ test('nests actions and preserves canonical chronology when the outline changes'
     await form.getByRole('button', { name: 'Save event group' }).click()
     await expect(card(name)).toBeVisible()
   }
-  async function action(name: string, parent: string, place: string, change = false) {
+  async function action(name: string, parent: string, place: string, participant: string, tick: number, change = false) {
     await card(parent).getByRole('button', { name: 'Record action' }).click()
     const form = page.getByRole('form', { name: 'Record action' })
     await form.getByLabel('Event name').fill(name)
-    await form.getByLabel('Event time').fill('12')
+    await form.getByLabel('Event time').fill(String(tick))
     await form.getByRole('group', { name: 'Places' }).getByRole('checkbox', { name: place, exact: true }).check()
-    await form.getByRole('group', { name: 'Participants' }).getByRole('checkbox', { name: 'Mira' }).check()
+    await form.getByRole('group', { name: 'Participants' }).getByRole('checkbox', { name: participant }).check()
     if (change) {
       await form.getByRole('button', { name: 'Add a state change' }).click()
       const row = form.getByRole('group', { name: 'Change 1' })
@@ -3126,11 +3151,12 @@ test('nests actions and preserves canonical chronology when the outline changes'
 
   await group('Grocery trip')
   await group('Arrival', 'Grocery trip')
-  await action('Park the car', 'Arrival', 'Parking')
+  await action('Park the car', 'Arrival', 'Parking', 'Ivo', 12)
   await group('Find dairy', 'Grocery trip')
   await group('Ask for help', 'Find dairy')
   await group('Talk to the clerk', 'Ask for help')
-  await action('Place milk in cart', 'Talk to the clerk', 'Market', true)
+  await action('Place milk in cart', 'Talk to the clerk', 'Market', 'Mira', 12, true)
+  await action('Count returned baskets', 'Talk to the clerk', 'Market', 'Ivo', 13)
   const id = await card('Place milk in cart').getAttribute('id')
   await card('Place milk in cart').getByRole('button', { name: 'Move or reorder' }).click()
   const edit = page.getByRole('form', { name: 'Move or reorder event' })
@@ -3143,6 +3169,9 @@ test('nests actions and preserves canonical chronology when the outline changes'
   await timeline.getByRole('combobox', { name: 'Filter by place' }).selectOption({ label: 'Market' })
   await expect(card('Park the car')).toHaveCount(0)
   await expect(card('Place milk in cart')).toContainText('Grocery trip → Find dairy')
+  await expect(card('Count returned baskets')).toBeVisible()
+  await timeline.getByRole('combobox', { name: 'Filter by involvement' }).selectOption({ label: 'Mira' })
+  await expect(card('Count returned baskets')).toHaveCount(0)
   await expect(page).toHaveURL(/event=/)
   await page.reload()
   await expect(card('Place milk in cart')).toHaveAttribute('id', id!)
@@ -3152,6 +3181,27 @@ test('nests actions and preserves canonical chronology when the outline changes'
   await card('Find dairy').getByRole('button', { name: 'Expand', exact: true }).press('Enter')
   await expect(card('Place milk in cart')).toBeVisible()
   if (process.env.CGS_E2E_CAPTURE === '1') await timeline.screenshot({ path: info.outputPath('event-outline.png') })
+  const timelineUrl = page.url()
+  const worldRecords = (await readWiki(page, '/timeline')).timeline!
+  const groupRecord = worldRecords.find(event => event.name === 'Grocery trip')!
+  const milkRecord = worldRecords.find(event => event.name === 'Place milk in cart')!
+  expect(groupRecord).toMatchObject({ display_start: 12, display_end: 13 })
+  await page.goto(miraUrl)
+  await showTime(page, 12)
+  const history = page.getByRole('region', { name: 'Dated events', exact: true })
+  const historyGroup = history.getByRole('article', { name: 'Grocery trip', exact: true })
+  const historyAction = history.getByRole('article', { name: 'Place milk in cart', exact: true })
+  await expect(historyGroup).toContainText('Time 12 to 13')
+  await expect(historyAction).toHaveAttribute('id', id!)
+  await expect(history.getByRole('article', { name: 'Count returned baskets' })).toHaveCount(0)
+  await historyGroup.getByRole('button', { name: 'Collapse', exact: true }).press('Enter')
+  await expect(historyAction).toHaveCount(0)
+  await historyGroup.getByRole('button', { name: 'Expand', exact: true }).press('Enter')
+  await expect(historyAction).toBeVisible()
+  const miraArticle = (await readWiki(page, '/entries/' + miraId, { at: 12 })).article!
+  expect(miraArticle.events).toEqual([milkRecord])
+  expect(miraArticle.event_ancestors).toContainEqual(groupRecord)
+  await page.goto(timelineUrl)
   await showAs(page, 'Mira', 12)
   await expect(page.getByRole('region', { name: 'Character event reports' })).toContainText('No event reports learned by this time.')
   await expect(timeline).toHaveCount(0)

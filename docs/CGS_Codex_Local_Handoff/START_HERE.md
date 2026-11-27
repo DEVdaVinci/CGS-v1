@@ -2,6 +2,8 @@
 
 For the current delivery sequence, start with the [milestone quick reference](../CGS_Milestones_Quick_Reference.md) or the [detailed delivery plan](../CGS_Milestones_Delivery_Plan.md). For the world model, see the [Phase 1 Wiki design](../CGS_Phase_1_Wiki_Design.md) and the Phase 1 pages in the [editable architecture](CGS_First_Playable_Architecture.drawio). Use the [current sprint checkpoint instructions](../../AGENTS.md) for Git delivery. The earlier first-playable handoff follows.
 
+**Current milestone.** W1 Core worldbuilding is complete and its [acceptance result](../CGS_W1_Core_Worldbuilding.md#w1-final-acceptance-result) applies to the local Compose Wiki. Begin the next sprint with the [W2 action and rule design](../CGS_Milestones_Delivery_Plan.md#w2-actions-powers-and-rule-checking). The initial setup instructions below describe the original first slice.
+
 Open your local clone of `DEVdaVinci/CGS-v1` in the Codex desktop app. Select **This computer** if asked where to work. Extract this archive into the clone's `docs` folder. From the repository root, the first file should be `docs/START_HERE.md`. You can also add the original ChatGPT conversation as background if the app offers it.
 
 ## Approved implementation references
